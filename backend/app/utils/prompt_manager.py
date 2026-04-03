@@ -151,8 +151,20 @@ def build_analysis_messages(
     file_content: str, analysis_type: str
 ) -> List[Dict[str, str]]:
     """构建文档分析消息。"""
+    system_prompt = """你是一名专业的招标文件分析助手。请严格基于用户提供的招标文件原文完成分析任务。
+
+通用要求：
+1. 保持提取信息的全面性和准确性，尽量使用原文内容，不要自行编造
+2. 只输出最终分析结果，不要输出额外说明、过程、提示语或客套话
+3. 如果文档内容不足以支持某项结论，应明确说明原文未提及，不要凭空补充
+"""
+
+    file_prompt = f"""以下是完整招标文件全文，请先完整阅读，并仅基于原文完成后续任务：
+
+{file_content}"""
+
     if analysis_type == "overview":
-        system_prompt = """你是一个专业的标书撰写专家。请分析用户发来的招标文件，提取并总结项目概述信息。
+        task_prompt = """任务：提取并总结项目概述信息。
 
 请重点关注以下方面：
 1. 项目名称和基本信息
@@ -168,9 +180,10 @@ def build_analysis_messages(
 2. 只关注与项目实施有关的内容，不提取商务信息
 3. 直接返回整理好的项目概述，除此之外不返回任何其他内容
 """
-        analysis_type_cn = "项目概述"
     else:
-        system_prompt = """你是一名专业的招标文件分析师，擅长从复杂的招标文档中高效提取“技术评分项”相关内容。请严格按照以下步骤和规则执行任务：
+        task_prompt = """任务：提取技术评分要求。
+
+你是一名专业的招标文件分析师，擅长从复杂的招标文档中高效提取“技术评分项”相关内容。请严格按照以下步骤和规则执行任务：
 ### 1. 目标定位
 - 重点识别文档中与“技术评分”、“评标方法”、“评分标准”、“技术参数”、“技术要求”、“技术方案”、“技术部分”或“评审要素”相关的章节（如“第X章 评标方法”或“附件X：技术评分表”）。
 - 一定不要提取商务、价格、资质等与技术类评分项无关的条目。
@@ -195,14 +208,11 @@ def build_analysis_messages(
 
 直接返回提取结果，除此之外不输出任何其他内容
 """
-        analysis_type_cn = "技术评分要求"
 
-    user_prompt = (
-        f"请分析以下招标文件内容，提取{analysis_type_cn}信息：\n\n{file_content}"
-    )
     return [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
+        {"role": "user", "content": file_prompt},
+        {"role": "user", "content": task_prompt},
     ]
 
 
