@@ -7,6 +7,9 @@ function registerRejectionCheckIpc({ rejectionCheckStore }) {
   ipcMain.handle('rejection-check:remove-document', (_event, role, documentId) => rejectionCheckStore.removeDocument(role, documentId));
   ipcMain.handle('rejection-check:save-ui-state', (_event, payload) => rejectionCheckStore.saveUiState(payload));
   ipcMain.handle('rejection-check:update-state', (_event, partial) => rejectionCheckStore.updateRejectionCheck(partial));
+  ipcMain.handle('rejection-check:resolve-finding', (_event, payload) => rejectionCheckStore.resolveFinding(payload));
+  ipcMain.handle('rejection-check:batch-handle-findings', (_event, payload) => rejectionCheckStore.batchHandleFindings(payload));
+  ipcMain.handle('rejection-check:export-report', (_event, payload) => rejectionCheckStore.exportRejectionReport(payload));
   ipcMain.handle('rejection-check:clear', () => rejectionCheckStore.clearRejectionCheck());
 }
 

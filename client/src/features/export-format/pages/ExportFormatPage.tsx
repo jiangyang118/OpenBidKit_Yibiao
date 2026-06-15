@@ -36,6 +36,44 @@ function createDefaultExportFormat(): ExportFormatConfig {
   };
 }
 
+function resolveHeaderPreviewRows(config: ExportFormatConfig) {
+  const page = config.page;
+  const defaultText = page.header_enabled ? page.header_text.trim() : '';
+  return [
+    {
+      label: '首页',
+      status: !page.header_enabled
+        ? '不显示'
+        : page.header_first_page_different
+          ? (page.header_first_page_text.trim() ? '使用首页页眉' : '不显示')
+          : '使用常规页眉',
+      text: page.header_enabled
+        ? page.header_first_page_different
+          ? page.header_first_page_text.trim()
+          : defaultText
+        : '',
+    },
+    {
+      label: '奇数页',
+      status: page.header_enabled ? '使用常规页眉' : '不显示',
+      text: page.header_enabled ? defaultText : '',
+    },
+    {
+      label: '偶数页',
+      status: !page.header_enabled
+        ? '不显示'
+        : page.header_even_odd_different
+          ? '使用偶数页页眉'
+          : '使用常规页眉',
+      text: page.header_enabled
+        ? page.header_even_odd_different
+          ? (page.header_even_text.trim() || defaultText)
+          : defaultText
+        : '',
+    },
+  ];
+}
+
 // ── 组件 ──────────────────────────────────────────
 
 function ExportFormatPage() {
@@ -149,6 +187,7 @@ function ExportFormatPage() {
     resetToolbarGroup,
     ...saveToolbarGroups,
   ];
+  const headerPreviewRows = resolveHeaderPreviewRows(config);
 
   if (!loaded) {
     return <div className="export-format-page"><div className="export-format-loading">加载中…</div></div>;
@@ -213,11 +252,101 @@ function ExportFormatPage() {
                 </div>
               </label>
               <label className="settings-row">
-                <div className="settings-row-copy"><strong>页眉</strong><span>暂未支持页眉导出，当前配置不会影响 Word 文件。</span></div>
-                <span className="export-format-disabled-note">暂未支持</span>
+                <div className="settings-row-copy"><strong>页眉</strong><span>启用后会写入 Word 页眉，可用于项目名称、投标单位或文档密级。</span></div>
+                <div className="export-format-switch-row">
+                  <label className="settings-switch-control">
+                    <input type="checkbox" checked={config.page.header_enabled} onChange={e => updatePage({ header_enabled: e.target.checked })} />
+                    <span className="settings-switch-track" aria-hidden="true"><span className="settings-switch-thumb" /></span>
+                  </label>
+                  <input
+                    type="text"
+                    value={config.page.header_text}
+                    disabled={!config.page.header_enabled}
+                    onChange={e => updatePage({ header_text: e.target.value })}
+                    style={{ minWidth: 220 }}
+                    placeholder="投标技术文件"
+                  />
+                </div>
               </label>
+              {config.page.header_enabled && (
+                <>
+                  <label className="settings-row">
+                    <div className="settings-row-copy"><strong>首页不同</strong><span>启用后首页使用独立页眉内容，留空则首页不显示页眉。</span></div>
+                    <div className="export-format-switch-row">
+                      <label className="settings-switch-control">
+                        <input type="checkbox" checked={config.page.header_first_page_different} onChange={e => updatePage({ header_first_page_different: e.target.checked })} />
+                        <span className="settings-switch-track" aria-hidden="true"><span className="settings-switch-thumb" /></span>
+                      </label>
+                      <input
+                        type="text"
+                        value={config.page.header_first_page_text}
+                        disabled={!config.page.header_first_page_different}
+                        onChange={e => updatePage({ header_first_page_text: e.target.value })}
+                        style={{ minWidth: 220 }}
+                        placeholder="首页页眉内容"
+                      />
+                    </div>
+                  </label>
+                  <label className="settings-row">
+                    <div className="settings-row-copy"><strong>奇偶页不同</strong><span>启用后偶数页使用独立页眉内容，奇数页继续使用常规页眉。</span></div>
+                    <div className="export-format-switch-row">
+                      <label className="settings-switch-control">
+                        <input type="checkbox" checked={config.page.header_even_odd_different} onChange={e => updatePage({ header_even_odd_different: e.target.checked })} />
+                        <span className="settings-switch-track" aria-hidden="true"><span className="settings-switch-thumb" /></span>
+                      </label>
+                      <input
+                        type="text"
+                        value={config.page.header_even_text}
+                        disabled={!config.page.header_even_odd_different}
+                        onChange={e => updatePage({ header_even_text: e.target.value })}
+                        style={{ minWidth: 220 }}
+                        placeholder="偶数页页眉内容"
+                      />
+                    </div>
+                  </label>
+                  <div className="settings-row">
+                    <div className="settings-row-copy"><strong>页眉样式</strong><span>字体 / 字号 / 对齐方式，常规、首页和偶数页页眉共用。</span></div>
+                    <div className="export-format-margin-grid">
+                      <select value={config.page.header_font} onChange={e => updatePage({ header_font: e.target.value })}>
+                        {FONT_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
+                      </select>
+                      <select value={config.page.header_size} onChange={e => updatePage({ header_size: e.target.value })}>
+                        {SIZE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                      <select value={config.page.header_alignment} onChange={e => updatePage({ header_alignment: e.target.value })}>
+                        {ALIGNMENT_OPTIONS.map(a => <option key={a} value={a}>{a}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
+          </div>
+        </section>
+
+        <section className="settings-page-section">
+          <div className="settings-section-title">
+            <span />
+            <strong>导出效果说明</strong>
+          </div>
+          <div className="export-format-header-preview" aria-label="页眉导出效果预览">
+            <div className="export-format-header-preview-head">
+              <strong>页眉写入规则</strong>
+              <p>保存配置后，Word 导出会按下列规则写入页眉；当前页面只展示页眉规则，正文排版仍以导出的 Word 文件为准。</p>
             </div>
-          </section>
+            <div className="export-format-header-preview-list">
+              {headerPreviewRows.map((row) => (
+                <article key={row.label}>
+                  <span>{row.label}</span>
+                  <strong>{row.text || '无页眉'}</strong>
+                  <small>{row.status}</small>
+                </article>
+              ))}
+            </div>
+            <p className="export-format-header-preview-note">
+              字体、字号和对齐方式会同时应用到常规页眉、首页页眉和偶数页页眉。
+            </p>
+          </div>
+        </section>
 
           {/* ── 各级标题格式 ── */}
           <section className="settings-page-section">

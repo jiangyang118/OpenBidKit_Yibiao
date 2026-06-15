@@ -12,8 +12,40 @@ function getGpuStartupProbePath(app) {
   return path.join(getUserDataPath(app), 'gpu_startup_probe.json');
 }
 
-function getWorkspaceDir(app) {
+function getLegacyWorkspaceDir(app) {
   return path.join(getUserDataPath(app), 'workspace');
+}
+
+function getWorkspaceDir(app) {
+  if (typeof app?.getYibiaoWorkspaceDir === 'function') {
+    const workspaceDir = String(app.getYibiaoWorkspaceDir() || '').trim();
+    if (workspaceDir) return workspaceDir;
+  }
+  if (app?.yibiaoWorkspaceDir) {
+    return String(app.yibiaoWorkspaceDir);
+  }
+  return getLegacyWorkspaceDir(app);
+}
+
+function normalizeProjectIdForPath(projectId) {
+  const safe = String(projectId || 'default').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return safe || 'default';
+}
+
+function getProjectsDir(app) {
+  return path.join(getUserDataPath(app), 'projects');
+}
+
+function getProjectRegistryPath(app) {
+  return path.join(getProjectsDir(app), 'projects.json');
+}
+
+function getProjectWorkspaceDir(app, projectId = 'default') {
+  const normalizedProjectId = normalizeProjectIdForPath(projectId);
+  if (normalizedProjectId === 'default') {
+    return getLegacyWorkspaceDir(app);
+  }
+  return path.join(getProjectsDir(app), normalizedProjectId, 'workspace');
 }
 
 function getWorkspaceDatabasePath(app) {
@@ -64,6 +96,23 @@ function getKnowledgeBaseDir(app) {
   return path.join(getWorkspaceDir(app), 'knowledge-base');
 }
 
+function getImageKnowledgeBaseDir(app) {
+  return path.join(getWorkspaceDir(app), 'image-knowledge-base');
+}
+
+function getImageKnowledgeBaseImagesDir(app) {
+  return path.join(getImageKnowledgeBaseDir(app), 'images');
+}
+
+function getAiEvaluationDir(app) {
+  return path.join(getWorkspaceDir(app), 'ai-evaluation');
+}
+
+function getAiEvaluationBidDocumentMarkdownPath(app, documentId) {
+  const safeDocumentId = String(documentId || 'bid').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return path.join(getAiEvaluationDir(app), 'bid-documents', `${safeDocumentId}.md`);
+}
+
 function getAiLogsDir(app) {
   return path.join(getUserDataPath(app), 'logs', 'ai');
 }
@@ -85,7 +134,15 @@ module.exports = {
   getGpuStartupProbePath,
   getGeneratedImagesDir,
   getImportedImagesDir,
+  getImageKnowledgeBaseDir,
+  getImageKnowledgeBaseImagesDir,
+  getAiEvaluationDir,
+  getAiEvaluationBidDocumentMarkdownPath,
   getKnowledgeBaseDir,
+  getLegacyWorkspaceDir,
+  getProjectRegistryPath,
+  getProjectsDir,
+  getProjectWorkspaceDir,
   getRejectionCheckDir,
   getRejectionCheckDocumentMarkdownPath,
   getTechnicalPlanDir,
@@ -95,4 +152,5 @@ module.exports = {
   getWorkspaceDir,
   getWorkspaceDatabasePath,
   getUserDataPath,
+  normalizeProjectIdForPath,
 };

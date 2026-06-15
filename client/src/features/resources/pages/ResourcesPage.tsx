@@ -26,10 +26,18 @@ interface ResourcesResponse {
   message?: string;
 }
 
+interface ResourceCachePayload {
+  resources: ResourceItem[];
+  cachedAt: string;
+}
+
+const RESOURCES_CACHE_KEY = 'yibiao.resources.cache.v1';
+
 function ResourcesPage() {
   const [selectedResource, setSelectedResource] = useState<ResourceItem | null>(null);
   const [resources, setResources] = useState<ResourceItem[]>([]);
   const [searchText, setSearchText] = useState('');
+  const [resourceStatus, setResourceStatus] = useState('');
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
 
@@ -53,10 +61,22 @@ function ResourcesPage() {
         throw new Error(data?.message || `资源读取失败：${response.status}`);
       }
 
-      setResources((data.resources || []).map(normalizeResource));
+      const nextResources = (data.resources || []).map(normalizeResource).filter((item) => item.id || item.title);
+      setResources(nextResources);
+      setResourceStatus(nextResources.length ? '资源列表已更新' : '');
+      writeResourceCache(nextResources);
     } catch (error) {
-      showToast(error instanceof Error ? error.message : '资源读取失败', 'error');
-      setResources([]);
+      const fallbackResources = readResourceCache();
+      const filteredResources = filterResources(fallbackResources, query);
+      if (filteredResources.length) {
+        setResources(filteredResources);
+        setResourceStatus(`当前显示离线缓存资源，最近同步：${formatCacheTime(readResourceCacheTime())}`);
+        showToast('资源接口暂不可用，已显示本地缓存', 'info');
+      } else {
+        setResources([]);
+        setResourceStatus('资源接口暂不可用，且本机暂无可用缓存');
+        showToast(error instanceof Error ? error.message : '资源读取失败', 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -75,6 +95,7 @@ function ResourcesPage() {
             <div>
               <span className="section-kicker">资源下载</span>
               <h3>精选资源</h3>
+              {resourceStatus ? <p>{resourceStatus}</p> : null}
             </div>
             <form className="resources-search-form" onSubmit={handleSearchSubmit}>
               <input
@@ -113,8 +134,8 @@ function ResourcesPage() {
             ))}
             {!loading && resources.length === 0 ? (
               <div className="resources-empty-state">
-                <strong>暂无资源</strong>
-                <span>{searchText.trim() ? '没有匹配当前关键词的资源。' : '资源管理后台还没有上架资源。'}</span>
+                <strong>{resourceStatus ? '暂时无法显示资源' : '暂无资源'}</strong>
+                <span>{resourceStatus || (searchText.trim() ? '没有匹配当前关键词的资源。' : '资源管理后台还没有上架资源。')}</span>
               </div>
             ) : null}
           </div>
@@ -181,6 +202,62 @@ function normalizeResource(item: ResourceItem): ResourceItem {
     analyticsKey: String(item.analyticsKey || ''),
     clickCount: normalizeClickCount(item.clickCount),
   };
+}
+
+function readResourceCachePayload(): ResourceCachePayload | null {
+  try {
+    const raw = localStorage.getItem(RESOURCES_CACHE_KEY);
+    if (!raw) return null;
+    const payload = JSON.parse(raw) as Partial<ResourceCachePayload>;
+    const resources = Array.isArray(payload.resources)
+      ? payload.resources.map((item) => normalizeResource(item as ResourceItem)).filter((item) => item.id || item.title)
+      : [];
+    if (!resources.length) return null;
+    return {
+      resources,
+      cachedAt: typeof payload.cachedAt === 'string' ? payload.cachedAt : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readResourceCache() {
+  return readResourceCachePayload()?.resources || [];
+}
+
+function readResourceCacheTime() {
+  return readResourceCachePayload()?.cachedAt || '';
+}
+
+function writeResourceCache(resources: ResourceItem[]) {
+  if (!resources.length) return;
+  try {
+    const payload: ResourceCachePayload = {
+      resources,
+      cachedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(RESOURCES_CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    // 资源缓存失败不影响主流程。
+  }
+}
+
+function filterResources(resources: ResourceItem[], query: string) {
+  const keyword = query.trim().toLowerCase();
+  if (!keyword) return resources;
+  return resources.filter((item) => [
+    item.title,
+    item.description,
+    item.modalContent,
+    ...item.tags,
+  ].some((value) => value.toLowerCase().includes(keyword)));
+}
+
+function formatCacheTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '未知时间';
+  return date.toLocaleString('zh-CN', { hour12: false });
 }
 
 function normalizeClickCount(value: unknown) {

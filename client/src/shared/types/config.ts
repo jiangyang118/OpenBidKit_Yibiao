@@ -1,6 +1,9 @@
-export type TextModelProvider = 'jinlong' | 'volcengine' | 'deepseek' | 'longcat' | 'custom';
+export type TextModelProvider = 'jinlong' | 'volcengine' | 'deepseek' | 'longcat' | 'codex-cli' | 'local-gemma' | 'local-qwen' | 'lm-studio' | 'vllm' | 'llama-cpp' | 'jan' | 'custom';
 export type AiRequestMode = 'normal' | 'stream';
 export type UpdateChannel = 'github' | 'cloudflare';
+export type DisplayLanguage = 'zh-CN';
+export type AppTheme = 'system' | 'light' | 'dark';
+export type SidebarLayout = 'classic' | 'compact';
 
 export interface TextModelConfig {
   api_key: string;
@@ -60,6 +63,9 @@ export interface FileParserConfig {
 }
 
 export interface ClientConfig extends AiConfig {
+  language?: DisplayLanguage;
+  theme?: AppTheme;
+  sidebar_layout?: SidebarLayout;
   image_model: ImageModelConfig;
   image_model_profiles: ImageModelProfiles;
   file_parser: FileParserConfig;

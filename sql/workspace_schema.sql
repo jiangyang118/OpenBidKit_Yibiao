@@ -4,7 +4,7 @@
 -- 1. 本文件用于开源开发者阅读、评审和排查问题，展示 workspace/yibiao.sqlite 的目标完整表结构。
 -- 2. 用户运行客户端时不需要手动执行本文件。
 -- 3. 客户端运行时建表和升级以 Electron Main 侧 migration 代码为准。
--- 4. 当前运行代码已落地 technical_plan_* v1、duplicate_check_* / rejection_check_* v2、knowledge_* v3、technical_plan_global_fact_groups v4、标段兼容 v5/v6、标段选择 v7、待选择标段恢复状态 v8、工作流类型和原方案文件状态 v9、招标解析项选择配置 v10、知识库排序 v11、废标项检查多投标文件 v12 目标结构。
+-- 4. 当前运行代码已落地 technical_plan_* v1、duplicate_check_* / rejection_check_* v2、knowledge_* v3、technical_plan_global_fact_groups v4、标段兼容 v5/v6、标段选择 v7、待选择标段恢复状态 v8、工作流类型和原方案文件状态 v9、招标解析项选择配置 v10、知识库排序 v11、废标项检查多投标文件 v12、投标机会工作台 v13、商务标工作台 v14、图片知识库 v15、AI 评标工作台 v16、标书查重人工处理状态 v17、废标项检查人工处理状态 v18、标书查重正文忽略规则 v19、投标机会跟进字段 v20、商务标责任人字段 v21、图片知识库文件夹字段 v22、商务标后台任务状态表 v23、AI 评标后台任务状态表 v24、AI 评标多投标文件评分结果表 v25、AI 评标审计意见和报告快照表 v26、AI 评标专家打分表 v27、投标机会知识库匹配结果 v28、商务标独立附件管理表 v29、标书查重相似图片字段和正文忽略规则分类 v30 目标结构。
 -- 5. 每次表结构调整后，需要同步更新本文件和 runtime migration 版本。
 -- 6. 本文件不保存历史版本，每次更新都写入最新目标完整结构。
 
@@ -14,7 +14,7 @@ PRAGMA busy_timeout = 5000;
 
 -- 目标完整结构版本。
 -- 运行时代码应通过 PRAGMA user_version 判断是否需要自动升级。
-PRAGMA user_version = 12;
+PRAGMA user_version = 30;
 
 -- ============================================================================
 -- 技术方案 technical_plan_*（v1 已落地）
@@ -331,11 +331,26 @@ CREATE TABLE IF NOT EXISTS duplicate_check_content_duplicates (
   sentence TEXT NOT NULL,
   normalized TEXT NOT NULL,
   file_ids_json TEXT NOT NULL,
-  first_order INTEGER NOT NULL DEFAULT 0
+  first_order INTEGER NOT NULL DEFAULT 0,
+  resolution_status TEXT NOT NULL DEFAULT 'pending',
+  resolved_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_duplicate_check_content_duplicates_order
 ON duplicate_check_content_duplicates(first_order);
+
+-- 标书查重正文常用忽略规则。
+CREATE TABLE IF NOT EXISTS duplicate_check_content_ignore_rules (
+  rule_id TEXT PRIMARY KEY,
+  pattern TEXT NOT NULL,
+  normalized TEXT NOT NULL UNIQUE,
+  category TEXT NOT NULL DEFAULT 'manual',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_duplicate_check_content_ignore_rules_normalized
+ON duplicate_check_content_ignore_rules(normalized);
 
 -- 标书查重重复句在文件中的出现次数。
 CREATE TABLE IF NOT EXISTS duplicate_check_content_occurrences (
@@ -368,7 +383,12 @@ CREATE TABLE IF NOT EXISTS duplicate_check_duplicate_images (
   hash TEXT NOT NULL,
   preview_url TEXT NOT NULL,
   file_ids_json TEXT NOT NULL,
-  sort_order INTEGER NOT NULL DEFAULT 0
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  resolution_status TEXT NOT NULL DEFAULT 'pending',
+  resolved_at TEXT,
+  match_type TEXT NOT NULL DEFAULT 'exact',
+  similarity_score REAL NOT NULL DEFAULT 1,
+  similarity_reason TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_duplicate_check_duplicate_images_hash
@@ -476,6 +496,8 @@ CREATE TABLE IF NOT EXISTS rejection_check_risk_findings (
   bid_evidence TEXT NOT NULL,
   risk_reason TEXT NOT NULL,
   suggestion TEXT NOT NULL,
+  resolution_status TEXT NOT NULL DEFAULT 'pending',
+  resolved_at TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -496,6 +518,8 @@ CREATE TABLE IF NOT EXISTS rejection_check_typo_findings (
   original_excerpt TEXT NOT NULL,
   reason TEXT NOT NULL,
   location_hint TEXT,
+  resolution_status TEXT NOT NULL DEFAULT 'pending',
+  resolved_at TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -513,6 +537,8 @@ CREATE TABLE IF NOT EXISTS rejection_check_logic_findings (
   location_hint TEXT NOT NULL,
   fallacy_reason TEXT NOT NULL,
   suggestion TEXT NOT NULL,
+  resolution_status TEXT NOT NULL DEFAULT 'pending',
+  resolved_at TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -739,3 +765,301 @@ CREATE TABLE IF NOT EXISTS knowledge_match_batches (
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_match_batches_status
 ON knowledge_match_batches(document_id, status, batch_index);
+
+-- ============================================================================
+-- 投标机会 bid_opportunity_*（v13 已落地）
+-- ============================================================================
+
+-- 手动录入或粘贴公告后形成的机会记录。
+-- source_text 保存公告原文；parsed_fields_json 保存项目名称、采购人、预算、区域、行业、截止时间、资格要求、评分办法摘要等结构化字段。
+-- score_breakdown_json / risks_json 为当前规则解析评分结果，后续可由 AI 任务或企业知识库匹配结果覆盖。
+CREATE TABLE IF NOT EXISTS bid_opportunity_opportunities (
+  opportunity_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  source_text TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  parsed_fields_json TEXT NOT NULL DEFAULT '{}',
+  score INTEGER NOT NULL DEFAULT 0,
+  score_breakdown_json TEXT NOT NULL DEFAULT '{}',
+  risks_json TEXT NOT NULL DEFAULT '[]',
+  knowledge_matches_json TEXT NOT NULL DEFAULT '[]',
+  recommendation TEXT NOT NULL DEFAULT '',
+  owner TEXT NOT NULL DEFAULT '',
+  next_action TEXT NOT NULL DEFAULT '',
+  reminder_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_bid_opportunity_status_updated
+ON bid_opportunity_opportunities(status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_bid_opportunity_score
+ON bid_opportunity_opportunities(score DESC);
+
+-- ============================================================================
+-- 商务标 business_bid_*（v14 已落地）
+-- ============================================================================
+
+-- 商务标单例元数据。第一阶段来源为技术方案已导入的招标文件。
+CREATE TABLE IF NOT EXISTS business_bid_meta (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  source_type TEXT NOT NULL DEFAULT '',
+  source_file_name TEXT NOT NULL DEFAULT '',
+  source_hash TEXT NOT NULL DEFAULT '',
+  generated_at TEXT,
+  updated_at TEXT NOT NULL
+);
+
+-- 商务响应矩阵：条款原文、响应内容、偏离类型、风险等级、待补材料、负责人、确认人和人工确认状态。
+CREATE TABLE IF NOT EXISTS business_bid_clauses (
+  clause_id TEXT PRIMARY KEY,
+  category TEXT NOT NULL,
+  label TEXT NOT NULL,
+  original_text TEXT NOT NULL,
+  response_text TEXT NOT NULL DEFAULT '',
+  deviation_type TEXT NOT NULL DEFAULT 'pending',
+  risk_level TEXT NOT NULL DEFAULT 'medium',
+  material_requirement TEXT NOT NULL DEFAULT '',
+  owner TEXT NOT NULL DEFAULT '',
+  confirmed_by TEXT NOT NULL DEFAULT '',
+  confirmed INTEGER NOT NULL DEFAULT 0,
+  source_hint TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_business_bid_clauses_category_order
+ON business_bid_clauses(category, sort_order);
+
+CREATE INDEX IF NOT EXISTS idx_business_bid_clauses_risk
+ON business_bid_clauses(risk_level, confirmed);
+
+-- 商务标独立附件清单：保存报价附件、资信证明、合同附件、保证金/保函等本地文件引用。
+CREATE TABLE IF NOT EXISTS business_bid_attachments (
+  attachment_id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL DEFAULT 'other',
+  file_name TEXT NOT NULL,
+  stored_path TEXT NOT NULL,
+  original_path TEXT NOT NULL DEFAULT '',
+  file_size INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending',
+  owner TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_business_bid_attachments_kind_status
+ON business_bid_attachments(kind, status, updated_at DESC);
+
+-- 商务标后台任务状态，当前用于 AI 结构化提取任务的重载恢复和错误提示。
+CREATE TABLE IF NOT EXISTS business_bid_tasks (
+  type TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  progress INTEGER NOT NULL DEFAULT 0,
+  logs_json TEXT NOT NULL DEFAULT '[]',
+  stats_json TEXT,
+  error TEXT,
+  started_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- ============================================================================
+-- 图片知识库 image_knowledge_*（v15 已落地）
+-- ============================================================================
+
+-- 图片素材主表。原图保存到 userData/workspace/image-knowledge-base/images/，SQLite 保存结构化元数据和缩略图 data URL。
+CREATE TABLE IF NOT EXISTS image_knowledge_assets (
+  image_id TEXT PRIMARY KEY,
+  file_name TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '',
+  folder TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT '',
+  scenario TEXT NOT NULL DEFAULT '',
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  original_path TEXT NOT NULL DEFAULT '',
+  stored_path TEXT NOT NULL,
+  mime_type TEXT NOT NULL DEFAULT '',
+  size INTEGER NOT NULL DEFAULT 0,
+  width INTEGER NOT NULL DEFAULT 0,
+  height INTEGER NOT NULL DEFAULT 0,
+  content_hash TEXT NOT NULL,
+  thumbnail_data_url TEXT NOT NULL DEFAULT '',
+  reference_count INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_image_knowledge_assets_hash
+ON image_knowledge_assets(content_hash);
+
+CREATE INDEX IF NOT EXISTS idx_image_knowledge_assets_category
+ON image_knowledge_assets(category, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS image_knowledge_tags (
+  tag TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS image_knowledge_asset_tags (
+  image_id TEXT NOT NULL,
+  tag TEXT NOT NULL,
+  PRIMARY KEY (image_id, tag),
+  FOREIGN KEY (image_id) REFERENCES image_knowledge_assets(image_id) ON DELETE CASCADE,
+  FOREIGN KEY (tag) REFERENCES image_knowledge_tags(tag) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_image_knowledge_asset_tags_tag
+ON image_knowledge_asset_tags(tag);
+
+CREATE TABLE IF NOT EXISTS image_knowledge_references (
+  reference_id TEXT PRIMARY KEY,
+  image_id TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (image_id) REFERENCES image_knowledge_assets(image_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_image_knowledge_references_image
+ON image_knowledge_references(image_id, target_type);
+
+-- ============================================================================
+-- AI 评标 ai_evaluation_*（v16 已落地）
+-- ============================================================================
+
+-- AI 评标单例元数据。第一阶段来源为技术方案已导入的招标文件。
+CREATE TABLE IF NOT EXISTS ai_evaluation_meta (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  source_type TEXT NOT NULL DEFAULT '',
+  source_file_name TEXT NOT NULL DEFAULT '',
+  source_hash TEXT NOT NULL DEFAULT '',
+  generated_at TEXT,
+  updated_at TEXT NOT NULL
+);
+
+-- 评分项和自评结果。manual_score 为空时 final_score 使用规则自评分；后续 AI 任务可覆盖 auto_score、evidence 和 deduction_reason。
+CREATE TABLE IF NOT EXISTS ai_evaluation_items (
+  item_id TEXT PRIMARY KEY,
+  category TEXT NOT NULL,
+  label TEXT NOT NULL,
+  title TEXT NOT NULL,
+  requirement_text TEXT NOT NULL,
+  max_score REAL NOT NULL DEFAULT 0,
+  auto_score REAL NOT NULL DEFAULT 0,
+  manual_score REAL,
+  final_score REAL NOT NULL DEFAULT 0,
+  evidence TEXT NOT NULL DEFAULT '',
+  deduction_reason TEXT NOT NULL DEFAULT '',
+  risk_level TEXT NOT NULL DEFAULT 'medium',
+  confirmed INTEGER NOT NULL DEFAULT 0,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_evaluation_items_category_order
+ON ai_evaluation_items(category, sort_order);
+
+CREATE INDEX IF NOT EXISTS idx_ai_evaluation_items_risk
+ON ai_evaluation_items(risk_level, confirmed);
+
+-- AI 评标导入的投标文件。Markdown 原文保存在 workspace/ai-evaluation/bid-documents/。
+CREATE TABLE IF NOT EXISTS ai_evaluation_bid_documents (
+  document_id TEXT PRIMARY KEY,
+  file_name TEXT NOT NULL,
+  markdown_path TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  content_chars INTEGER NOT NULL DEFAULT 0,
+  parser_label TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  imported_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_evaluation_bid_documents_order
+ON ai_evaluation_bid_documents(sort_order, imported_at);
+
+-- AI 评标逐投标文件评分结果。页面当前显示最近导入文件的汇总结果，后续多投标文件横向评分可直接读取本表。
+CREATE TABLE IF NOT EXISTS ai_evaluation_bid_scores (
+  document_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  auto_score REAL NOT NULL DEFAULT 0,
+  final_score REAL NOT NULL DEFAULT 0,
+  evidence TEXT NOT NULL DEFAULT '',
+  deduction_reason TEXT NOT NULL DEFAULT '',
+  risk_level TEXT NOT NULL DEFAULT 'medium',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (document_id, item_id),
+  FOREIGN KEY (document_id) REFERENCES ai_evaluation_bid_documents(document_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_evaluation_bid_scores_document
+ON ai_evaluation_bid_scores(document_id, risk_level);
+
+-- AI 评标审计意见。由 Main 侧根据高风险、待复核、客观分/报价核验和多投标文件横向分差生成。
+CREATE TABLE IF NOT EXISTS ai_evaluation_audit_opinions (
+  opinion_id TEXT PRIMARY KEY,
+  opinion_type TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'medium',
+  title TEXT NOT NULL,
+  target_type TEXT NOT NULL DEFAULT '',
+  target_id TEXT NOT NULL DEFAULT '',
+  evidence TEXT NOT NULL DEFAULT '',
+  recommendation TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'open',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_evaluation_audit_opinions_status
+ON ai_evaluation_audit_opinions(status, severity, sort_order);
+
+-- AI 评标专家打分记录。用于正式专家结果复核、专家间分差和自评分偏差交叉审核。
+CREATE TABLE IF NOT EXISTS ai_evaluation_expert_scores (
+  score_id TEXT PRIMARY KEY,
+  item_id TEXT NOT NULL,
+  expert_name TEXT NOT NULL,
+  expert_score REAL NOT NULL DEFAULT 0,
+  opinion TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_evaluation_expert_scores_item
+ON ai_evaluation_expert_scores(item_id, expert_name);
+
+-- AI 评标报告快照。Markdown 正文保存在 SQLite 中，便于重启后恢复最近一次报告和后续 Word/Excel 复用。
+CREATE TABLE IF NOT EXISTS ai_evaluation_reports (
+  report_id TEXT PRIMARY KEY,
+  report_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  markdown TEXT NOT NULL,
+  summary_json TEXT NOT NULL DEFAULT '{}',
+  generated_at TEXT NOT NULL,
+  exported_path TEXT,
+  exported_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_evaluation_reports_generated
+ON ai_evaluation_reports(report_type, generated_at DESC);
+
+-- AI 评标后台任务状态（v24 已落地）
+CREATE TABLE IF NOT EXISTS ai_evaluation_tasks (
+  type TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  progress INTEGER NOT NULL DEFAULT 0,
+  logs_json TEXT NOT NULL DEFAULT '[]',
+  stats_json TEXT,
+  error TEXT,
+  started_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);

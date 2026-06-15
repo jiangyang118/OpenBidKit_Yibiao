@@ -1,6 +1,6 @@
 import type { OutlineData, OutlineMode } from '../../shared/types';
 
-export type TechnicalPlanStep = 'document-analysis' | 'bid-analysis' | 'outline-generation' | 'global-facts' | 'content-edit' | 'expand';
+export type TechnicalPlanStep = 'document-analysis' | 'bid-analysis' | 'outline-generation' | 'global-facts' | 'content-edit';
 export type TechnicalPlanWorkflowKind = 'technical-plan' | 'existing-plan-expansion';
 export type BidAnalysisMode = 'key' | 'full' | 'custom';
 export type BidAnalysisTaskStatus = 'idle' | 'running' | 'success' | 'error';
@@ -34,6 +34,123 @@ export interface ContentImageStats {
   success: number;
   failed: number;
   skipped: number;
+}
+
+export type ContentConsistencyAuditItemStatus = 'conflict' | 'fixed' | 'manual';
+
+export interface ContentConsistencyAuditItem {
+  section_id: string;
+  title: string;
+  fact_title: string;
+  evidence: string;
+  reason: string;
+  severity: string;
+  status: ContentConsistencyAuditItemStatus;
+  applied_count?: number;
+  errors?: string[];
+}
+
+export interface ContentConsistencyAuditFailedGroup {
+  index: number;
+  total: number;
+  error: string;
+  section_ids?: string[];
+}
+
+export interface ContentConsistencyAuditReport {
+  enabled: boolean;
+  ran: boolean;
+  status: 'idle' | 'running' | 'success' | 'partial' | 'skipped';
+  group_total: number;
+  group_completed: number;
+  conflict_total: number;
+  fixed_total: number;
+  manual_total: number;
+  failed_group_total: number;
+  items: ContentConsistencyAuditItem[];
+  failed_groups: ContentConsistencyAuditFailedGroup[];
+  updated_at?: string;
+}
+
+export type ContentOriginalCoverageItemStatus = 'covered' | 'partial' | 'missing' | 'conflict';
+export type ContentOriginalCoverageRepairStatus = 'none' | 'fixed' | 'manual';
+
+export interface ContentOriginalCoverageItem {
+  source_id: string;
+  node_id: string;
+  title: string;
+  source_title: string;
+  status: ContentOriginalCoverageItemStatus;
+  missing_points: string[];
+  repair_suggestion: string;
+  repair_status: ContentOriginalCoverageRepairStatus;
+  errors?: string[];
+}
+
+export type ContentOriginalCommitmentStatus = 'preserved' | 'partial' | 'missing' | 'conflict';
+
+export interface ContentOriginalCommitmentItem {
+  source_id: string;
+  source_title: string;
+  node_id: string;
+  title: string;
+  category: string;
+  status: ContentOriginalCommitmentStatus;
+  missing_points: string[];
+  repair_status?: ContentOriginalCoverageRepairStatus;
+  errors?: string[];
+}
+
+export interface ContentOriginalCommitmentSummary {
+  total: number;
+  preserved_total: number;
+  partial_total: number;
+  missing_total: number;
+  conflict_total: number;
+  risk_total: number;
+  preservation_rate: number;
+  items: ContentOriginalCommitmentItem[];
+}
+
+export interface ContentOriginalCoverageFailedSection {
+  node_id: string;
+  title: string;
+  error: string;
+}
+
+export type ContentOriginalCoverageUnassignedStatus = 'pending' | 'bound' | 'ignored';
+
+export interface ContentOriginalCoverageUnassignedItem {
+  source_id: string;
+  source_title: string;
+  chars: number;
+  excerpt: string;
+  status: ContentOriginalCoverageUnassignedStatus;
+  bound_node_id?: string;
+  bound_node_title?: string;
+  handled_at?: string;
+}
+
+export interface ContentOriginalCoverageReport {
+  enabled: boolean;
+  ran: boolean;
+  status: 'idle' | 'running' | 'success' | 'partial' | 'skipped';
+  source_total: number;
+  audited_total: number;
+  covered_total: number;
+  partial_total: number;
+  missing_total: number;
+  conflict_total: number;
+  fixed_total: number;
+  manual_total: number;
+  coverage_rate: number;
+  items: ContentOriginalCoverageItem[];
+  unassigned_total?: number;
+  pending_unassigned_total?: number;
+  unassigned_items?: ContentOriginalCoverageUnassignedItem[];
+  commitment_summary?: ContentOriginalCommitmentSummary;
+  failed_sections: ContentOriginalCoverageFailedSection[];
+  updated_at?: string;
 }
 
 export interface BackgroundTaskState {
@@ -74,7 +191,10 @@ export interface BackgroundTaskState {
       total?: ContentImageStats;
       ai?: ContentImageStats;
       mermaid?: ContentImageStats;
+      knowledge?: ContentImageStats;
     };
+    audit?: ContentConsistencyAuditReport;
+    originalCoverage?: ContentOriginalCoverageReport;
   };
 }
 

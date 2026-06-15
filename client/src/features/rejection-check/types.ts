@@ -20,6 +20,8 @@ export type RejectionFindingType = 'invalidBid' | 'rejectionItem';
 
 export type RejectionFindingSeverity = 'high' | 'medium' | 'low';
 
+export type RejectionFindingResolutionStatus = 'pending' | 'ignored';
+
 export type RejectionBackgroundTaskType = 'rejection-items-extraction' | 'rejection-check-run';
 
 export type RejectionBackgroundTaskStatus = 'running' | 'success' | 'error';
@@ -62,6 +64,15 @@ export interface RejectionCheckWorkspaceState {
   checkTask?: RejectionBackgroundTaskState;
 }
 
+export interface RejectionCheckExportReportResult {
+  success: boolean;
+  message?: string;
+  filePath?: string;
+  format?: 'md' | 'docx' | 'pdf';
+  bytes?: number;
+  markdownChars?: number;
+}
+
 export interface RejectionCheckOptions {
   rejectionCheck: boolean;
   typoCheck: boolean;
@@ -88,6 +99,8 @@ export interface RejectionCheckFinding {
   bidEvidence: string;
   riskReason: string;
   suggestion: string;
+  resolution_status?: RejectionFindingResolutionStatus;
+  resolved_at?: string;
 }
 
 export interface RejectionCheckResultState {
@@ -108,6 +121,8 @@ export interface TypoCheckFinding {
   originalExcerpt: string;
   reason: string;
   locationHint?: string;
+  resolution_status?: RejectionFindingResolutionStatus;
+  resolved_at?: string;
 }
 
 export interface TypoCheckResultState {
@@ -128,6 +143,8 @@ export interface LogicCheckFinding {
   locationHint: string;
   fallacyReason: string;
   suggestion: string;
+  resolution_status?: RejectionFindingResolutionStatus;
+  resolved_at?: string;
 }
 
 export interface LogicCheckResultState {

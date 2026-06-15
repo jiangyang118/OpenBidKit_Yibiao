@@ -39,7 +39,6 @@ const steps: TechnicalPlanStep[] = [
   'outline-generation',
   'global-facts',
   'content-edit',
-  'expand',
 ];
 
 const stepLabels: Record<TechnicalPlanStep, string> = {
@@ -48,7 +47,6 @@ const stepLabels: Record<TechnicalPlanStep, string> = {
   'outline-generation': '目录生成',
   'global-facts': '全局事实设定',
   'content-edit': '生成正文',
-  expand: '扩写改写',
 };
 
 const resetState = {
@@ -159,7 +157,7 @@ function hasWorkflowSpecificProgress(state: TechnicalPlanState) {
     || state.outlineGenerationTask
     || state.globalFactsTask
     || state.contentGenerationTask
-    || ['outline-generation', 'global-facts', 'content-edit', 'expand'].includes(state.step),
+    || ['outline-generation', 'global-facts', 'content-edit'].includes(state.step),
   );
 }
 
@@ -873,20 +871,9 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           sections={state.contentGenerationSections}
           onContentGenerationOptionsChange={saveContentGenerationOptions}
           onContentSaved={saveChapterContent}
+          onStateChanged={(nextState) => setState((prev) => ({ ...prev, ...(nextState || {}) }))}
         />
       )}
-      {state.step === 'expand' && (
-        <section className="empty-panel compact-placeholder">
-          <div className="feature-under-development-overlay" role="status" aria-live="polite">
-            <strong>正在开发中，敬请期待</strong>
-            <span>此功能尚未完成，请先不要使用。</span>
-          </div>
-          <span className="section-kicker">STEP 06</span>
-          <h3>扩写改写</h3>
-          <p>后续接入旧方案导入、章节扩写和人工校准。</p>
-        </section>
-      )}
-
       <Dialog.Root open={sortLeaveDialogOpen} onOpenChange={(open) => !open && continueSorting()}>
         <Dialog.Portal>
           <Dialog.Overlay className="content-regenerate-modal" />
@@ -965,7 +952,7 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
                 <div className="export-warning-list">
                   <strong>需要核对</strong>
                   {exportProgress.warnings.slice(0, 4).map((warning) => <small key={warning}>{warning}</small>)}
-                  {exportProgress.warnings.length > 4 && <small>还有 {exportProgress.warnings.length - 4} 条图片提示，请打开导出的 Word 核对。</small>}
+                  {exportProgress.warnings.length > 4 && <small>还有 {exportProgress.warnings.length - 4} 条导出提示，请打开导出的 Word 核对。</small>}
                 </div>
               )}
             </div>

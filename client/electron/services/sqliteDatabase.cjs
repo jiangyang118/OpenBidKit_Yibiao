@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 12;
+const schemaVersion = 30;
 
 function createInitialSchema(db) {
   db.exec(`
@@ -378,11 +378,25 @@ function createDuplicateCheckSchema(db) {
       sentence TEXT NOT NULL,
       normalized TEXT NOT NULL,
       file_ids_json TEXT NOT NULL,
-      first_order INTEGER NOT NULL DEFAULT 0
+      first_order INTEGER NOT NULL DEFAULT 0,
+      resolution_status TEXT NOT NULL DEFAULT 'pending',
+      resolved_at TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_duplicate_check_content_duplicates_order
     ON duplicate_check_content_duplicates(first_order);
+
+    CREATE TABLE IF NOT EXISTS duplicate_check_content_ignore_rules (
+      rule_id TEXT PRIMARY KEY,
+      pattern TEXT NOT NULL,
+      normalized TEXT NOT NULL UNIQUE,
+      category TEXT NOT NULL DEFAULT 'manual',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_duplicate_check_content_ignore_rules_normalized
+    ON duplicate_check_content_ignore_rules(normalized);
 
     CREATE TABLE IF NOT EXISTS duplicate_check_content_occurrences (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -412,7 +426,12 @@ function createDuplicateCheckSchema(db) {
       hash TEXT NOT NULL,
       preview_url TEXT NOT NULL,
       file_ids_json TEXT NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      resolution_status TEXT NOT NULL DEFAULT 'pending',
+      resolved_at TEXT,
+      match_type TEXT NOT NULL DEFAULT 'exact',
+      similarity_score REAL NOT NULL DEFAULT 1,
+      similarity_reason TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_duplicate_check_duplicate_images_hash
@@ -511,6 +530,8 @@ function createRejectionCheckSchema(db) {
       bid_evidence TEXT NOT NULL,
       risk_reason TEXT NOT NULL,
       suggestion TEXT NOT NULL,
+      resolution_status TEXT NOT NULL DEFAULT 'pending',
+      resolved_at TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -530,6 +551,8 @@ function createRejectionCheckSchema(db) {
       original_excerpt TEXT NOT NULL,
       reason TEXT NOT NULL,
       location_hint TEXT,
+      resolution_status TEXT NOT NULL DEFAULT 'pending',
+      resolved_at TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -546,6 +569,8 @@ function createRejectionCheckSchema(db) {
       location_hint TEXT NOT NULL,
       fallacy_reason TEXT NOT NULL,
       suggestion TEXT NOT NULL,
+      resolution_status TEXT NOT NULL DEFAULT 'pending',
+      resolved_at TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -556,11 +581,509 @@ function createRejectionCheckSchema(db) {
   `);
 }
 
+function createBidOpportunitySchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bid_opportunity_opportunities (
+      opportunity_id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      source_text TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      parsed_fields_json TEXT NOT NULL DEFAULT '{}',
+      score INTEGER NOT NULL DEFAULT 0,
+      score_breakdown_json TEXT NOT NULL DEFAULT '{}',
+      risks_json TEXT NOT NULL DEFAULT '[]',
+      knowledge_matches_json TEXT NOT NULL DEFAULT '[]',
+      recommendation TEXT NOT NULL DEFAULT '',
+      owner TEXT NOT NULL DEFAULT '',
+      next_action TEXT NOT NULL DEFAULT '',
+      reminder_at TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bid_opportunity_status_updated
+    ON bid_opportunity_opportunities(status, updated_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_bid_opportunity_score
+    ON bid_opportunity_opportunities(score DESC);
+  `);
+}
+
+function createBusinessBidSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS business_bid_meta (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      source_type TEXT NOT NULL DEFAULT '',
+      source_file_name TEXT NOT NULL DEFAULT '',
+      source_hash TEXT NOT NULL DEFAULT '',
+      generated_at TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS business_bid_clauses (
+      clause_id TEXT PRIMARY KEY,
+      category TEXT NOT NULL,
+      label TEXT NOT NULL,
+      original_text TEXT NOT NULL,
+      response_text TEXT NOT NULL DEFAULT '',
+      deviation_type TEXT NOT NULL DEFAULT 'pending',
+      risk_level TEXT NOT NULL DEFAULT 'medium',
+      material_requirement TEXT NOT NULL DEFAULT '',
+      owner TEXT NOT NULL DEFAULT '',
+      confirmed_by TEXT NOT NULL DEFAULT '',
+      confirmed INTEGER NOT NULL DEFAULT 0,
+      source_hint TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_business_bid_clauses_category_order
+    ON business_bid_clauses(category, sort_order);
+
+    CREATE INDEX IF NOT EXISTS idx_business_bid_clauses_risk
+    ON business_bid_clauses(risk_level, confirmed);
+
+    CREATE TABLE IF NOT EXISTS business_bid_attachments (
+      attachment_id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL DEFAULT 'other',
+      file_name TEXT NOT NULL,
+      stored_path TEXT NOT NULL,
+      original_path TEXT NOT NULL DEFAULT '',
+      file_size INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',
+      owner TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_business_bid_attachments_kind_status
+    ON business_bid_attachments(kind, status, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS business_bid_tasks (
+      type TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      progress INTEGER NOT NULL DEFAULT 0,
+      logs_json TEXT NOT NULL DEFAULT '[]',
+      stats_json TEXT,
+      error TEXT,
+      started_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+function createImageKnowledgeBaseSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS image_knowledge_assets (
+      image_id TEXT PRIMARY KEY,
+      file_name TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      category TEXT NOT NULL DEFAULT '',
+      folder TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL DEFAULT '',
+      scenario TEXT NOT NULL DEFAULT '',
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      original_path TEXT NOT NULL DEFAULT '',
+      stored_path TEXT NOT NULL,
+      mime_type TEXT NOT NULL DEFAULT '',
+      size INTEGER NOT NULL DEFAULT 0,
+      width INTEGER NOT NULL DEFAULT 0,
+      height INTEGER NOT NULL DEFAULT 0,
+      content_hash TEXT NOT NULL,
+      thumbnail_data_url TEXT NOT NULL DEFAULT '',
+      reference_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_image_knowledge_assets_hash
+    ON image_knowledge_assets(content_hash);
+
+    CREATE INDEX IF NOT EXISTS idx_image_knowledge_assets_category
+    ON image_knowledge_assets(category, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS image_knowledge_tags (
+      tag TEXT PRIMARY KEY,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS image_knowledge_asset_tags (
+      image_id TEXT NOT NULL,
+      tag TEXT NOT NULL,
+      PRIMARY KEY (image_id, tag),
+      FOREIGN KEY (image_id) REFERENCES image_knowledge_assets(image_id) ON DELETE CASCADE,
+      FOREIGN KEY (tag) REFERENCES image_knowledge_tags(tag) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_image_knowledge_asset_tags_tag
+    ON image_knowledge_asset_tags(tag);
+
+    CREATE TABLE IF NOT EXISTS image_knowledge_references (
+      reference_id TEXT PRIMARY KEY,
+      image_id TEXT NOT NULL,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (image_id) REFERENCES image_knowledge_assets(image_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_image_knowledge_references_image
+    ON image_knowledge_references(image_id, target_type);
+  `);
+}
+
+function createAiEvaluationSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ai_evaluation_meta (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      source_type TEXT NOT NULL DEFAULT '',
+      source_file_name TEXT NOT NULL DEFAULT '',
+      source_hash TEXT NOT NULL DEFAULT '',
+      generated_at TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_evaluation_items (
+      item_id TEXT PRIMARY KEY,
+      category TEXT NOT NULL,
+      label TEXT NOT NULL,
+      title TEXT NOT NULL,
+      requirement_text TEXT NOT NULL,
+      max_score REAL NOT NULL DEFAULT 0,
+      auto_score REAL NOT NULL DEFAULT 0,
+      manual_score REAL,
+      final_score REAL NOT NULL DEFAULT 0,
+      evidence TEXT NOT NULL DEFAULT '',
+      deduction_reason TEXT NOT NULL DEFAULT '',
+      risk_level TEXT NOT NULL DEFAULT 'medium',
+      confirmed INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_evaluation_items_category_order
+    ON ai_evaluation_items(category, sort_order);
+
+    CREATE INDEX IF NOT EXISTS idx_ai_evaluation_items_risk
+    ON ai_evaluation_items(risk_level, confirmed);
+
+    CREATE TABLE IF NOT EXISTS ai_evaluation_bid_documents (
+      document_id TEXT PRIMARY KEY,
+      file_name TEXT NOT NULL,
+      markdown_path TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      content_chars INTEGER NOT NULL DEFAULT 0,
+      parser_label TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      imported_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_evaluation_bid_documents_order
+    ON ai_evaluation_bid_documents(sort_order, imported_at);
+
+    CREATE TABLE IF NOT EXISTS ai_evaluation_bid_scores (
+      document_id TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      auto_score REAL NOT NULL DEFAULT 0,
+      final_score REAL NOT NULL DEFAULT 0,
+      evidence TEXT NOT NULL DEFAULT '',
+      deduction_reason TEXT NOT NULL DEFAULT '',
+      risk_level TEXT NOT NULL DEFAULT 'medium',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (document_id, item_id),
+      FOREIGN KEY (document_id) REFERENCES ai_evaluation_bid_documents(document_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_evaluation_bid_scores_document
+    ON ai_evaluation_bid_scores(document_id, risk_level);
+
+    CREATE TABLE IF NOT EXISTS ai_evaluation_audit_opinions (
+      opinion_id TEXT PRIMARY KEY,
+      opinion_type TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'medium',
+      title TEXT NOT NULL,
+      target_type TEXT NOT NULL DEFAULT '',
+      target_id TEXT NOT NULL DEFAULT '',
+      evidence TEXT NOT NULL DEFAULT '',
+      recommendation TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'open',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_evaluation_audit_opinions_status
+    ON ai_evaluation_audit_opinions(status, severity, sort_order);
+
+    CREATE TABLE IF NOT EXISTS ai_evaluation_expert_scores (
+      score_id TEXT PRIMARY KEY,
+      item_id TEXT NOT NULL,
+      expert_name TEXT NOT NULL,
+      expert_score REAL NOT NULL DEFAULT 0,
+      opinion TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_evaluation_expert_scores_item
+    ON ai_evaluation_expert_scores(item_id, expert_name);
+
+    CREATE TABLE IF NOT EXISTS ai_evaluation_reports (
+      report_id TEXT PRIMARY KEY,
+      report_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      markdown TEXT NOT NULL,
+      summary_json TEXT NOT NULL DEFAULT '{}',
+      generated_at TEXT NOT NULL,
+      exported_path TEXT,
+      exported_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_evaluation_reports_generated
+    ON ai_evaluation_reports(report_type, generated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS ai_evaluation_tasks (
+      type TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      progress INTEGER NOT NULL DEFAULT 0,
+      logs_json TEXT NOT NULL DEFAULT '[]',
+      stats_json TEXT,
+      error TEXT,
+      started_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
 function addColumnIfMissing(db, tableName, columnName, columnType) {
   if (!getExistingTables(db).has(tableName)) return;
   const columns = getExistingColumns(db, tableName);
   if (columns.has(columnName)) return;
   db.exec(`ALTER TABLE ${quoteIdentifier(tableName)} ADD COLUMN ${quoteIdentifier(columnName)} ${columnType}`);
+}
+
+function addDuplicateCheckResolutionColumns(db) {
+  addColumnIfMissing(db, 'duplicate_check_content_duplicates', 'resolution_status', "TEXT NOT NULL DEFAULT 'pending'");
+  addColumnIfMissing(db, 'duplicate_check_content_duplicates', 'resolved_at', 'TEXT');
+  addColumnIfMissing(db, 'duplicate_check_duplicate_images', 'resolution_status', "TEXT NOT NULL DEFAULT 'pending'");
+  addColumnIfMissing(db, 'duplicate_check_duplicate_images', 'resolved_at', 'TEXT');
+}
+
+function addRejectionCheckResolutionColumns(db) {
+  for (const tableName of ['rejection_check_risk_findings', 'rejection_check_typo_findings', 'rejection_check_logic_findings']) {
+    addColumnIfMissing(db, tableName, 'resolution_status', "TEXT NOT NULL DEFAULT 'pending'");
+    addColumnIfMissing(db, tableName, 'resolved_at', 'TEXT');
+  }
+}
+
+function createDuplicateCheckContentIgnoreRules(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS duplicate_check_content_ignore_rules (
+      rule_id TEXT PRIMARY KEY,
+      pattern TEXT NOT NULL,
+      normalized TEXT NOT NULL UNIQUE,
+      category TEXT NOT NULL DEFAULT 'manual',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_duplicate_check_content_ignore_rules_normalized
+    ON duplicate_check_content_ignore_rules(normalized);
+  `);
+}
+
+function addDuplicateCheckIgnoreRuleCategoryColumn(db) {
+  createDuplicateCheckContentIgnoreRules(db);
+  addColumnIfMissing(db, 'duplicate_check_content_ignore_rules', 'category', "TEXT NOT NULL DEFAULT 'manual'");
+}
+
+function addDuplicateCheckV30Columns(db) {
+  addColumnIfMissing(db, 'duplicate_check_duplicate_images', 'match_type', "TEXT NOT NULL DEFAULT 'exact'");
+  addColumnIfMissing(db, 'duplicate_check_duplicate_images', 'similarity_score', 'REAL NOT NULL DEFAULT 1');
+  addColumnIfMissing(db, 'duplicate_check_duplicate_images', 'similarity_reason', 'TEXT');
+  addDuplicateCheckIgnoreRuleCategoryColumn(db);
+}
+
+function addBidOpportunityFollowUpColumns(db) {
+  addColumnIfMissing(db, 'bid_opportunity_opportunities', 'owner', "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, 'bid_opportunity_opportunities', 'next_action', "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, 'bid_opportunity_opportunities', 'reminder_at', "TEXT NOT NULL DEFAULT ''");
+}
+
+function addBusinessBidResponsibilityColumns(db) {
+  addColumnIfMissing(db, 'business_bid_clauses', 'owner', "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, 'business_bid_clauses', 'confirmed_by', "TEXT NOT NULL DEFAULT ''");
+}
+
+function addBidOpportunityKnowledgeMatchColumns(db) {
+  addColumnIfMissing(db, 'bid_opportunity_opportunities', 'knowledge_matches_json', "TEXT NOT NULL DEFAULT '[]'");
+}
+
+function createBusinessBidAttachmentSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS business_bid_attachments (
+      attachment_id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL DEFAULT 'other',
+      file_name TEXT NOT NULL,
+      stored_path TEXT NOT NULL,
+      original_path TEXT NOT NULL DEFAULT '',
+      file_size INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',
+      owner TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_business_bid_attachments_kind_status
+    ON business_bid_attachments(kind, status, updated_at DESC);
+  `);
+}
+
+function addImageKnowledgeFolderColumn(db) {
+  addColumnIfMissing(db, 'image_knowledge_assets', 'folder', "TEXT NOT NULL DEFAULT ''");
+}
+
+function createBusinessBidTaskSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS business_bid_tasks (
+      type TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      progress INTEGER NOT NULL DEFAULT 0,
+      logs_json TEXT NOT NULL DEFAULT '[]',
+      stats_json TEXT,
+      error TEXT,
+      started_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+function createAiEvaluationTaskSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ai_evaluation_tasks (
+      type TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      progress INTEGER NOT NULL DEFAULT 0,
+      logs_json TEXT NOT NULL DEFAULT '[]',
+      stats_json TEXT,
+      error TEXT,
+      started_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+function createAiEvaluationBidDocumentSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ai_evaluation_bid_documents (
+      document_id TEXT PRIMARY KEY,
+      file_name TEXT NOT NULL,
+      markdown_path TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      content_chars INTEGER NOT NULL DEFAULT 0,
+      parser_label TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      imported_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_evaluation_bid_documents_order
+    ON ai_evaluation_bid_documents(sort_order, imported_at);
+
+    CREATE TABLE IF NOT EXISTS ai_evaluation_bid_scores (
+      document_id TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      auto_score REAL NOT NULL DEFAULT 0,
+      final_score REAL NOT NULL DEFAULT 0,
+      evidence TEXT NOT NULL DEFAULT '',
+      deduction_reason TEXT NOT NULL DEFAULT '',
+      risk_level TEXT NOT NULL DEFAULT 'medium',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (document_id, item_id),
+      FOREIGN KEY (document_id) REFERENCES ai_evaluation_bid_documents(document_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_evaluation_bid_scores_document
+    ON ai_evaluation_bid_scores(document_id, risk_level);
+  `);
+}
+
+function createAiEvaluationAuditReportSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ai_evaluation_audit_opinions (
+      opinion_id TEXT PRIMARY KEY,
+      opinion_type TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'medium',
+      title TEXT NOT NULL,
+      target_type TEXT NOT NULL DEFAULT '',
+      target_id TEXT NOT NULL DEFAULT '',
+      evidence TEXT NOT NULL DEFAULT '',
+      recommendation TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'open',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_evaluation_audit_opinions_status
+    ON ai_evaluation_audit_opinions(status, severity, sort_order);
+
+    CREATE TABLE IF NOT EXISTS ai_evaluation_expert_scores (
+      score_id TEXT PRIMARY KEY,
+      item_id TEXT NOT NULL,
+      expert_name TEXT NOT NULL,
+      expert_score REAL NOT NULL DEFAULT 0,
+      opinion TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_evaluation_expert_scores_item
+    ON ai_evaluation_expert_scores(item_id, expert_name);
+
+    CREATE TABLE IF NOT EXISTS ai_evaluation_reports (
+      report_id TEXT PRIMARY KEY,
+      report_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      markdown TEXT NOT NULL,
+      summary_json TEXT NOT NULL DEFAULT '{}',
+      generated_at TEXT NOT NULL,
+      exported_path TEXT,
+      exported_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_evaluation_reports_generated
+    ON ai_evaluation_reports(report_type, generated_at DESC);
+  `);
+}
+
+function createAiEvaluationExpertScoreSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ai_evaluation_expert_scores (
+      score_id TEXT PRIMARY KEY,
+      item_id TEXT NOT NULL,
+      expert_name TEXT NOT NULL,
+      expert_score REAL NOT NULL DEFAULT 0,
+      opinion TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ai_evaluation_expert_scores_item
+    ON ai_evaluation_expert_scores(item_id, expert_name);
+  `);
 }
 
 function migrateRejectionCheckMultiBidDocuments(db) {
@@ -904,6 +1427,86 @@ const schemaHealthTableGroups = [
     tables: ['technical_plan_global_fact_groups'],
     repair: createTechnicalPlanGlobalFactsSchema,
   },
+  {
+    version: 13,
+    tables: ['bid_opportunity_opportunities'],
+    repair: createBidOpportunitySchema,
+  },
+  {
+    version: 14,
+    tables: ['business_bid_meta', 'business_bid_clauses', 'business_bid_attachments'],
+    repair: createBusinessBidSchema,
+  },
+  {
+    version: 15,
+    tables: ['image_knowledge_assets', 'image_knowledge_tags', 'image_knowledge_asset_tags', 'image_knowledge_references'],
+    repair: createImageKnowledgeBaseSchema,
+  },
+  {
+    version: 16,
+    tables: ['ai_evaluation_meta', 'ai_evaluation_items'],
+    repair: createAiEvaluationSchema,
+  },
+  {
+    version: 17,
+    tables: ['duplicate_check_content_duplicates', 'duplicate_check_duplicate_images'],
+    repair: addDuplicateCheckResolutionColumns,
+  },
+  {
+    version: 19,
+    tables: ['duplicate_check_content_ignore_rules'],
+    repair: createDuplicateCheckContentIgnoreRules,
+  },
+  {
+    version: 20,
+    tables: ['bid_opportunity_opportunities'],
+    repair: addBidOpportunityFollowUpColumns,
+  },
+  {
+    version: 21,
+    tables: ['business_bid_clauses'],
+    repair: addBusinessBidResponsibilityColumns,
+  },
+  {
+    version: 22,
+    tables: ['image_knowledge_assets'],
+    repair: addImageKnowledgeFolderColumn,
+  },
+  {
+    version: 23,
+    tables: ['business_bid_tasks'],
+    repair: createBusinessBidTaskSchema,
+  },
+  {
+    version: 24,
+    tables: ['ai_evaluation_tasks'],
+    repair: createAiEvaluationTaskSchema,
+  },
+  {
+    version: 25,
+    tables: ['ai_evaluation_bid_documents', 'ai_evaluation_bid_scores'],
+    repair: createAiEvaluationBidDocumentSchema,
+  },
+  {
+    version: 26,
+    tables: ['ai_evaluation_audit_opinions', 'ai_evaluation_reports'],
+    repair: createAiEvaluationAuditReportSchema,
+  },
+  {
+    version: 27,
+    tables: ['ai_evaluation_expert_scores'],
+    repair: createAiEvaluationExpertScoreSchema,
+  },
+  {
+    version: 29,
+    tables: ['business_bid_attachments'],
+    repair: createBusinessBidAttachmentSchema,
+  },
+  {
+    version: 30,
+    tables: ['duplicate_check_content_ignore_rules'],
+    repair: addDuplicateCheckV30Columns,
+  },
 ];
 
 const schemaHealthColumnGroups = [
@@ -1010,6 +1613,93 @@ const schemaHealthColumnGroups = [
     table: 'rejection_check_logic_findings',
     columns: {
       bid_document_id: 'TEXT',
+    },
+  },
+  {
+    version: 17,
+    table: 'duplicate_check_content_duplicates',
+    columns: {
+      resolution_status: "TEXT NOT NULL DEFAULT 'pending'",
+      resolved_at: 'TEXT',
+    },
+  },
+  {
+    version: 17,
+    table: 'duplicate_check_duplicate_images',
+    columns: {
+      resolution_status: "TEXT NOT NULL DEFAULT 'pending'",
+      resolved_at: 'TEXT',
+    },
+  },
+  {
+    version: 30,
+    table: 'duplicate_check_duplicate_images',
+    columns: {
+      match_type: "TEXT NOT NULL DEFAULT 'exact'",
+      similarity_score: 'REAL NOT NULL DEFAULT 1',
+      similarity_reason: 'TEXT',
+    },
+  },
+  {
+    version: 30,
+    table: 'duplicate_check_content_ignore_rules',
+    columns: {
+      category: "TEXT NOT NULL DEFAULT 'manual'",
+    },
+  },
+  {
+    version: 18,
+    table: 'rejection_check_risk_findings',
+    columns: {
+      resolution_status: "TEXT NOT NULL DEFAULT 'pending'",
+      resolved_at: 'TEXT',
+    },
+  },
+  {
+    version: 18,
+    table: 'rejection_check_typo_findings',
+    columns: {
+      resolution_status: "TEXT NOT NULL DEFAULT 'pending'",
+      resolved_at: 'TEXT',
+    },
+  },
+  {
+    version: 18,
+    table: 'rejection_check_logic_findings',
+    columns: {
+      resolution_status: "TEXT NOT NULL DEFAULT 'pending'",
+      resolved_at: 'TEXT',
+    },
+  },
+  {
+    version: 20,
+    table: 'bid_opportunity_opportunities',
+    columns: {
+      owner: "TEXT NOT NULL DEFAULT ''",
+      next_action: "TEXT NOT NULL DEFAULT ''",
+      reminder_at: "TEXT NOT NULL DEFAULT ''",
+    },
+  },
+  {
+    version: 28,
+    table: 'bid_opportunity_opportunities',
+    columns: {
+      knowledge_matches_json: "TEXT NOT NULL DEFAULT '[]'",
+    },
+  },
+  {
+    version: 21,
+    table: 'business_bid_clauses',
+    columns: {
+      owner: "TEXT NOT NULL DEFAULT ''",
+      confirmed_by: "TEXT NOT NULL DEFAULT ''",
+    },
+  },
+  {
+    version: 22,
+    table: 'image_knowledge_assets',
+    columns: {
+      folder: "TEXT NOT NULL DEFAULT ''",
     },
   },
 ];
@@ -1132,6 +1822,96 @@ const migrations = [
     version: 12,
     description: '废标项检查支持多份投标文件',
     up: migrateRejectionCheckMultiBidDocuments,
+  },
+  {
+    version: 13,
+    description: '新增投标机会工作台 SQLite 表结构',
+    up: createBidOpportunitySchema,
+  },
+  {
+    version: 14,
+    description: '新增商务标工作台 SQLite 表结构',
+    up: createBusinessBidSchema,
+  },
+  {
+    version: 15,
+    description: '新增图片知识库 SQLite 表结构',
+    up: createImageKnowledgeBaseSchema,
+  },
+  {
+    version: 16,
+    description: '新增 AI 评标工作台 SQLite 表结构',
+    up: createAiEvaluationSchema,
+  },
+  {
+    version: 17,
+    description: '标书查重重复项新增人工处理状态',
+    up: addDuplicateCheckResolutionColumns,
+  },
+  {
+    version: 18,
+    description: '废标项检查结果新增人工处理状态',
+    up: addRejectionCheckResolutionColumns,
+  },
+  {
+    version: 19,
+    description: '标书查重正文新增常用忽略规则',
+    up: createDuplicateCheckContentIgnoreRules,
+  },
+  {
+    version: 20,
+    description: '投标机会新增负责人和提醒字段',
+    up: addBidOpportunityFollowUpColumns,
+  },
+  {
+    version: 21,
+    description: '商务标条款新增负责人和确认人字段',
+    up: addBusinessBidResponsibilityColumns,
+  },
+  {
+    version: 22,
+    description: '图片知识库新增文件夹字段',
+    up: addImageKnowledgeFolderColumn,
+  },
+  {
+    version: 23,
+    description: '商务标新增后台任务状态表',
+    up: createBusinessBidTaskSchema,
+  },
+  {
+    version: 24,
+    description: 'AI 评标新增后台任务状态表',
+    up: createAiEvaluationTaskSchema,
+  },
+  {
+    version: 25,
+    description: 'AI 评标新增多投标文件和评分结果表',
+    up: createAiEvaluationBidDocumentSchema,
+  },
+  {
+    version: 26,
+    description: 'AI 评标新增审计意见和报告快照表',
+    up: createAiEvaluationAuditReportSchema,
+  },
+  {
+    version: 27,
+    description: 'AI 评标新增专家打分表',
+    up: createAiEvaluationExpertScoreSchema,
+  },
+  {
+    version: 28,
+    description: '投标机会新增知识库匹配结果字段',
+    up: addBidOpportunityKnowledgeMatchColumns,
+  },
+  {
+    version: 29,
+    description: '商务标新增独立附件管理表',
+    up: createBusinessBidAttachmentSchema,
+  },
+  {
+    version: 30,
+    description: '标书查重补齐相似图片字段和正文忽略规则分类',
+    up: addDuplicateCheckV30Columns,
   },
 ];
 

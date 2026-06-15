@@ -1,6 +1,21 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { dialog } = require('electron');
+const {
+  AlignmentType,
+  BorderStyle,
+  Document,
+  HeadingLevel,
+  Packer,
+  Paragraph,
+  Table,
+  TableCell,
+  TableLayoutType,
+  TableRow,
+  TextRun,
+  WidthType,
+} = require('docx');
 const { getDuplicateCheckContentDir, getDuplicateCheckDir } = require('../utils/paths.cjs');
 const { deleteImportedImageBatches } = require('../utils/importedImages.cjs');
 
@@ -14,6 +29,15 @@ const initialState = {
   outlineAnalysis: undefined,
   contentAnalysis: undefined,
   imageAnalysis: undefined,
+  contentIgnoreRules: [],
+};
+
+const contentIgnoreRuleCategories = ['manual', 'tender-reference', 'boilerplate', 'batch'];
+const contentIgnoreRuleCategoryLabels = {
+  manual: '手动忽略',
+  'tender-reference': '招标引用',
+  boilerplate: '固定模板',
+  batch: '批量规则',
 };
 
 const sectionFields = {
@@ -93,6 +117,629 @@ function normalizeStep(value) {
 
 function normalizeTab(value) {
   return ['metadata', 'outline', 'content', 'image'].includes(value) ? value : 'metadata';
+}
+
+function normalizeResolutionStatus(value) {
+  return ['pending', 'confirmed', 'ignored'].includes(value) ? value : 'pending';
+}
+
+function stripLeadingContentSequence(value) {
+  let text = String(value || '').trim();
+  const patterns = [
+    /^\s*(?:第\s*)?[一二三四五六七八九十百千万零〇]+[、.．）)]\s*/,
+    /^\s*(?:\d{1,3}|[A-Za-z])(?:\.\d{1,3}){0,6}[、.．）)]\s*/,
+    /^\s*[(（](?:\d{1,3}|[一二三四五六七八九十百千万零〇]+|[A-Za-z])[)）]\s*/,
+    /^\s*[（(][一二三四五六七八九十百千万零〇]+[）)]\s*/,
+  ];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const pattern of patterns) {
+      const next = text.replace(pattern, '');
+      if (next !== text) {
+        text = next.trimStart();
+        changed = true;
+        break;
+      }
+    }
+  }
+  return text;
+}
+
+function normalizeContentIgnoreRuleText(value) {
+  return stripLeadingContentSequence(String(value || ''))
+    .replace(/^\uFEFF/, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\ufeff]/g, '')
+    .replace(/[\s　]+/g, ' ')
+    .trim();
+}
+
+function normalizeContentIgnoreRuleCategory(value) {
+  const category = String(value || '').trim();
+  return contentIgnoreRuleCategories.includes(category) ? category : 'manual';
+}
+
+function buildContentIgnoreRulePackage(rules) {
+  return {
+    kind: 'yibiao.duplicateCheck.contentIgnoreRules',
+    version: 1,
+    exported_at: now(),
+    rules: (Array.isArray(rules) ? rules : []).map((rule) => ({
+      pattern: String(rule?.pattern || ''),
+      normalized: String(rule?.normalized || ''),
+      category: normalizeContentIgnoreRuleCategory(rule?.category),
+      category_label: contentIgnoreRuleCategoryLabels[normalizeContentIgnoreRuleCategory(rule?.category)],
+    })),
+  };
+}
+
+function normalizeImportedContentIgnoreRules(payload) {
+  const rawRules = Array.isArray(payload) ? payload : Array.isArray(payload?.rules) ? payload.rules : [];
+  const ruleMap = new Map();
+  let skippedCount = 0;
+  for (const rawRule of rawRules) {
+    const pattern = String(rawRule?.pattern || rawRule?.text || rawRule?.sentence || '').trim();
+    const normalized = normalizeContentIgnoreRuleText(rawRule?.normalized || pattern);
+    const displayPattern = pattern || normalized;
+    if (!displayPattern || !normalized) {
+      skippedCount += 1;
+      continue;
+    }
+    ruleMap.set(normalized, {
+      pattern: displayPattern,
+      normalized,
+      category: normalizeContentIgnoreRuleCategory(rawRule?.category),
+    });
+  }
+  return { rules: [...ruleMap.values()], skippedCount };
+}
+
+function resolutionStatusLabel(value) {
+  const status = normalizeResolutionStatus(value);
+  if (status === 'confirmed') return '已确认';
+  if (status === 'ignored') return '已忽略';
+  return '未处理';
+}
+
+function normalizeImageMatchType(value) {
+  return value === 'similar' ? 'similar' : 'exact';
+}
+
+function imageMatchTypeLabel(value) {
+  return normalizeImageMatchType(value) === 'similar' ? '相似图片' : '完全重复';
+}
+
+function formatSimilarityScore(value) {
+  const score = Number(value);
+  if (!Number.isFinite(score) || score <= 0) return '-';
+  return `${Math.round(Math.min(score, 1) * 100)}%`;
+}
+
+function statusLabel(value) {
+  const status = normalizeStatus(value, ['pending', 'running', 'success', 'error'], 'pending');
+  if (status === 'running') return '分析中';
+  if (status === 'success') return '已完成';
+  if (status === 'error') return '有错误';
+  return '待分析';
+}
+
+function markdownCell(value) {
+  return String(value ?? '')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\|/g, '\\|')
+    .trim() || '-';
+}
+
+function stripMarkdownInline(value) {
+  return String(value ?? '')
+    .replace(/<a\s+id="[^"]+"\s*><\/a>/gi, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/\\\|/g, '|')
+    .trim();
+}
+
+function splitMarkdownTableCells(line) {
+  return String(line || '')
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split(/(?<!\\)\|/)
+    .map((cell) => stripMarkdownInline(cell));
+}
+
+function isMarkdownTableDelimiter(line) {
+  const cells = splitMarkdownTableCells(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function createDocxText(text, options = {}) {
+  return new TextRun({
+    text: String(text ?? ''),
+    font: '宋体',
+    size: options.size || 21,
+    bold: Boolean(options.bold),
+  });
+}
+
+function createDocxParagraph(text, options = {}) {
+  return new Paragraph({
+    heading: options.heading,
+    alignment: options.alignment,
+    spacing: { after: options.after ?? 120 },
+    bullet: options.bullet ? { level: 0 } : undefined,
+    children: [createDocxText(text, options)],
+  });
+}
+
+function createDocxTableCell(value, options = {}) {
+  return new TableCell({
+    margins: { top: 80, bottom: 80, left: 80, right: 80 },
+    shading: options.header ? { fill: 'EEF3FA' } : undefined,
+    children: [
+      new Paragraph({
+        alignment: options.header ? AlignmentType.CENTER : AlignmentType.LEFT,
+        children: [createDocxText(String(value || '-') || '-', { size: 18, bold: Boolean(options.header) })],
+      }),
+    ],
+  });
+}
+
+function createDocxMarkdownTable(headers, rows) {
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    layout: TableLayoutType.AUTOFIT,
+    borders: {
+      top: { style: BorderStyle.SINGLE, size: 1, color: 'D0D7DE' },
+      bottom: { style: BorderStyle.SINGLE, size: 1, color: 'D0D7DE' },
+      left: { style: BorderStyle.SINGLE, size: 1, color: 'D0D7DE' },
+      right: { style: BorderStyle.SINGLE, size: 1, color: 'D0D7DE' },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: 'D0D7DE' },
+      insideVertical: { style: BorderStyle.SINGLE, size: 1, color: 'D0D7DE' },
+    },
+    rows: [
+      new TableRow({ children: headers.map((header) => createDocxTableCell(header, { header: true })) }),
+      ...rows.map((row) => new TableRow({ children: row.map((cell) => createDocxTableCell(cell)) })),
+    ],
+  });
+}
+
+function markdownReportToDocxChildren(markdown) {
+  const lines = String(markdown || '').split(/\r?\n/);
+  const children = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    if (/^\|.+\|$/.test(trimmed) && isMarkdownTableDelimiter(lines[index + 1] || '')) {
+      const headers = splitMarkdownTableCells(trimmed);
+      const rows = [];
+      index += 2;
+      while (index < lines.length && /^\|.+\|$/.test(lines[index].trim())) {
+        rows.push(splitMarkdownTableCells(lines[index]));
+        index += 1;
+      }
+      index -= 1;
+      children.push(createDocxMarkdownTable(headers, rows));
+      continue;
+    }
+
+    const heading = /^(#{1,3})\s+(.+)$/.exec(trimmed);
+    if (heading) {
+      const level = heading[1].length;
+      const text = stripMarkdownInline(heading[2]);
+      if (level === 1) {
+        children.push(createDocxParagraph(text, { heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, bold: true, size: 32, after: 260 }));
+      } else {
+        children.push(createDocxParagraph(text, { heading: level === 2 ? HeadingLevel.HEADING_1 : HeadingLevel.HEADING_2, bold: true, size: level === 2 ? 26 : 23, after: 180 }));
+      }
+      continue;
+    }
+
+    const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
+    if (bullet) {
+      children.push(createDocxParagraph(stripMarkdownInline(bullet[1]), { bullet: true }));
+      continue;
+    }
+
+    children.push(createDocxParagraph(stripMarkdownInline(trimmed)));
+  }
+  return children.length ? children : [createDocxParagraph('暂无报告内容')];
+}
+
+async function buildDuplicateCheckReportDocxBuffer(state) {
+  const markdown = buildDuplicateCheckReportMarkdown(state);
+  const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: '宋体', size: 21 },
+          paragraph: { spacing: { line: 360, after: 120 } },
+        },
+      },
+    },
+    sections: [{ children: markdownReportToDocxChildren(markdown) }],
+  });
+  return Packer.toBuffer(doc);
+}
+
+function markdownReportToPdfLines(markdown) {
+  const output = [];
+  const lines = String(markdown || '').split(/\r?\n/);
+  let inImageReviewView = false;
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (!trimmed || /^<a\s+id="[^"]+"\s*><\/a>$/i.test(trimmed) || isMarkdownTableDelimiter(trimmed)) {
+      continue;
+    }
+
+    const heading = /^(#{1,3})\s+(.+)$/.exec(trimmed);
+    if (heading) {
+      inImageReviewView = heading[2].trim() === '相似图片复核视图';
+      output.push({
+        text: stripMarkdownInline(heading[2]),
+        size: heading[1].length === 1 ? 17 : heading[1].length === 2 ? 14 : 12,
+        gapBefore: heading[1].length === 1 ? 16 : 10,
+      });
+      continue;
+    }
+
+    if (/^\|.+\|$/.test(trimmed)) {
+      const cells = splitMarkdownTableCells(trimmed);
+      if (cells.length) {
+        output.push({ text: cells.map(stripMarkdownInline).join('  |  '), size: 9, gapBefore: 4 });
+      }
+      continue;
+    }
+
+    const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
+    if (bullet) {
+      const text = stripMarkdownInline(bullet[1]);
+      if (inImageReviewView && /(?:图序|图片组|涉及文件|判断依据|复核建议)/.test(text)) {
+        output.push({
+          type: 'image-review-card-line',
+          text,
+          target: text.includes('图序') || text.startsWith('图片组'),
+          size: 9,
+          gapBefore: 2,
+        });
+        continue;
+      }
+      output.push({ text: `- ${text}`, size: 10, gapBefore: 4 });
+      continue;
+    }
+
+    output.push({ text: stripMarkdownInline(trimmed), size: 10, gapBefore: 4 });
+  }
+  return output.length ? output : [{ text: '暂无报告内容', size: 10, gapBefore: 4 }];
+}
+
+function textUnitWidth(char) {
+  return /[\u0000-\u00ff]/.test(char) ? 1 : 2;
+}
+
+function wrapPdfText(text, maxUnits = 84) {
+  const chars = [...String(text || '').replace(/\s+/g, ' ').trim()];
+  if (!chars.length) return [''];
+  const lines = [];
+  let current = '';
+  let width = 0;
+  for (const char of chars) {
+    const charWidth = textUnitWidth(char);
+    if (current && width + charWidth > maxUnits) {
+      lines.push(current);
+      current = char;
+      width = charWidth;
+    } else {
+      current += char;
+      width += charWidth;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function utf16BeHex(text) {
+  const parts = [];
+  for (const char of String(text || '')) {
+    const codePoint = char.codePointAt(0);
+    if (codePoint > 0xffff) {
+      const value = codePoint - 0x10000;
+      const high = 0xd800 + (value >> 10);
+      const low = 0xdc00 + (value & 0x3ff);
+      parts.push(high.toString(16).padStart(4, '0'), low.toString(16).padStart(4, '0'));
+    } else {
+      parts.push(codePoint.toString(16).padStart(4, '0'));
+    }
+  }
+  return parts.join('').toUpperCase();
+}
+
+function pdfStringLiteral(text) {
+  return `<${utf16BeHex(text)}>`;
+}
+
+function createPdfObjectStream(objects) {
+  let body = '%PDF-1.7\n%\xE2\xE3\xCF\xD3\n';
+  const offsets = [0];
+  for (let index = 0; index < objects.length; index += 1) {
+    offsets.push(Buffer.byteLength(body, 'binary'));
+    body += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`;
+  }
+  const xrefOffset = Buffer.byteLength(body, 'binary');
+  body += `xref\n0 ${objects.length + 1}\n`;
+  body += '0000000000 65535 f \n';
+  for (let index = 1; index < offsets.length; index += 1) {
+    body += `${String(offsets[index]).padStart(10, '0')} 00000 n \n`;
+  }
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(body, 'binary');
+}
+
+function buildSimpleCjkPdf(textBlocks) {
+  const pageWidth = 595;
+  const pageHeight = 842;
+  const marginX = 48;
+  const topY = 790;
+  const bottomY = 52;
+  const pages = [];
+  let current = [];
+  let y = topY;
+
+  const pushPage = () => {
+    if (current.length) pages.push(current);
+    current = [];
+    y = topY;
+  };
+
+  for (const block of textBlocks) {
+    const size = Number(block.size || 10);
+    const isImageReviewLine = block.type === 'image-review-card-line';
+    const lineHeight = isImageReviewLine ? 20 : Math.max(14, size + 5);
+    const wrappedLines = wrapPdfText(block.text, size >= 14 ? 48 : 72);
+    y -= Number(block.gapBefore || 4);
+    for (const line of wrappedLines) {
+      if (y < bottomY) pushPage();
+      current.push({
+        text: line,
+        x: isImageReviewLine ? marginX + 12 : marginX,
+        y,
+        size,
+        type: block.type,
+        target: block.target,
+      });
+      y -= lineHeight;
+    }
+  }
+  pushPage();
+
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    `<< /Type /Pages /Kids [${pages.map((_page, index) => `${6 + index * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`,
+    '<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [4 0 R] >>',
+    '<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 2 >> /FontDescriptor 5 0 R >>',
+    '<< /Type /FontDescriptor /FontName /STSong-Light /Flags 4 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>',
+  ];
+
+  pages.forEach((pageLines, index) => {
+    const content = [
+      'q',
+      '1 0 0 1 0 0 cm',
+      ...pageLines.flatMap((line) => {
+        const textCommand = `BT /F1 ${line.size} Tf 1 0 0 1 ${line.x} ${line.y} Tm ${pdfStringLiteral(line.text)} Tj ET`;
+        if (line.type !== 'image-review-card-line') return [textCommand];
+        const fill = line.target ? '0.91 0.96 0.98 rg' : '0.96 0.98 1 rg';
+        const stroke = line.target ? '0.10 0.55 0.65 RG' : '0.72 0.78 0.88 RG';
+        return [
+          'q',
+          fill,
+          `${line.x - 10} ${line.y - 5} 500 17 re f`,
+          stroke,
+          `${line.x - 10} ${line.y - 5} 500 17 re S`,
+          'Q',
+          textCommand,
+        ];
+      }),
+      'Q',
+    ].join('\n');
+    const contentObjectNumber = 7 + index * 2;
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObjectNumber} 0 R >>`);
+    objects.push(`<< /Length ${Buffer.byteLength(content, 'binary')} >>\nstream\n${content}\nendstream`);
+  });
+
+  return createPdfObjectStream(objects);
+}
+
+function buildDuplicateCheckReportPdfBuffer(state) {
+  const markdown = buildDuplicateCheckReportMarkdown(state);
+  return buildSimpleCjkPdf(markdownReportToPdfLines(markdown));
+}
+
+function countByResolution(items = []) {
+  return items.reduce((acc, item) => {
+    const status = normalizeResolutionStatus(item.resolution_status);
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, { pending: 0, confirmed: 0, ignored: 0 });
+}
+
+function pushDuplicateBatchSuggestions(lines, { contentResolution, imageResolution, contentIgnoreRules }) {
+  const contentPending = Number(contentResolution?.pending || 0);
+  const contentConfirmed = Number(contentResolution?.confirmed || 0);
+  const contentIgnored = Number(contentResolution?.ignored || 0);
+  const imagePending = Number(imageResolution?.pending || 0);
+  const imageConfirmed = Number(imageResolution?.confirmed || 0);
+  const imageIgnored = Number(imageResolution?.ignored || 0);
+  const ruleCount = Array.isArray(contentIgnoreRules) ? contentIgnoreRules.length : 0;
+
+  lines.push('## 批量处理建议', '');
+  if (contentPending > 0) {
+    lines.push(`- 正文重复句：仍有 ${contentPending} 条未处理，建议先筛选正文结果，对明显模板句批量忽略，对确认为异常复制的句子批量确认后回到原投标文件修改。`);
+  }
+  if (contentConfirmed > 0) {
+    lines.push(`- 已确认正文重复：${contentConfirmed} 条，建议按涉及文件逐项改写，改写后重新查重并重新导出报告。`);
+  }
+  if (contentIgnored > 0 || ruleCount > 0) {
+    lines.push(`- 正文忽略项：已忽略 ${contentIgnored} 条，当前保存 ${ruleCount} 条常用忽略规则；交付前应抽样复核，避免把应修改的正文误纳入模板忽略。`);
+  }
+  if (imagePending > 0) {
+    lines.push(`- 重复图片：仍有 ${imagePending} 组未处理，建议先按图片结果批量忽略通用图标/章戳，再批量确认需要替换的产品图、流程图或截图。`);
+  }
+  if (imageConfirmed > 0) {
+    lines.push(`- 已确认重复图片：${imageConfirmed} 组，建议替换或重新导出对应素材，并保留修改前后截图作为人工复核依据。`);
+  }
+  if (imageIgnored > 0) {
+    lines.push(`- 图片忽略项：已忽略 ${imageIgnored} 组，建议在正式交付前复核是否存在不同投标文件复用同一关键业务截图的风险。`);
+  }
+  if (!contentPending && !contentConfirmed && !contentIgnored && !imagePending && !imageConfirmed && !imageIgnored) {
+    lines.push('- 当前正文重复句和重复图片暂无待处理项；交付前重点复核元数据风险、目录重复组和本轮分析时间。');
+  }
+  lines.push('');
+}
+
+function formatFileNames(files = [], fileIds = []) {
+  const byId = new Map(files.map((file) => [file.id, file.file_name]));
+  return (fileIds || []).map((fileId) => byId.get(fileId) || fileId).join('、') || '-';
+}
+
+function formatImageOccurrenceLocation(entry) {
+  if (!entry) return '';
+  const parts = [];
+  if (entry.image_index !== undefined && entry.image_index !== null) {
+    parts.push(`图序 ${entry.image_index}`);
+  }
+  parts.push(`目录：${entry.directory || '未识别目录'}`);
+  parts.push(`前文：${entry.previous_sentence || '未提取到图片前文'}`);
+  return parts.join('；');
+}
+
+function imageReviewAdvice(item) {
+  if (normalizeImageMatchType(item?.match_type) === 'similar') {
+    return '建议人工打开涉及文件逐图核对裁剪、缩放、压缩、水印或截图复用痕迹；如为关键业务截图，优先替换或补充来源说明。';
+  }
+  return 'Hash 完全一致，建议确认是否为通用图标、章戳或模板装饰图；如为关键业务图片，应替换或说明来源。';
+}
+
+function pushImageReviewView(lines, duplicateImages = [], bidFiles = []) {
+  const reviewItems = (Array.isArray(duplicateImages) ? duplicateImages : [])
+    .filter((item) => normalizeImageMatchType(item?.match_type) === 'similar')
+    .slice(0, 50);
+  if (!reviewItems.length) return;
+
+  const fileNameById = new Map(bidFiles.map((file) => [file.id, file.file_name]));
+  lines.push('### 相似图片复核视图', '');
+  lines.push('本节按图片组展开定位上下文，供人工核对压缩、缩放、截图、裁剪或水印后的复用风险。');
+  reviewItems.forEach((item) => {
+    const fileIds = Array.isArray(item.file_ids) ? item.file_ids : [];
+    lines.push('');
+    lines.push(`- 图片组 ${item.id || item.hash || '-'}（${imageMatchTypeLabel(item.match_type)}，${formatSimilarityScore(item.similarity_score)}）：${item.hash || '-'}`);
+    lines.push(`- 涉及文件：${formatFileNames(bidFiles, fileIds)}`);
+    if (item.similarity_reason) {
+      lines.push(`- 判断依据：${item.similarity_reason}`);
+    }
+    lines.push(`- 复核建议：${imageReviewAdvice(item)}`);
+    fileIds.forEach((fileId) => {
+      const entries = Array.isArray(item.locations?.[fileId]) ? item.locations[fileId] : [];
+      if (!entries.length) {
+        lines.push(`- ${fileNameById.get(fileId) || fileId}：未提取到图片上下文`);
+        return;
+      }
+      entries.slice(0, 3).forEach((entry) => {
+        lines.push(`- ${fileNameById.get(fileId) || fileId}：${formatImageOccurrenceLocation(entry)}`);
+      });
+    });
+  });
+  lines.push('');
+}
+
+function buildDuplicateCheckReportMarkdown(state) {
+  const bidFiles = state.bidFiles || [];
+  const metadata = state.metadataAnalysis;
+  const outline = state.outlineAnalysis;
+  const content = state.contentAnalysis;
+  const image = state.imageAnalysis;
+  const contentResolution = countByResolution(content?.duplicateSentences || []);
+  const imageResolution = countByResolution(image?.duplicateImages || []);
+  const lines = [
+    '# 标书查重报告',
+    '',
+    `生成时间：${now()}`,
+    '',
+    '## 文件范围',
+    '',
+    `- 招标文件：${state.tenderFile?.file_name || '未上传'}`,
+    `- 投标文件：${bidFiles.length} 份`,
+    ...bidFiles.map((file, index) => `  - ${index + 1}. ${file.file_name}`),
+    '',
+    '## 分析摘要',
+    '',
+    '| 维度 | 状态 | 关键结果 |',
+    '| --- | --- | --- |',
+    `| 元数据 | ${statusLabel(metadata?.status)} | ${metadata?.rows?.length || 0} 个元数据项 |`,
+    `| 目录 | ${statusLabel(outline?.status)} | ${outline?.duplicateGroups?.length || 0} 个重复/相似目录组 |`,
+    `| 正文 | ${statusLabel(content?.status)} | ${content?.duplicateSentences?.length || 0} 条重复句，已确认 ${contentResolution.confirmed}，已忽略 ${contentResolution.ignored} |`,
+    `| 图片 | ${statusLabel(image?.status)} | ${image?.duplicateImages?.length || 0} 组重复图片，已确认 ${imageResolution.confirmed}，已忽略 ${imageResolution.ignored} |`,
+    '',
+  ];
+
+  if (metadata?.rows?.length) {
+    lines.push('## 元数据风险项', '', '| 元数据项 | 涉及文件 | 说明 |', '| --- | --- | --- |');
+    metadata.rows
+      .filter((row) => row.duplicate_file_ids?.length || row.same_day_file_ids?.length)
+      .forEach((row) => {
+        const fileIds = row.duplicate_file_ids?.length ? row.duplicate_file_ids : row.same_day_file_ids;
+        lines.push(`| ${markdownCell(row.label)} | ${markdownCell(formatFileNames(bidFiles, fileIds))} | ${row.duplicate_file_ids?.length ? '值完全相同' : '日期相同'} |`);
+      });
+    lines.push('');
+  }
+
+  if (outline?.duplicateGroups?.length) {
+    lines.push('## 目录重复结果', '', '| 目录 | 类型 | 涉及文件 | 相似度 |', '| --- | --- | --- | --- |');
+    outline.duplicateGroups.slice(0, 100).forEach((group) => {
+      lines.push(`| ${markdownCell(group.title)} | ${group.type === 'similar' ? '相似' : '重复'} | ${markdownCell(formatFileNames(bidFiles, group.file_ids))} | ${Math.round(Number(group.score || 0) * 100)}% |`);
+    });
+    lines.push('');
+  }
+
+  if (content?.duplicateSentences?.length) {
+    lines.push('## 正文重复句', '', '| 状态 | 重复句 | 涉及文件 |', '| --- | --- | --- |');
+    content.duplicateSentences.slice(0, 200).forEach((item) => {
+      lines.push(`| ${resolutionStatusLabel(item.resolution_status)} | ${markdownCell(item.normalized || item.sentence)} | ${markdownCell(formatFileNames(bidFiles, item.file_ids))} |`);
+    });
+    lines.push('');
+  }
+
+  if (image?.duplicateImages?.length) {
+    lines.push('## 重复/相似图片', '', '| 状态 | 类型 | 相似度 | Hash | 涉及文件 | 定位线索 |', '| --- | --- | --- | --- | --- | --- |');
+    image.duplicateImages.slice(0, 100).forEach((item) => {
+      const fileIds = Array.isArray(item.file_ids) ? item.file_ids : [];
+      const location = fileIds
+        .map((fileId) => item.locations?.[fileId]?.[0])
+        .filter(Boolean)
+        .map(formatImageOccurrenceLocation)
+        .join('；');
+      const evidence = [item.similarity_reason, location].filter(Boolean).join('；');
+      lines.push(`| ${resolutionStatusLabel(item.resolution_status)} | ${imageMatchTypeLabel(item.match_type)} | ${formatSimilarityScore(item.similarity_score)} | ${markdownCell(item.hash)} | ${markdownCell(formatFileNames(bidFiles, fileIds))} | ${markdownCell(evidence)} |`);
+    });
+    lines.push('');
+    pushImageReviewView(lines, image.duplicateImages, bidFiles);
+  }
+
+  pushDuplicateBatchSuggestions(lines, {
+    contentResolution,
+    imageResolution,
+    contentIgnoreRules: state.contentIgnoreRules,
+  });
+
+  lines.push('## 后续处理建议', '');
+  lines.push('- 对“未处理”重复句和重复图片逐项确认，必要时修改投标文件正文或替换图片素材。');
+  lines.push('- 对“已忽略”项定期复核，避免把固定模板误判为可接受重复。');
+  lines.push('- 本报告基于当前工作区缓存生成；重新查重后请重新导出。');
+  lines.push('');
+  return `${lines.join('\n')}\n`;
 }
 
 function normalizeFile(file) {
@@ -539,9 +1186,11 @@ function createDuplicateCheckStore({ app, db }) {
   function saveContentAnalysisDetails(analysis) {
     db.prepare('DELETE FROM duplicate_check_content_occurrences').run();
     db.prepare('DELETE FROM duplicate_check_content_duplicates').run();
+    const ignoredNormalizedSet = new Set(loadContentIgnoreRules().map((rule) => rule.normalized));
+    const timestamp = now();
     const duplicateInsert = db.prepare(`
-      INSERT INTO duplicate_check_content_duplicates (duplicate_id, sentence, normalized, file_ids_json, first_order)
-      VALUES (@duplicate_id, @sentence, @normalized, @file_ids_json, @first_order)
+      INSERT INTO duplicate_check_content_duplicates (duplicate_id, sentence, normalized, file_ids_json, first_order, resolution_status, resolved_at)
+      VALUES (@duplicate_id, @sentence, @normalized, @file_ids_json, @first_order, @resolution_status, @resolved_at)
     `);
     const occurrenceInsert = db.prepare(`
       INSERT INTO duplicate_check_content_occurrences (duplicate_id, file_id, occurrence_count)
@@ -549,12 +1198,18 @@ function createDuplicateCheckStore({ app, db }) {
     `);
     (Array.isArray(analysis.duplicateSentences) ? analysis.duplicateSentences : []).forEach((item, index) => {
       const duplicateId = item?.id || `C${String(index + 1).padStart(6, '0')}`;
+      const normalized = String(item?.normalized || '');
+      const inputStatus = normalizeResolutionStatus(item?.resolution_status);
+      const matchedIgnoreRule = normalized && ignoredNormalizedSet.has(normalized);
+      const resolutionStatus = inputStatus === 'pending' && matchedIgnoreRule ? 'ignored' : inputStatus;
       duplicateInsert.run({
         duplicate_id: duplicateId,
         sentence: String(item?.sentence || ''),
-        normalized: String(item?.normalized || ''),
+        normalized,
         file_ids_json: JSON.stringify(Array.isArray(item?.file_ids) ? item.file_ids : []),
         first_order: Number(item?.first_order ?? index),
+        resolution_status: resolutionStatus,
+        resolved_at: item?.resolved_at || (resolutionStatus === 'pending' ? null : timestamp),
       });
       for (const [fileId, count] of Object.entries(item?.occurrences || {})) {
         occurrenceInsert.run({ duplicate_id: duplicateId, file_id: fileId, occurrence_count: Number(count || 0) });
@@ -584,8 +1239,14 @@ function createDuplicateCheckStore({ app, db }) {
     }
 
     const imageInsert = db.prepare(`
-      INSERT INTO duplicate_check_duplicate_images (image_id, hash, preview_url, file_ids_json, sort_order)
-      VALUES (@image_id, @hash, @preview_url, @file_ids_json, @sort_order)
+      INSERT INTO duplicate_check_duplicate_images (
+        image_id, hash, preview_url, file_ids_json, sort_order, resolution_status, resolved_at,
+        match_type, similarity_score, similarity_reason
+      )
+      VALUES (
+        @image_id, @hash, @preview_url, @file_ids_json, @sort_order, @resolution_status, @resolved_at,
+        @match_type, @similarity_score, @similarity_reason
+      )
     `);
     const occurrenceInsert = db.prepare(`
       INSERT INTO duplicate_check_image_occurrences (image_id, file_id, occurrence_count, locations_json)
@@ -599,6 +1260,11 @@ function createDuplicateCheckStore({ app, db }) {
         preview_url: String(item?.preview_url || ''),
         file_ids_json: JSON.stringify(Array.isArray(item?.file_ids) ? item.file_ids : []),
         sort_order: index,
+        resolution_status: normalizeResolutionStatus(item?.resolution_status),
+        resolved_at: item?.resolved_at || null,
+        match_type: normalizeImageMatchType(item?.match_type),
+        similarity_score: Number(item?.similarity_score || (normalizeImageMatchType(item?.match_type) === 'exact' ? 1 : 0)),
+        similarity_reason: item?.similarity_reason ? String(item.similarity_reason) : null,
       });
       for (const [fileId, count] of Object.entries(item?.occurrences || {})) {
         occurrenceInsert.run({
@@ -768,6 +1434,8 @@ function createDuplicateCheckStore({ app, db }) {
       file_ids: safeJsonParse(item.file_ids_json, []),
       occurrences: occurrenceMap.get(item.duplicate_id) || {},
       first_order: Number(item.first_order || 0),
+      resolution_status: normalizeResolutionStatus(item.resolution_status),
+      resolved_at: item.resolved_at || undefined,
     }));
     return {
       status: normalizeStatus(row.status, ['pending', 'running', 'success', 'error'], 'pending'),
@@ -813,6 +1481,11 @@ function createDuplicateCheckStore({ app, db }) {
       file_ids: safeJsonParse(item.file_ids_json, []),
       occurrences: occurrenceMap.get(item.image_id) || {},
       locations: locationMap.get(item.image_id) || {},
+      resolution_status: normalizeResolutionStatus(item.resolution_status),
+      resolved_at: item.resolved_at || undefined,
+      match_type: normalizeImageMatchType(item.match_type),
+      similarity_score: Number(item.similarity_score || (normalizeImageMatchType(item.match_type) === 'exact' ? 1 : 0)),
+      similarity_reason: item.similarity_reason || undefined,
     }));
     return {
       status: normalizeStatus(row.status, ['pending', 'running', 'success', 'error'], 'pending'),
@@ -874,7 +1547,169 @@ function createDuplicateCheckStore({ app, db }) {
       step: normalizeStep(meta.step),
       activeAnalysisTab: normalizeTab(meta.active_analysis_tab),
       analysisTask: loadTask('duplicate-analysis'),
+      contentIgnoreRules: loadContentIgnoreRules(),
       ...loadAnalysisSections(),
+    };
+  }
+
+  function loadContentIgnoreRules() {
+    return db.prepare(`
+      SELECT rule_id, pattern, normalized, category, created_at, updated_at
+      FROM duplicate_check_content_ignore_rules
+      ORDER BY updated_at DESC, created_at DESC
+    `).all().map((row) => ({
+      rule_id: row.rule_id,
+      pattern: row.pattern,
+      normalized: row.normalized,
+      category: normalizeContentIgnoreRuleCategory(row.category),
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  function saveContentIgnoreRule({ pattern, normalized, category } = {}) {
+    const displayPattern = String(pattern || '').trim();
+    const normalizedText = normalizeContentIgnoreRuleText(normalized || displayPattern);
+    if (!displayPattern || !normalizedText) {
+      throw new Error('缺少要加入忽略规则的正文内容');
+    }
+
+    const timestamp = now();
+    const ruleId = `RULE-${hashContent(normalizedText).slice(0, 16)}`;
+    const normalizedCategory = normalizeContentIgnoreRuleCategory(category);
+    const transaction = db.transaction(() => {
+      db.prepare(`
+        INSERT INTO duplicate_check_content_ignore_rules (rule_id, pattern, normalized, category, created_at, updated_at)
+        VALUES (@rule_id, @pattern, @normalized, @category, @created_at, @updated_at)
+        ON CONFLICT(normalized) DO UPDATE SET
+          pattern = excluded.pattern,
+          category = excluded.category,
+          updated_at = excluded.updated_at
+      `).run({
+        rule_id: ruleId,
+        pattern: displayPattern,
+        normalized: normalizedText,
+        category: normalizedCategory,
+        created_at: timestamp,
+        updated_at: timestamp,
+      });
+      db.prepare(`
+        UPDATE duplicate_check_content_duplicates
+        SET resolution_status = 'ignored', resolved_at = @resolved_at
+        WHERE normalized = @normalized AND resolution_status = 'pending'
+      `).run({
+        resolved_at: timestamp,
+        normalized: normalizedText,
+      });
+    });
+    transaction();
+    return loadDuplicateCheck();
+  }
+
+  function deleteContentIgnoreRule(ruleId) {
+    const normalizedRuleId = String(ruleId || '').trim();
+    if (!normalizedRuleId) {
+      throw new Error('缺少要删除的忽略规则');
+    }
+    db.prepare('DELETE FROM duplicate_check_content_ignore_rules WHERE rule_id = ?').run(normalizedRuleId);
+    return loadDuplicateCheck();
+  }
+
+  function upsertContentIgnoreRules(rules) {
+    const normalizedRules = Array.isArray(rules) ? rules : [];
+    if (!normalizedRules.length) return 0;
+    const timestamp = now();
+    const insert = db.prepare(`
+      INSERT INTO duplicate_check_content_ignore_rules (rule_id, pattern, normalized, category, created_at, updated_at)
+      VALUES (@rule_id, @pattern, @normalized, @category, @created_at, @updated_at)
+      ON CONFLICT(normalized) DO UPDATE SET
+        pattern = excluded.pattern,
+        category = excluded.category,
+        updated_at = excluded.updated_at
+    `);
+    const markDuplicateIgnored = db.prepare(`
+      UPDATE duplicate_check_content_duplicates
+      SET resolution_status = 'ignored', resolved_at = @resolved_at
+      WHERE normalized = @normalized AND resolution_status = 'pending'
+    `);
+    const transaction = db.transaction(() => {
+      for (const rule of normalizedRules) {
+        insert.run({
+          rule_id: `RULE-${hashContent(rule.normalized).slice(0, 16)}`,
+          pattern: rule.pattern,
+          normalized: rule.normalized,
+          category: normalizeContentIgnoreRuleCategory(rule.category),
+          created_at: timestamp,
+          updated_at: timestamp,
+        });
+        markDuplicateIgnored.run({
+          resolved_at: timestamp,
+          normalized: rule.normalized,
+        });
+      }
+    });
+    transaction();
+    return normalizedRules.length;
+  }
+
+  async function exportContentIgnoreRules(options = {}) {
+    const rules = loadContentIgnoreRules();
+    const requestedPath = String(options.filePath || options.file_path || '').trim();
+    let filePath = requestedPath;
+    if (!filePath) {
+      const result = await dialog.showSaveDialog({
+        title: '导出正文忽略规则',
+        defaultPath: `标书查重正文忽略规则-${new Date().toISOString().slice(0, 10)}.json`,
+        filters: [
+          { name: 'JSON', extensions: ['json'] },
+          { name: '所有文件', extensions: ['*'] },
+        ],
+      });
+      if (result.canceled || !result.filePath) {
+        return { success: false, message: '已取消导出' };
+      }
+      filePath = result.filePath;
+    }
+    const payload = buildContentIgnoreRulePackage(rules);
+    const content = `${JSON.stringify(payload, null, 2)}\n`;
+    fs.writeFileSync(filePath, content, 'utf-8');
+    return {
+      success: true,
+      message: `已导出 ${rules.length} 条正文忽略规则`,
+      filePath,
+      ruleCount: rules.length,
+      bytes: Buffer.byteLength(content, 'utf-8'),
+    };
+  }
+
+  async function importContentIgnoreRules(options = {}) {
+    const requestedPath = String(options.filePath || options.file_path || '').trim();
+    let filePath = requestedPath;
+    if (!filePath) {
+      const result = await dialog.showOpenDialog({
+        title: '导入正文忽略规则',
+        properties: ['openFile'],
+        filters: [
+          { name: 'JSON', extensions: ['json'] },
+          { name: '所有文件', extensions: ['*'] },
+        ],
+      });
+      if (result.canceled || !result.filePaths?.[0]) {
+        return { success: false, message: '已取消导入', state: loadDuplicateCheck() };
+      }
+      filePath = result.filePaths[0];
+    }
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    const { rules, skippedCount } = normalizeImportedContentIgnoreRules(parsed);
+    const importedCount = upsertContentIgnoreRules(rules);
+    const state = loadDuplicateCheck();
+    return {
+      success: true,
+      message: `已导入 ${importedCount} 条正文忽略规则${skippedCount ? `，跳过 ${skippedCount} 条无效规则` : ''}`,
+      filePath,
+      importedCount,
+      skippedCount,
+      state,
     };
   }
 
@@ -904,6 +1739,141 @@ function createDuplicateCheckStore({ app, db }) {
 
   function saveUiState({ step, activeAnalysisTab } = {}) {
     return updateDuplicateCheck({ step, activeAnalysisTab });
+  }
+
+  function resolveDuplicateItem({ section, itemId, status } = {}) {
+    const normalizedSection = section === 'image' ? 'image' : section === 'content' ? 'content' : '';
+    const normalizedStatus = normalizeResolutionStatus(status);
+    const normalizedItemId = String(itemId || '').trim();
+    if (!normalizedSection) {
+      throw new Error('缺少要处理的查重结果类型');
+    }
+    if (!normalizedItemId) {
+      throw new Error('缺少要处理的查重结果编号');
+    }
+
+    const tableName = normalizedSection === 'image' ? 'duplicate_check_duplicate_images' : 'duplicate_check_content_duplicates';
+    const idColumn = normalizedSection === 'image' ? 'image_id' : 'duplicate_id';
+    const result = db.prepare(`
+      UPDATE ${tableName}
+      SET resolution_status = @status, resolved_at = @resolved_at
+      WHERE ${idColumn} = @item_id
+    `).run({
+      status: normalizedStatus,
+      resolved_at: normalizedStatus === 'pending' ? null : now(),
+      item_id: normalizedItemId,
+    });
+    if (!result.changes) {
+      throw new Error('未找到要处理的查重结果');
+    }
+    return loadDuplicateCheck();
+  }
+
+  function getDuplicateItemTable(section) {
+    const normalizedSection = section === 'image' ? 'image' : section === 'content' ? 'content' : '';
+    if (!normalizedSection) {
+      throw new Error('缺少要处理的查重结果类型');
+    }
+    return normalizedSection === 'image'
+      ? { tableName: 'duplicate_check_duplicate_images', idColumn: 'image_id' }
+      : { tableName: 'duplicate_check_content_duplicates', idColumn: 'duplicate_id' };
+  }
+
+  function normalizeDuplicateItemIds(itemIds) {
+    const rawIds = Array.isArray(itemIds) ? itemIds : [];
+    return [...new Set(rawIds.map((id) => String(id || '').trim()).filter(Boolean))];
+  }
+
+  function batchHandleDuplicateItems({ section, itemIds, action, status } = {}) {
+    const { tableName, idColumn } = getDuplicateItemTable(section);
+    const ids = normalizeDuplicateItemIds(itemIds);
+    const normalizedAction = action === 'delete' ? 'delete' : 'resolve';
+    if (!ids.length) {
+      throw new Error('缺少要批量处理的查重结果');
+    }
+
+    const transaction = db.transaction(() => {
+      if (normalizedAction === 'delete') {
+        const stmt = db.prepare(`DELETE FROM ${tableName} WHERE ${idColumn} = ?`);
+        ids.forEach((id) => stmt.run(id));
+        return;
+      }
+
+      const normalizedStatus = normalizeResolutionStatus(status);
+      const stmt = db.prepare(`
+        UPDATE ${tableName}
+        SET resolution_status = @status, resolved_at = @resolved_at
+        WHERE ${idColumn} = @item_id
+      `);
+      const timestamp = now();
+      ids.forEach((id) => stmt.run({
+        status: normalizedStatus,
+        resolved_at: normalizedStatus === 'pending' ? null : timestamp,
+        item_id: id,
+      }));
+    });
+    transaction();
+    return loadDuplicateCheck();
+  }
+
+  async function exportDuplicateReport(options = {}) {
+    const state = loadDuplicateCheck();
+    const markdown = buildDuplicateCheckReportMarkdown(state);
+    const requestedFormat = String(options.format || options.fileFormat || options.file_format || '').toLowerCase();
+    const format = ['docx', 'pdf'].includes(requestedFormat) ? requestedFormat : 'md';
+    const requestedPath = String(options.filePath || options.file_path || '').trim();
+    let filePath = requestedPath;
+    if (!filePath) {
+      const result = await dialog.showSaveDialog({
+        title: '导出标书查重报告',
+        defaultPath: `标书查重报告-${new Date().toISOString().slice(0, 10)}.${format}`,
+        filters: [
+          format === 'docx'
+            ? { name: 'Word 文档', extensions: ['docx'] }
+            : format === 'pdf'
+              ? { name: 'PDF 文档', extensions: ['pdf'] }
+            : { name: 'Markdown', extensions: ['md'] },
+          { name: '所有文件', extensions: ['*'] },
+        ],
+      });
+      if (result.canceled || !result.filePath) {
+        return { success: false, message: '已取消导出' };
+      }
+      filePath = result.filePath;
+    }
+    if (format === 'docx') {
+      const buffer = await buildDuplicateCheckReportDocxBuffer(state);
+      fs.writeFileSync(filePath, buffer);
+      return {
+        success: true,
+        message: '标书查重 Word 报告已导出',
+        filePath,
+        format,
+        bytes: buffer.length,
+        markdownChars: markdown.length,
+      };
+    }
+    if (format === 'pdf') {
+      const buffer = buildDuplicateCheckReportPdfBuffer(state);
+      fs.writeFileSync(filePath, buffer);
+      return {
+        success: true,
+        message: '标书查重 PDF 报告已导出',
+        filePath,
+        format,
+        bytes: buffer.length,
+        markdownChars: markdown.length,
+      };
+    }
+
+    fs.writeFileSync(filePath, markdown, 'utf-8');
+    return {
+      success: true,
+      message: '标书查重报告已导出',
+      filePath,
+      format,
+      markdownChars: markdown.length,
+    };
   }
 
   function clearDuplicateCheck() {
@@ -955,9 +1925,22 @@ function createDuplicateCheckStore({ app, db }) {
     clearDuplicateCheck,
     saveFiles,
     saveUiState,
+    resolveDuplicateItem,
+    batchHandleDuplicateItems,
+    saveContentIgnoreRule,
+    deleteContentIgnoreRule,
+    exportContentIgnoreRules,
+    importContentIgnoreRules,
+    exportDuplicateReport,
   };
 }
 
 module.exports = {
   createDuplicateCheckStore,
+  buildContentIgnoreRulePackage,
+  normalizeImportedContentIgnoreRules,
+  buildDuplicateCheckReportMarkdown,
+  buildDuplicateCheckReportDocxBuffer,
+  buildDuplicateCheckReportPdfBuffer,
+  markdownReportToDocxChildren,
 };

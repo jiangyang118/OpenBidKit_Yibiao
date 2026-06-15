@@ -22,6 +22,10 @@ frontend/build/
 backend/static/
 client/release/
 
+# Agent harness generated bid outputs
+agent-harness/outputs/
+agent-harness/runtime/
+
 # 临时和缓存文件
 *.tmp
 *.temp
@@ -86,6 +90,9 @@ htmlcov/
 .coverage
 .coverage.*
 .cache
+client/playwright-report/
+client/test-results/
+client/coverage/
 nosetests.xml
 coverage.xml
 *.cover

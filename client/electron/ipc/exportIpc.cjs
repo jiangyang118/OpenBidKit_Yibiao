@@ -1,6 +1,15 @@
 const { ipcMain } = require('electron');
 
 function registerExportIpc({ exportService }) {
+  ipcMain.handle('export:preview-word', async (event, payload = {}) => {
+    const requestId = payload.requestId || payload.request_id;
+    const sendProgress = (progress) => {
+      event.sender.send('export:word-progress', { requestId, ...progress });
+    };
+
+    return await exportService.previewWordExport(payload, sendProgress);
+  });
+
   ipcMain.handle('export:word', async (event, payload = {}) => {
     const requestId = payload.requestId || payload.request_id;
     const sendProgress = (progress) => {

@@ -1,0 +1,39 @@
+{
+  "name": "parser-regression-samples",
+  "description": "文件解析回归样本清单。文本和 Markdown 样本保存在仓库内；DOCX、PDF、PNG、OFD 在测试运行时生成到中文路径临时目录。",
+  "local": [
+    {
+      "extension": ".txt",
+      "expected": "售后承诺：7x24 小时响应"
+    },
+    {
+      "extension": ".md",
+      "expected": "智慧餐厅建设项目"
+    },
+    {
+      "extension": ".docx",
+      "expected": "DOCX 本地解析回归"
+    },
+    {
+      "extension": ".pdf",
+      "expected": "Yibiao parser regression sample"
+    }
+  ],
+  "remote_or_unsupported": [
+    {
+      "extension": ".png",
+      "expected_provider": "mineru-accurate-api",
+      "reason": "图片和扫描件不走本地解析，需要 MinerU OCR。"
+    },
+    {
+      "extension": ".ofd",
+      "expected_provider": "",
+      "reason": "当前未接入 OFD 解析，建议转换为 PDF/DOCX。"
+    }
+  ],
+  "remote_gate": {
+    "enabled_env": "YIBIAO_RUN_MINERU_E2E=1",
+    "token_env": "YIBIAO_MINERU_TOKEN",
+    "note": "未设置环境变量时，CI 只验证能力矩阵和环境缺口，不触发网络解析。"
+  }
+}

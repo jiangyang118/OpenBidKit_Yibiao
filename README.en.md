@@ -20,7 +20,7 @@
 <p align="left">
   <strong>🚀 Out-of-the-box, open-source, and free AI bid proposal writing tool</strong>
   <br>
-  Yibiao Bid Toolbox is an intelligent bid document creation tool for tendering and bidding scenarios. It is fully open source and includes AI-generated technical proposals, image-and-text generation, commercial bid support, enterprise knowledge base management, duplicate checking, rejection-risk checks, tender information, and more features under development.
+  Yibiao Bid Toolbox is an intelligent bid document creation tool for tendering and bidding scenarios. It is fully open source and includes local desktop capabilities such as AI-generated technical proposals, existing-proposal expansion, image-and-text generation, commercial bid support, AI evaluation, enterprise knowledge base management, image knowledge base, duplicate checking, rejection-risk checks, tender opportunities, resource downloads, and developer diagnostics.
   <br>
   It supports all OpenAI-like AI APIs. DeepSeek, LongCat, and Volcano Ark are deeply adapted, and local models can also be connected through Ollama, LM Studio, and similar tools.
   <br>
@@ -95,7 +95,7 @@ Recently, we have received many issue-based attacks that baselessly smear and at
   <tr>
     <td width="33%" valign="top">
       <strong>🛡️ Risk Check Workspaces</strong><br>
-      Duplicate-check and rejection-risk checklist workspaces are reserved for repeated wording and response-completeness checks.
+      Duplicate checking covers metadata, outline, repeated wording, exact images, and similar images; rejection checks cover rejection risks, typos, and logic issues.
     </td>
     <td width="33%" valign="top">
       <strong>⚙️ Custom AI Configuration</strong><br>
@@ -122,13 +122,30 @@ Download the latest release from [GitHub Releases](https://github.com/yibiaoai/y
 
 [Watch the usage demo on Bilibili](https://www.bilibili.com/video/BV1sC5i6SE74)
 
+### ✅ Available Capabilities
+
+- **Technical proposals**: Import tender documents, parse key requirements, generate outlines, global facts, and body content; supports existing-proposal expansion, content editing, image insertion, Mermaid preview, and Word export.
+- **Commercial bids**: Import a commercial tender independently or reuse the technical-proposal tender, generate a response matrix, maintain owners, reviewers, deviations, risks, attachments, and export Markdown / Word / Excel delivery packages.
+- **AI evaluation**: Extract scoring items, import bid documents, score multiple bid files, batch re-score, cross-check expert scores, generate audit opinions, and export Markdown / Word / Excel reports.
+- **Tender opportunities**: Supports manual input, announcement file import, URL import, AI structured parsing, opportunity scoring, owner / next action / reminder fields, knowledge-base matching, Markdown reports, and iCalendar export.
+- **Knowledge bases**: The document knowledge base supports migration, parsing, matching, and active task recovery; the image knowledge base supports upload, categories, folders, tags, batch management, content insertion, citation traceability, and prioritized reuse during content generation.
+- **Duplicate checking**: Covers metadata, outline, repeated sentences, exact image matches, and perceptual-hash similar images; supports confirm / ignore / batch handling / reusable text ignore rules, plus Markdown / Word / PDF reports with a similar-image review view.
+- **Rejection-risk checks**: Supports tender/bid document import, rejection-risk / typo / logic checks, single-file recheck, ignore / delete / batch handling, evidence copying, and Markdown / Word / PDF reports.
+- **Settings, resources, and developer tools**: Supports text/image/parser settings, theme and layout controls, resource-download offline cache, real prompt debugging, parser sandbox, export dry-run, and JSON request lab.
+
+### 🚧 Still Evolving
+
+- Multi-project workspaces can now be viewed, created, switched, archived, restored, and removed from Settings, with restart-scoped switching covered by E2E. Switching projects still requires an app restart to load the selected workspace; runtime hot switching is still being hardened.
+- Rejection reports now include text-based evidence screenshot views, and duplicate-check reports include a text-based similar-image review view; real image screenshots and deeper image-based evidence for cropped/rotated/watermarked similar images will continue to improve.
+- Real sample-document regression for local parsing is in place; real network end-to-end regression for MinerU Accurate and MinerU Agent still needs to be run and recorded in an environment with token and network access.
+
 ## 🛠️ Technical Architecture
 
 The current product is an independent desktop client under `client/`. It does not depend on the legacy `frontend/` or `backend/` structure.
 
 - **Desktop**: Electron Main / Preload provides local file access, configuration, export, and background task capabilities.
 - **Renderer**: Vite + React + TypeScript, with global CSS and Radix UI primitives.
-- **Features**: Technical proposal, knowledge base, duplicate-check workspace, rejection-risk checklist workspace, and settings.
+- **Features**: Technical proposal, existing-proposal expansion, commercial bid, AI evaluation, tender opportunities, knowledge bases, duplicate-check workspace, rejection-risk checklist workspace, resource downloads, developer tools, and settings.
 - **Local Data**: Configuration, workspace data, and generated caches are stored under Electron `userData`.
 - **Packaging**: Built for Windows / macOS with electron-builder.
 
@@ -140,7 +157,7 @@ Yibiao Bid Toolbox/
 │   ├── electron/              # Main, Preload, IPC, and local services
 │   ├── src/                   # Renderer source code
 │   │   ├── app/               # Routing, menu, and providers
-│   │   ├── features/          # Technical proposal, knowledge base, and other modules
+│   │   ├── features/          # Technical proposal, commercial bid, AI evaluation, knowledge base, and other modules
 │   │   └── shared/            # Shared types, AI helpers, UI, and utilities
 │   ├── assets/                # Icons and static assets
 │   └── package.json           # Client dependencies and packaging config

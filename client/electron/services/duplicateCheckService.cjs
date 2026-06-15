@@ -12,6 +12,13 @@ const { compactLogError, createDeveloperLogger, textMetrics } = require('../util
 const { normalizeDocumentParseError } = require('./documentParseErrors.cjs');
 const { parseDocumentWithConfig } = require('./fileService.cjs');
 
+let canvasModule;
+try {
+  canvasModule = require('@napi-rs/canvas');
+} catch {
+  canvasModule = null;
+}
+
 const metadataLabels = {
   file_name: '文件名',
   extension: '扩展名',
@@ -1653,10 +1660,142 @@ async function readImageTargetBuffer(app, target) {
 }
 
 function buildDuplicateImages(globalImages) {
-  return Array.from(globalImages.values())
+  const exactGroups = Array.from(globalImages.values())
     .filter((item) => item.file_ids.length > 1)
     .sort((a, b) => b.file_ids.length - a.file_ids.length || Object.values(b.occurrences).reduce((sum, count) => sum + count, 0) - Object.values(a.occurrences).reduce((sum, count) => sum + count, 0))
+    .map((item) => ({ ...item, match_type: 'exact', similarity_score: 1, similarity_reason: '文件内容 hash 完全相同' }));
+  const similarGroups = buildSimilarImageGroups(globalImages);
+  return [...exactGroups, ...similarGroups]
     .map((item, index) => ({ ...item, id: `I${String(index + 1).padStart(6, '0')}` }));
+}
+
+function mergeImageGroupItems(items) {
+  const fileIds = [];
+  const occurrences = {};
+  const locations = {};
+  for (const item of items) {
+    for (const fileId of item.file_ids || []) {
+      if (!fileIds.includes(fileId)) fileIds.push(fileId);
+      occurrences[fileId] = (occurrences[fileId] || 0) + Number(item.occurrences?.[fileId] || 0);
+      locations[fileId] = [...(locations[fileId] || []), ...(item.locations?.[fileId] || [])];
+    }
+  }
+  return { file_ids: fileIds, occurrences, locations };
+}
+
+function buildSimilarImageGroups(globalImages) {
+  const candidates = Array.from(globalImages.values())
+    .filter((item) => item.perceptual_hash && item.file_ids?.length);
+  const visited = new Set();
+  const edges = new Map();
+
+  for (let leftIndex = 0; leftIndex < candidates.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < candidates.length; rightIndex += 1) {
+      const left = candidates[leftIndex];
+      const right = candidates[rightIndex];
+      if (left.hash === right.hash) continue;
+      const distance = hammingDistance64(left.perceptual_hash, right.perceptual_hash);
+      if (distance > 8) continue;
+      if (!hasComparableAspectRatio(left, right)) continue;
+      const similarity = Number((1 - distance / 64).toFixed(4));
+      if (!edges.has(left.hash)) edges.set(left.hash, []);
+      if (!edges.has(right.hash)) edges.set(right.hash, []);
+      edges.get(left.hash).push({ hash: right.hash, similarity, distance });
+      edges.get(right.hash).push({ hash: left.hash, similarity, distance });
+    }
+  }
+
+  const byHash = new Map(candidates.map((item) => [item.hash, item]));
+  const groups = [];
+  for (const item of candidates) {
+    if (visited.has(item.hash) || !edges.has(item.hash)) continue;
+    const stack = [item.hash];
+    const component = [];
+    const similarities = [];
+    visited.add(item.hash);
+    while (stack.length) {
+      const hash = stack.pop();
+      const current = byHash.get(hash);
+      if (current) component.push(current);
+      for (const edge of edges.get(hash) || []) {
+        similarities.push(edge.similarity);
+        if (!visited.has(edge.hash)) {
+          visited.add(edge.hash);
+          stack.push(edge.hash);
+        }
+      }
+    }
+    const merged = mergeImageGroupItems(component);
+    if (component.length < 2 || merged.file_ids.length < 2) continue;
+    const score = similarities.length ? Math.min(...similarities) : 0;
+    const hashes = component.map((entry) => entry.hash.slice(0, 8)).join('/');
+    groups.push({
+      hash: `similar-${hashes}`,
+      preview_url: component[0].preview_url,
+      file_ids: merged.file_ids,
+      occurrences: merged.occurrences,
+      locations: merged.locations,
+      match_type: 'similar',
+      similarity_score: Number(score.toFixed(4)),
+      similarity_reason: `感知哈希相似度 ${Math.round(score * 100)}%，疑似压缩、缩放或截图后复用`,
+    });
+  }
+  return groups.sort((a, b) => b.similarity_score - a.similarity_score || b.file_ids.length - a.file_ids.length);
+}
+
+function hasComparableAspectRatio(left, right) {
+  const leftWidth = Number(left.width || 0);
+  const leftHeight = Number(left.height || 0);
+  const rightWidth = Number(right.width || 0);
+  const rightHeight = Number(right.height || 0);
+  if (!leftWidth || !leftHeight || !rightWidth || !rightHeight) return true;
+  const leftRatio = leftWidth / leftHeight;
+  const rightRatio = rightWidth / rightHeight;
+  return Math.abs(leftRatio - rightRatio) <= 0.08;
+}
+
+function hammingDistance64(left, right) {
+  const normalizedLeft = String(left || '').padStart(16, '0').slice(-16);
+  const normalizedRight = String(right || '').padStart(16, '0').slice(-16);
+  const xor = BigInt(`0x${normalizedLeft}`) ^ BigInt(`0x${normalizedRight}`);
+  let value = xor;
+  let count = 0;
+  while (value > 0n) {
+    count += Number(value & 1n);
+    value >>= 1n;
+  }
+  return count;
+}
+
+async function createImagePerceptualSignature(buffer) {
+  if (!canvasModule?.loadImage || !canvasModule?.createCanvas || !buffer?.length) return null;
+  try {
+    const image = await canvasModule.loadImage(buffer);
+    const canvas = canvasModule.createCanvas(8, 8);
+    const context = canvas.getContext('2d');
+    context.drawImage(image, 0, 0, 8, 8);
+    const data = context.getImageData(0, 0, 8, 8).data;
+    const values = [];
+    for (let index = 0; index < data.length; index += 4) {
+      const alpha = data[index + 3] / 255;
+      const red = data[index] * alpha + 255 * (1 - alpha);
+      const green = data[index + 1] * alpha + 255 * (1 - alpha);
+      const blue = data[index + 2] * alpha + 255 * (1 - alpha);
+      values.push(red * 0.299 + green * 0.587 + blue * 0.114);
+    }
+    const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+    let bits = 0n;
+    values.forEach((value, index) => {
+      if (value >= average) bits |= 1n << BigInt(63 - index);
+    });
+    return {
+      hash: bits.toString(16).padStart(16, '0'),
+      width: Number(image.width || 0),
+      height: Number(image.height || 0),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function createInitialAnalysis(signature, bidFiles) {
@@ -2146,7 +2285,15 @@ function createDuplicateCheckService({ app, configStore, workspaceStore } = {}) 
             const buffer = await readImageTargetBuffer(app, occurrence.target);
             if (!buffer?.length) continue;
             const hash = crypto.createHash('sha256').update(buffer).digest('hex');
-            const current = local.get(hash) || { count: 0, preview_url: occurrence.target, locations: [] };
+            const perceptualSignature = await createImagePerceptualSignature(buffer);
+            const current = local.get(hash) || {
+              count: 0,
+              preview_url: occurrence.target,
+              locations: [],
+              perceptual_hash: perceptualSignature?.hash || '',
+              width: perceptualSignature?.width || 0,
+              height: perceptualSignature?.height || 0,
+            };
             current.count += 1;
             current.locations.push({
               image_index: occurrence.index,
@@ -2160,10 +2307,22 @@ function createDuplicateCheckService({ app, configStore, workspaceStore } = {}) 
         }
 
         for (const [hash, item] of local.entries()) {
-          const global = globalImages.get(hash) || { hash, preview_url: item.preview_url, file_ids: [], occurrences: {}, locations: {} };
+          const global = globalImages.get(hash) || {
+            hash,
+            preview_url: item.preview_url,
+            file_ids: [],
+            occurrences: {},
+            locations: {},
+            perceptual_hash: item.perceptual_hash || '',
+            width: item.width || 0,
+            height: item.height || 0,
+          };
           if (!global.file_ids.includes(fileId)) global.file_ids.push(fileId);
           global.occurrences[fileId] = item.count;
           global.locations[fileId] = item.locations;
+          if (!global.perceptual_hash && item.perceptual_hash) global.perceptual_hash = item.perceptual_hash;
+          if (!global.width && item.width) global.width = item.width;
+          if (!global.height && item.height) global.height = item.height;
           globalImages.set(hash, global);
         }
         results.push({ file_id: fileId, file_name: file.file_name, status: 'success', image_count: imageOccurrences.length, unique_image_count: local.size });
@@ -2344,4 +2503,8 @@ function createDuplicateCheckService({ app, configStore, workspaceStore } = {}) 
   };
 }
 
-module.exports = { createDuplicateCheckService };
+module.exports = {
+  createDuplicateCheckService,
+  buildDuplicateImages,
+  hammingDistance64,
+};

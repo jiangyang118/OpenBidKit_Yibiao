@@ -13,11 +13,21 @@ export interface FileSelectionResult {
   files?: LocalFileSelection[];
 }
 
+export interface DuplicateCheckExportReportResult {
+  success: boolean;
+  message: string;
+  filePath?: string;
+  format?: 'md' | 'docx' | 'pdf';
+  bytes?: number;
+  markdownChars?: number;
+}
+
 export type DuplicateCheckStep = 'upload' | 'analysis';
 
 export type DuplicateAnalysisTabId = 'metadata' | 'outline' | 'content' | 'image';
 
 export type DuplicateAnalysisStatus = 'pending' | 'running' | 'success' | 'error';
+export type DuplicateResolutionStatus = 'pending' | 'confirmed' | 'ignored';
 
 export interface DuplicateContentExtractionItem {
   file_id: string;
@@ -153,6 +163,8 @@ export interface DuplicateContentSentenceItem {
   file_ids: string[];
   occurrences: Record<string, number>;
   first_order: number;
+  resolution_status?: DuplicateResolutionStatus;
+  resolved_at?: string;
 }
 
 export interface DuplicateContentAnalysisState {
@@ -167,6 +179,15 @@ export interface DuplicateContentAnalysisState {
   totalSentenceCount: number;
   extraction: DuplicateSubTaskProgress;
   duplicateSentences: DuplicateContentSentenceItem[];
+}
+
+export interface DuplicateContentIgnoreRule {
+  rule_id: string;
+  pattern: string;
+  normalized: string;
+  category?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface DuplicateImageFileResult {
@@ -184,6 +205,11 @@ export interface DuplicateImageItem {
   preview_url: string;
   file_ids: string[];
   occurrences: Record<string, number>;
+  match_type?: 'exact' | 'similar';
+  similarity_score?: number;
+  similarity_reason?: string;
+  resolution_status?: DuplicateResolutionStatus;
+  resolved_at?: string;
   locations?: Record<string, Array<{
     image_index: number;
     directory: string;
@@ -229,6 +255,7 @@ export interface DuplicateCheckWorkspaceState {
   outlineAnalysis?: DuplicateOutlineAnalysisState;
   contentAnalysis?: DuplicateContentAnalysisState;
   imageAnalysis?: DuplicateImageAnalysisState;
+  contentIgnoreRules?: DuplicateContentIgnoreRule[];
 }
 
 export interface ChapterContentContext {

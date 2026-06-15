@@ -1,6 +1,21 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { dialog } = require('electron');
+const {
+  AlignmentType,
+  BorderStyle,
+  Document,
+  HeadingLevel,
+  Packer,
+  Paragraph,
+  Table,
+  TableCell,
+  TableLayoutType,
+  TableRow,
+  TextRun,
+  WidthType,
+} = require('docx');
 const { getRejectionCheckDir, getRejectionCheckDocumentMarkdownPath } = require('../utils/paths.cjs');
 const { deleteImportedImageBatches, deleteImportedImageBatchesForExactScope } = require('../utils/importedImages.cjs');
 
@@ -96,12 +111,678 @@ function normalizeCheckOptions(options) {
   };
 }
 
+function normalizeResolutionStatus(value) {
+  return ['pending', 'ignored'].includes(value) ? value : 'pending';
+}
+
+function resolutionStatusLabel(value) {
+  return normalizeResolutionStatus(value) === 'ignored' ? '已忽略' : '未处理';
+}
+
 function stripTripleQuoteWrapper(content) {
   const trimmed = String(content || '').trim();
   if (trimmed.startsWith("'''") && trimmed.endsWith("'''")) {
     return trimmed.slice(3, -3).trim();
   }
   return String(content || '');
+}
+
+function resultStatusLabel(value) {
+  const status = normalizeStatus(value, ['idle', 'running', 'success', 'error'], 'idle');
+  if (status === 'running') return '检查中';
+  if (status === 'success') return '已完成';
+  if (status === 'error') return '检查失败';
+  return '待检查';
+}
+
+function extractionStatusLabel(value) {
+  const status = normalizeStatus(value, ['idle', 'running', 'success', 'error'], 'idle');
+  if (status === 'running') return '解析中';
+  if (status === 'success') return '已完成';
+  if (status === 'error') return '解析失败';
+  return '待解析';
+}
+
+function severityLabel(value) {
+  if (value === 'high') return '高风险';
+  if (value === 'low') return '低风险';
+  return '中风险';
+}
+
+function findingTypeLabel(value) {
+  return value === 'invalidBid' ? '无效标' : '废标项';
+}
+
+function markdownCell(value) {
+  return String(value ?? '')
+    .replace(/\r?\n+/g, ' ')
+    .replace(/\|/g, '\\|')
+    .trim() || '-';
+}
+
+function stripMarkdownInline(value) {
+  return String(value ?? '')
+    .replace(/<a\s+id="[^"]+"\s*><\/a>/gi, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/\\\|/g, '|')
+    .trim();
+}
+
+function splitMarkdownTableCells(line) {
+  return String(line || '')
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split(/(?<!\\)\|/)
+    .map((cell) => stripMarkdownInline(cell));
+}
+
+function isMarkdownTableDelimiter(line) {
+  const cells = splitMarkdownTableCells(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function createDocxText(text, options = {}) {
+  return new TextRun({
+    text: String(text ?? ''),
+    font: '宋体',
+    size: options.size || 21,
+    bold: Boolean(options.bold),
+  });
+}
+
+function createDocxParagraph(text, options = {}) {
+  return new Paragraph({
+    heading: options.heading,
+    alignment: options.alignment,
+    spacing: { after: options.after ?? 120 },
+    bullet: options.bullet ? { level: 0 } : undefined,
+    children: [createDocxText(text, options)],
+  });
+}
+
+function createDocxTableCell(value, options = {}) {
+  return new TableCell({
+    margins: { top: 80, bottom: 80, left: 80, right: 80 },
+    shading: options.header ? { fill: 'EEF3FA' } : undefined,
+    children: [
+      new Paragraph({
+        alignment: options.header ? AlignmentType.CENTER : AlignmentType.LEFT,
+        children: [createDocxText(String(value || '-') || '-', { size: 18, bold: Boolean(options.header) })],
+      }),
+    ],
+  });
+}
+
+function createDocxMarkdownTable(headers, rows) {
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    layout: TableLayoutType.AUTOFIT,
+    borders: {
+      top: { style: BorderStyle.SINGLE, size: 1, color: 'D0D7DE' },
+      bottom: { style: BorderStyle.SINGLE, size: 1, color: 'D0D7DE' },
+      left: { style: BorderStyle.SINGLE, size: 1, color: 'D0D7DE' },
+      right: { style: BorderStyle.SINGLE, size: 1, color: 'D0D7DE' },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: 'D0D7DE' },
+      insideVertical: { style: BorderStyle.SINGLE, size: 1, color: 'D0D7DE' },
+    },
+    rows: [
+      new TableRow({ children: headers.map((header) => createDocxTableCell(header, { header: true })) }),
+      ...rows.map((row) => new TableRow({ children: row.map((cell) => createDocxTableCell(cell)) })),
+    ],
+  });
+}
+
+function markdownReportToDocxChildren(markdown) {
+  const lines = String(markdown || '').split(/\r?\n/);
+  const children = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const trimmed = line.trim();
+    if (!trimmed || /^<a\s+id="[^"]+"\s*><\/a>$/i.test(trimmed)) continue;
+
+    if (/^\|.+\|$/.test(trimmed) && isMarkdownTableDelimiter(lines[index + 1] || '')) {
+      const headers = splitMarkdownTableCells(trimmed);
+      const rows = [];
+      index += 2;
+      while (index < lines.length && /^\|.+\|$/.test(lines[index].trim())) {
+        rows.push(splitMarkdownTableCells(lines[index]));
+        index += 1;
+      }
+      index -= 1;
+      children.push(createDocxMarkdownTable(headers, rows));
+      continue;
+    }
+
+    const heading = /^(#{1,3})\s+(.+)$/.exec(trimmed);
+    if (heading) {
+      const level = heading[1].length;
+      const text = stripMarkdownInline(heading[2]);
+      if (level === 1) {
+        children.push(createDocxParagraph(text, { heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, bold: true, size: 32, after: 260 }));
+      } else {
+        children.push(createDocxParagraph(text, { heading: level === 2 ? HeadingLevel.HEADING_1 : HeadingLevel.HEADING_2, bold: true, size: level === 2 ? 26 : 23, after: 180 }));
+      }
+      continue;
+    }
+
+    const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
+    if (bullet) {
+      children.push(createDocxParagraph(stripMarkdownInline(bullet[1]), { bullet: true }));
+      continue;
+    }
+
+    children.push(createDocxParagraph(stripMarkdownInline(trimmed)));
+  }
+  return children.length ? children : [createDocxParagraph('暂无报告内容')];
+}
+
+async function buildRejectionCheckReportDocxBuffer(state) {
+  const markdown = buildRejectionCheckReportMarkdown(state);
+  const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: '宋体', size: 21 },
+          paragraph: { spacing: { line: 360, after: 120 } },
+        },
+      },
+    },
+    sections: [{ children: markdownReportToDocxChildren(markdown) }],
+  });
+  return Packer.toBuffer(doc);
+}
+
+function markdownReportToPdfLines(markdown) {
+  const output = [];
+  const lines = String(markdown || '').split(/\r?\n/);
+  let inEvidenceSnapshot = false;
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (!trimmed || /^<a\s+id="[^"]+"\s*><\/a>$/i.test(trimmed) || isMarkdownTableDelimiter(trimmed)) {
+      continue;
+    }
+
+    const heading = /^(#{1,4})\s+(.+)$/.exec(trimmed);
+    if (heading) {
+      inEvidenceSnapshot = heading[2].trim() === '证据截图视图';
+      output.push({
+        text: stripMarkdownInline(heading[2]),
+        size: heading[1].length === 1 ? 17 : heading[1].length === 2 ? 14 : 12,
+        gapBefore: heading[1].length === 1 ? 16 : 10,
+        bold: true,
+      });
+      continue;
+    }
+
+    if (/^\|.+\|$/.test(trimmed)) {
+      const cells = splitMarkdownTableCells(trimmed);
+      if (cells.length) {
+        output.push({ text: cells.map(stripMarkdownInline).join('  |  '), size: 9, gapBefore: 4 });
+      }
+      continue;
+    }
+
+    const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
+    if (bullet) {
+      const text = stripMarkdownInline(bullet[1]);
+      if (inEvidenceSnapshot && /^(?:▶\s*)?第\s*\d+\s*行\s*\|/.test(text)) {
+        output.push({
+          type: 'evidence-card-line',
+          text,
+          target: text.startsWith('▶'),
+          size: 9,
+          gapBefore: 2,
+        });
+        continue;
+      }
+      output.push({ text: `- ${text}`, size: 10, gapBefore: 4 });
+      continue;
+    }
+
+    output.push({ text: stripMarkdownInline(trimmed), size: 10, gapBefore: 4 });
+  }
+  return output.length ? output : [{ text: '暂无报告内容', size: 10, gapBefore: 4 }];
+}
+
+function textUnitWidth(char) {
+  return /[\u0000-\u00ff]/.test(char) ? 1 : 2;
+}
+
+function wrapPdfText(text, maxUnits = 84) {
+  const chars = [...String(text || '').replace(/\s+/g, ' ').trim()];
+  if (!chars.length) return [''];
+  const lines = [];
+  let current = '';
+  let width = 0;
+  for (const char of chars) {
+    const charWidth = textUnitWidth(char);
+    if (current && width + charWidth > maxUnits) {
+      lines.push(current);
+      current = char;
+      width = charWidth;
+    } else {
+      current += char;
+      width += charWidth;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+function utf16BeHex(text) {
+  const parts = [];
+  for (const char of String(text || '')) {
+    const codePoint = char.codePointAt(0);
+    if (codePoint > 0xffff) {
+      const value = codePoint - 0x10000;
+      const high = 0xd800 + (value >> 10);
+      const low = 0xdc00 + (value & 0x3ff);
+      parts.push(high.toString(16).padStart(4, '0'), low.toString(16).padStart(4, '0'));
+    } else {
+      parts.push(codePoint.toString(16).padStart(4, '0'));
+    }
+  }
+  return parts.join('').toUpperCase();
+}
+
+function pdfStringLiteral(text) {
+  return `<${utf16BeHex(text)}>`;
+}
+
+function createPdfObjectStream(objects) {
+  let body = '%PDF-1.7\n%\xE2\xE3\xCF\xD3\n';
+  const offsets = [0];
+  for (let index = 0; index < objects.length; index += 1) {
+    offsets.push(Buffer.byteLength(body, 'binary'));
+    body += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`;
+  }
+  const xrefOffset = Buffer.byteLength(body, 'binary');
+  body += `xref\n0 ${objects.length + 1}\n`;
+  body += '0000000000 65535 f \n';
+  for (let index = 1; index < offsets.length; index += 1) {
+    body += `${String(offsets[index]).padStart(10, '0')} 00000 n \n`;
+  }
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(body, 'binary');
+}
+
+function buildSimpleCjkPdf(textBlocks, options = {}) {
+  const pageWidth = 595;
+  const pageHeight = 842;
+  const marginX = 48;
+  const topY = 790;
+  const bottomY = 52;
+  const pages = [];
+  let current = [];
+  let y = topY;
+
+  const pushPage = () => {
+    if (current.length) pages.push(current);
+    current = [];
+    y = topY;
+  };
+
+  for (const block of textBlocks) {
+    const size = Number(block.size || 10);
+    const isEvidenceLine = block.type === 'evidence-card-line';
+    const lineHeight = isEvidenceLine ? 20 : Math.max(14, size + 5);
+    const wrappedLines = wrapPdfText(block.text, size >= 14 ? 48 : 72);
+    y -= Number(block.gapBefore || 4);
+    for (const line of wrappedLines) {
+      if (y < bottomY) pushPage();
+      current.push({
+        text: line,
+        x: isEvidenceLine ? marginX + 12 : marginX,
+        y,
+        size,
+        type: block.type,
+        target: block.target,
+      });
+      y -= lineHeight;
+    }
+  }
+  pushPage();
+
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    `<< /Type /Pages /Kids [${pages.map((_page, index) => `${6 + index * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`,
+    '<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [4 0 R] >>',
+    '<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 2 >> /FontDescriptor 5 0 R >>',
+    '<< /Type /FontDescriptor /FontName /STSong-Light /Flags 4 /Ascent 880 /Descent -120 /CapHeight 700 /StemV 80 >>',
+  ];
+
+  pages.forEach((pageLines, index) => {
+    const content = [
+      'q',
+      '1 0 0 1 0 0 cm',
+      ...pageLines.flatMap((line) => {
+        const textCommand = `BT /F1 ${line.size} Tf 1 0 0 1 ${line.x} ${line.y} Tm ${pdfStringLiteral(line.text)} Tj ET`;
+        if (line.type !== 'evidence-card-line') return [textCommand];
+        const fill = line.target ? '0.90 0.94 1 rg' : '0.96 0.98 1 rg';
+        const stroke = line.target ? '0.20 0.45 0.88 RG' : '0.72 0.78 0.88 RG';
+        return [
+          'q',
+          fill,
+          `${line.x - 10} ${line.y - 5} 500 17 re f`,
+          stroke,
+          `${line.x - 10} ${line.y - 5} 500 17 re S`,
+          'Q',
+          textCommand,
+        ];
+      }),
+      'Q',
+    ].join('\n');
+    const contentObjectNumber = 7 + index * 2;
+    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObjectNumber} 0 R >>`);
+    objects.push(`<< /Length ${Buffer.byteLength(content, 'binary')} >>\nstream\n${content}\nendstream`);
+  });
+
+  if (options.title) {
+    objects[0] = `<< /Type /Catalog /Pages 2 0 R >>`;
+  }
+
+  return createPdfObjectStream(objects);
+}
+
+function buildRejectionCheckReportPdfBuffer(state) {
+  const markdown = buildRejectionCheckReportMarkdown(state);
+  return buildSimpleCjkPdf(markdownReportToPdfLines(markdown), { title: '废标项检查报告' });
+}
+
+function documentLabel(bidDocuments = [], documentId = '') {
+  const index = bidDocuments.findIndex((document) => document.id === documentId);
+  if (index >= 0) return `投标文件${index + 1}（${bidDocuments[index].fileName}）`;
+  return documentId || '投标文件';
+}
+
+function detailText(value) {
+  return String(value ?? '').trim() || '-';
+}
+
+function safeAnchorId(value) {
+  const raw = String(value || '').trim();
+  const normalized = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || stableHash(raw).slice(0, 12);
+}
+
+function compactDetail(value, maxLength = 220) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function splitEvidenceCandidates(value) {
+  const text = String(value || '').trim();
+  if (!text) return [];
+  const candidates = [text];
+  text
+    .split(/[\r\n。！？!?；;，,]/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 6)
+    .forEach((item) => candidates.push(item));
+  return [...new Set(candidates)].sort((left, right) => right.length - left.length);
+}
+
+function findNearestHeading(lines, lineIndex) {
+  for (let index = lineIndex; index >= 0; index -= 1) {
+    const line = String(lines[index] || '').trim();
+    const headingMatch = line.match(/^\s{0,3}#{1,6}\s+(.+)$/);
+    if (headingMatch) return headingMatch[1].trim();
+    if (line && line.length <= 80 && /^(?:第[一二三四五六七八九十百千万零〇\d]+[章节部分]|[一二三四五六七八九十百千万零〇\d]+[、.．]|[(（][一二三四五六七八九十百千万零〇\d]+[)）])/.test(line)) {
+      return line;
+    }
+  }
+  return '';
+}
+
+function createEvidenceContextSnapshot(bidDocuments = [], bidDocumentId = '', evidenceText = '') {
+  const document = bidDocuments.find((item) => item.id === bidDocumentId);
+  const content = String(document?.content || '');
+  if (!document || !content.trim()) return null;
+
+  const candidates = splitEvidenceCandidates(evidenceText);
+  let matchIndex = -1;
+  let matchedText = '';
+  for (const candidate of candidates) {
+    matchIndex = content.indexOf(candidate);
+    if (matchIndex >= 0) {
+      matchedText = candidate;
+      break;
+    }
+  }
+  if (matchIndex < 0) {
+    return {
+      matched: false,
+      locationText: '未在投标文件正文中精确定位，请按原文证据人工检索。',
+      snapshotLines: ['未生成文本截图视图：未在投标文件正文中精确定位。'],
+    };
+  }
+
+  const before = content.slice(0, matchIndex);
+  const lineIndex = before.split(/\r\n|\r|\n/).length - 1;
+  const lines = content.split(/\r\n|\r|\n/);
+  const contextStartLine = Math.max(0, lineIndex - 1);
+  const contextEndLine = Math.min(lines.length - 1, lineIndex + 1);
+  const snapshotStartLine = Math.max(0, lineIndex - 2);
+  const snapshotEndLine = Math.min(lines.length - 1, lineIndex + 2);
+  const context = lines.slice(contextStartLine, contextEndLine + 1)
+    .map((line, offset) => {
+      const currentLine = contextStartLine + offset + 1;
+      return `${currentLine}: ${String(line || '').trim()}`;
+    })
+    .join(' / ');
+  const heading = findNearestHeading(lines, lineIndex);
+  const locationText = [
+    heading ? `章节：${heading}` : '',
+    `行号：第 ${lineIndex + 1} 行附近`,
+    `匹配：${compactDetail(matchedText, 80)}`,
+    `前后文：${compactDetail(context)}`,
+  ].filter(Boolean).join('；');
+  const snapshotLines = lines.slice(snapshotStartLine, snapshotEndLine + 1).map((line, offset) => {
+    const currentLine = snapshotStartLine + offset + 1;
+    const marker = currentLine === lineIndex + 1 ? '▶' : ' ';
+    return `${marker} 第 ${currentLine} 行 | ${String(line || '').trim() || '（空行）'}`;
+  });
+  return {
+    matched: true,
+    locationText,
+    snapshotLines,
+  };
+}
+
+function findEvidenceContext(bidDocuments = [], bidDocumentId = '', evidenceText = '') {
+  const snapshot = createEvidenceContextSnapshot(bidDocuments, bidDocumentId, evidenceText);
+  return snapshot?.locationText || '';
+}
+
+function pushEvidenceDetailBlock(lines, title, details, anchorId, snapshotLines = []) {
+  if (anchorId) lines.push(`<a id="${anchorId}"></a>`, '');
+  lines.push(`### ${title}`, '');
+  details.forEach(([label, value]) => {
+    lines.push(`- ${label}：${detailText(value)}`);
+  });
+  if (snapshotLines.length) {
+    lines.push('', '#### 证据截图视图', '');
+    lines.push('以下为文本型截图视图，保留目标行和前后文，便于在 Markdown、Word 和 PDF 中复核证据。', '');
+    snapshotLines.forEach((line) => {
+      lines.push(`- ${line}`);
+    });
+  }
+  lines.push('');
+}
+
+function buildRejectionCheckReportMarkdown(state) {
+  const bidDocuments = Array.isArray(state.bidDocuments) ? state.bidDocuments : [];
+  const extraction = state.invalidBidAndRejectionItems || {};
+  const rejection = state.rejectionCheckResult || { status: 'idle', findings: [] };
+  const typo = state.typoCheckResult || { status: 'idle', findings: [] };
+  const logic = state.logicCheckResult || { status: 'idle', findings: [] };
+  const rejectionFindings = Array.isArray(rejection.findings) ? rejection.findings : [];
+  const typoFindings = Array.isArray(typo.findings) ? typo.findings : [];
+  const logicFindings = Array.isArray(logic.findings) ? logic.findings : [];
+  const visibleRejectionFindings = rejectionFindings.filter((item) => normalizeResolutionStatus(item.resolution_status) !== 'ignored');
+  const visibleTypoFindings = typoFindings.filter((item) => normalizeResolutionStatus(item.resolution_status) !== 'ignored');
+  const visibleLogicFindings = logicFindings.filter((item) => normalizeResolutionStatus(item.resolution_status) !== 'ignored');
+  const ignoredCount = rejectionFindings.length + typoFindings.length + logicFindings.length
+    - visibleRejectionFindings.length - visibleTypoFindings.length - visibleLogicFindings.length;
+  const highRiskCount = visibleRejectionFindings.filter((item) => item.severity === 'high').length;
+  const mediumRiskCount = visibleRejectionFindings.filter((item) => item.severity === 'medium').length;
+  const lowRiskCount = visibleRejectionFindings.filter((item) => item.severity === 'low').length;
+  const lines = [
+    '# 废标项检查报告',
+    '',
+    `生成时间：${now()}`,
+    '',
+    '## 文件范围',
+    '',
+    `- 招标文件：${state.tenderDocument?.fileName || '未导入'}`,
+    `- 投标文件：${bidDocuments.length} 份`,
+    ...bidDocuments.map((document, index) => `  - ${index + 1}. ${document.fileName}`),
+    '',
+    '## 检查摘要',
+    '',
+    '| 检查项 | 状态 | 结果 |',
+    '| --- | --- | --- |',
+    `| 无效与废标项解析 | ${extractionStatusLabel(extraction.status)} | ${markdownCell(extraction.content ? `${String(extraction.content).trim().length} 字` : extraction.error || '暂无解析结果')} |`,
+    `| 废标项检查 | ${resultStatusLabel(rejection.status)} | ${visibleRejectionFindings.length} 个未忽略风险项，高 ${highRiskCount} / 中 ${mediumRiskCount} / 低 ${lowRiskCount} |`,
+    `| 错别字检查 | ${resultStatusLabel(typo.status)} | ${visibleTypoFindings.length} 个未忽略疑似错别字 |`,
+    `| 逻辑谬误检查 | ${resultStatusLabel(logic.status)} | ${visibleLogicFindings.length} 个未忽略逻辑问题 |`,
+    `| 人工处理 | - | 已忽略 ${ignoredCount} 个结果项 |`,
+    '',
+  ];
+
+  if (state.customCheckItems?.trim()) {
+    lines.push('## 自定义检查项', '', state.customCheckItems.trim(), '');
+  }
+
+  if (visibleRejectionFindings.length) {
+    lines.push('## 废标项风险', '', '| 状态 | 投标文件 | 类型 | 级别 | 风险项 | 证据 | 建议 |', '| --- | --- | --- | --- | --- | --- | --- |');
+    visibleRejectionFindings.forEach((item) => {
+      lines.push(`| ${resolutionStatusLabel(item.resolution_status)} | ${markdownCell(documentLabel(bidDocuments, item.bidDocumentId))} | ${findingTypeLabel(item.type)} | ${severityLabel(item.severity)} | ${markdownCell(item.title)} | ${markdownCell(item.bidEvidence)} | ${markdownCell(item.suggestion)} |`);
+    });
+    lines.push('');
+  }
+
+  if (visibleTypoFindings.length) {
+    lines.push('## 错别字风险', '', '| 状态 | 投标文件 | 错字 | 建议修正 | 原文证据 | 原因 |', '| --- | --- | --- | --- | --- | --- |');
+    visibleTypoFindings.forEach((item) => {
+      lines.push(`| ${resolutionStatusLabel(item.resolution_status)} | ${markdownCell(documentLabel(bidDocuments, item.bidDocumentId))} | ${markdownCell(item.wrongText)} | ${markdownCell(item.correctText)} | ${markdownCell(item.originalExcerpt)} | ${markdownCell(item.reason)} |`);
+    });
+    lines.push('');
+  }
+
+  if (visibleLogicFindings.length) {
+    lines.push('## 逻辑谬误风险', '', '| 状态 | 投标文件 | 问题 | 位置 | 原文 | 建议 |', '| --- | --- | --- | --- | --- | --- |');
+    visibleLogicFindings.forEach((item) => {
+      lines.push(`| ${resolutionStatusLabel(item.resolution_status)} | ${markdownCell(documentLabel(bidDocuments, item.bidDocumentId))} | ${markdownCell(item.title)} | ${markdownCell(item.locationHint)} | ${markdownCell(item.originalText)} | ${markdownCell(item.suggestion)} |`);
+    });
+    lines.push('');
+  }
+
+  if (visibleRejectionFindings.length || visibleTypoFindings.length || visibleLogicFindings.length) {
+    lines.push('## 证据定位明细', '');
+    lines.push('本节用于人工复核和交付沟通，按投标文件、位置线索、原文证据、原因和建议展开。');
+    lines.push('');
+
+    const evidenceDetails = [
+      ...visibleRejectionFindings.map((item, index) => {
+        const titleText = item.title || '未命名风险';
+        const snapshot = createEvidenceContextSnapshot(bidDocuments, item.bidDocumentId, item.bidEvidence);
+        const locationText = snapshot?.locationText || '';
+        return {
+          type: '废标项风险',
+          anchorId: `evidence-rejection-${safeAnchorId(item.id || `risk-${index + 1}`)}`,
+          document: documentLabel(bidDocuments, item.bidDocumentId),
+          title: titleText,
+          heading: `废标项风险 ${index + 1}：${titleText}`,
+          location: locationText,
+          snapshotLines: snapshot?.snapshotLines || [],
+          details: [
+            ['投标文件', documentLabel(bidDocuments, item.bidDocumentId)],
+            ['类型', findingTypeLabel(item.type)],
+            ['级别', severityLabel(item.severity)],
+            ['检查依据', item.requirement],
+            ['原文证据', item.bidEvidence],
+            ['原文定位', locationText],
+            ['风险原因', item.riskReason],
+            ['处理建议', item.suggestion],
+          ],
+        };
+      }),
+      ...visibleTypoFindings.map((item, index) => {
+        const titleText = item.wrongText || '未命名错字';
+        const snapshot = createEvidenceContextSnapshot(bidDocuments, item.bidDocumentId, item.originalExcerpt || item.wrongText);
+        const locationText = snapshot?.locationText || '';
+        return {
+          type: '错别字',
+          anchorId: `evidence-typo-${safeAnchorId(item.id || `typo-${index + 1}`)}`,
+          document: documentLabel(bidDocuments, item.bidDocumentId),
+          title: titleText,
+          heading: `错别字 ${index + 1}：${titleText}`,
+          location: locationText || item.locationHint,
+          snapshotLines: snapshot?.snapshotLines || [],
+          details: [
+            ['投标文件', documentLabel(bidDocuments, item.bidDocumentId)],
+            ['位置线索', item.locationHint],
+            ['错字', item.wrongText],
+            ['建议修正', item.correctText],
+            ['原文证据', item.originalExcerpt],
+            ['原文定位', locationText],
+            ['判断原因', item.reason],
+          ],
+        };
+      }),
+      ...visibleLogicFindings.map((item, index) => {
+        const titleText = item.title || '未命名问题';
+        const snapshot = createEvidenceContextSnapshot(bidDocuments, item.bidDocumentId, item.originalText);
+        const locationText = snapshot?.locationText || '';
+        return {
+          type: '逻辑问题',
+          anchorId: `evidence-logic-${safeAnchorId(item.id || `logic-${index + 1}`)}`,
+          document: documentLabel(bidDocuments, item.bidDocumentId),
+          title: titleText,
+          heading: `逻辑问题 ${index + 1}：${titleText}`,
+          location: locationText || item.locationHint,
+          snapshotLines: snapshot?.snapshotLines || [],
+          details: [
+            ['投标文件', documentLabel(bidDocuments, item.bidDocumentId)],
+            ['位置线索', item.locationHint],
+            ['原文证据', item.originalText],
+            ['原文定位', locationText],
+            ['问题原因', item.fallacyReason],
+            ['处理建议', item.suggestion],
+          ],
+        };
+      }),
+    ];
+
+    lines.push('| 序号 | 类型 | 投标文件 | 标题 | 定位 |', '| --- | --- | --- | --- | --- |');
+    evidenceDetails.forEach((item, index) => {
+      lines.push(`| ${index + 1} | ${item.type} | ${markdownCell(item.document)} | [${markdownCell(item.title)}](#${item.anchorId}) | ${markdownCell(compactDetail(item.location, 120))} |`);
+    });
+    lines.push('');
+
+    evidenceDetails.forEach((item) => {
+      pushEvidenceDetailBlock(lines, item.heading, item.details, item.anchorId, item.snapshotLines);
+    });
+  }
+
+  if (!visibleRejectionFindings.length && !visibleTypoFindings.length && !visibleLogicFindings.length) {
+    lines.push('## 检查结果', '', '当前工作区暂无已保留的风险项、错别字或逻辑问题。', '');
+  }
+
+  lines.push('## 后续处理建议', '');
+  lines.push('- 优先处理高风险废标项，确认是否需要补充响应、附件或澄清说明。');
+  lines.push('- 对错别字和逻辑问题逐条回到投标文件原文修改，避免只在报告中标记。');
+  lines.push('- 忽略、删除或处理页面中的结果后，请重新导出报告，确保交付版本与页面状态一致。');
+  lines.push('');
+  return `${lines.join('\n')}\n`;
 }
 
 function createDocumentSignature(document) {
@@ -453,9 +1134,9 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
     if (resultType === 'rejection') {
       const insert = db.prepare(`
         INSERT INTO rejection_check_risk_findings (
-          finding_id, bid_document_id, type, severity, title, summary, requirement, bid_evidence, risk_reason, suggestion, sort_order, created_at, updated_at
+          finding_id, bid_document_id, type, severity, title, summary, requirement, bid_evidence, risk_reason, suggestion, resolution_status, resolved_at, sort_order, created_at, updated_at
         ) VALUES (
-          @finding_id, @bid_document_id, @type, @severity, @title, @summary, @requirement, @bid_evidence, @risk_reason, @suggestion, @sort_order, @created_at, @updated_at
+          @finding_id, @bid_document_id, @type, @severity, @title, @summary, @requirement, @bid_evidence, @risk_reason, @suggestion, @resolution_status, @resolved_at, @sort_order, @created_at, @updated_at
         )
       `);
       findings.forEach((item, index) => insert.run({
@@ -469,6 +1150,8 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
         bid_evidence: String(item.bidEvidence || ''),
         risk_reason: String(item.riskReason || ''),
         suggestion: String(item.suggestion || ''),
+        resolution_status: normalizeResolutionStatus(item.resolution_status),
+        resolved_at: item.resolved_at || null,
         sort_order: index,
         created_at: timestamp,
         updated_at: timestamp,
@@ -477,9 +1160,9 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
     if (resultType === 'typo') {
       const insert = db.prepare(`
         INSERT INTO rejection_check_typo_findings (
-          finding_id, bid_document_id, wrong_text, correct_text, original_excerpt, reason, location_hint, sort_order, created_at, updated_at
+          finding_id, bid_document_id, wrong_text, correct_text, original_excerpt, reason, location_hint, resolution_status, resolved_at, sort_order, created_at, updated_at
         ) VALUES (
-          @finding_id, @bid_document_id, @wrong_text, @correct_text, @original_excerpt, @reason, @location_hint, @sort_order, @created_at, @updated_at
+          @finding_id, @bid_document_id, @wrong_text, @correct_text, @original_excerpt, @reason, @location_hint, @resolution_status, @resolved_at, @sort_order, @created_at, @updated_at
         )
       `);
       findings.forEach((item, index) => insert.run({
@@ -490,6 +1173,8 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
         original_excerpt: String(item.originalExcerpt || ''),
         reason: String(item.reason || ''),
         location_hint: item.locationHint ? String(item.locationHint) : null,
+        resolution_status: normalizeResolutionStatus(item.resolution_status),
+        resolved_at: item.resolved_at || null,
         sort_order: index,
         created_at: timestamp,
         updated_at: timestamp,
@@ -498,9 +1183,9 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
     if (resultType === 'logic') {
       const insert = db.prepare(`
         INSERT INTO rejection_check_logic_findings (
-          finding_id, bid_document_id, title, original_text, location_hint, fallacy_reason, suggestion, sort_order, created_at, updated_at
+          finding_id, bid_document_id, title, original_text, location_hint, fallacy_reason, suggestion, resolution_status, resolved_at, sort_order, created_at, updated_at
         ) VALUES (
-          @finding_id, @bid_document_id, @title, @original_text, @location_hint, @fallacy_reason, @suggestion, @sort_order, @created_at, @updated_at
+          @finding_id, @bid_document_id, @title, @original_text, @location_hint, @fallacy_reason, @suggestion, @resolution_status, @resolved_at, @sort_order, @created_at, @updated_at
         )
       `);
       findings.forEach((item, index) => insert.run({
@@ -511,6 +1196,8 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
         location_hint: String(item.locationHint || ''),
         fallacy_reason: String(item.fallacyReason || ''),
         suggestion: String(item.suggestion || ''),
+        resolution_status: normalizeResolutionStatus(item.resolution_status),
+        resolved_at: item.resolved_at || null,
         sort_order: index,
         created_at: timestamp,
         updated_at: timestamp,
@@ -550,6 +1237,8 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
         bidEvidence: item.bid_evidence,
         riskReason: item.risk_reason,
         suggestion: item.suggestion,
+        resolution_status: normalizeResolutionStatus(item.resolution_status),
+        resolved_at: item.resolved_at || undefined,
       }));
     }
     if (resultType === 'typo') {
@@ -561,6 +1250,8 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
         originalExcerpt: item.original_excerpt,
         reason: item.reason,
         locationHint: item.location_hint || undefined,
+        resolution_status: normalizeResolutionStatus(item.resolution_status),
+        resolved_at: item.resolved_at || undefined,
       }));
     }
     return db.prepare('SELECT * FROM rejection_check_logic_findings ORDER BY sort_order ASC').all().map((item) => ({
@@ -571,6 +1262,8 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
       locationHint: item.location_hint,
       fallacyReason: item.fallacy_reason,
       suggestion: item.suggestion,
+      resolution_status: normalizeResolutionStatus(item.resolution_status),
+      resolved_at: item.resolved_at || undefined,
     }));
   }
 
@@ -802,6 +1495,148 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
     return updateRejectionCheck(uiState);
   }
 
+  function resolveFinding({ section, findingId, status } = {}) {
+    const normalizedSection = ['rejection', 'typo', 'logic'].includes(section) ? section : '';
+    const normalizedStatus = normalizeResolutionStatus(status);
+    const normalizedFindingId = String(findingId || '').trim();
+    if (!normalizedSection) {
+      throw new Error('缺少要处理的检查结果类型');
+    }
+    if (!normalizedFindingId) {
+      throw new Error('缺少要处理的检查结果编号');
+    }
+
+    const tableName = normalizedSection === 'rejection'
+      ? 'rejection_check_risk_findings'
+      : normalizedSection === 'typo'
+        ? 'rejection_check_typo_findings'
+        : 'rejection_check_logic_findings';
+    const result = db.prepare(`
+      UPDATE ${tableName}
+      SET resolution_status = @status, resolved_at = @resolved_at, updated_at = @updated_at
+      WHERE finding_id = @finding_id
+    `).run({
+      status: normalizedStatus,
+      resolved_at: normalizedStatus === 'pending' ? null : now(),
+      updated_at: now(),
+      finding_id: normalizedFindingId,
+    });
+    if (!result.changes) {
+      throw new Error('未找到要处理的检查结果');
+    }
+    return loadRejectionCheck();
+  }
+
+  function getFindingTableName(section) {
+    const normalizedSection = ['rejection', 'typo', 'logic'].includes(section) ? section : '';
+    if (!normalizedSection) {
+      throw new Error('缺少要处理的检查结果类型');
+    }
+    return normalizedSection === 'rejection'
+      ? 'rejection_check_risk_findings'
+      : normalizedSection === 'typo'
+        ? 'rejection_check_typo_findings'
+        : 'rejection_check_logic_findings';
+  }
+
+  function normalizeFindingIds(findingIds) {
+    const rawIds = Array.isArray(findingIds) ? findingIds : [];
+    return [...new Set(rawIds.map((id) => String(id || '').trim()).filter(Boolean))];
+  }
+
+  function batchHandleFindings({ section, findingIds, action, status } = {}) {
+    const tableName = getFindingTableName(section);
+    const ids = normalizeFindingIds(findingIds);
+    const normalizedAction = action === 'delete' ? 'delete' : 'resolve';
+    if (!ids.length) {
+      throw new Error('缺少要批量处理的检查结果');
+    }
+
+    const transaction = db.transaction(() => {
+      if (normalizedAction === 'delete') {
+        const stmt = db.prepare(`DELETE FROM ${tableName} WHERE finding_id = ?`);
+        ids.forEach((id) => stmt.run(id));
+        return;
+      }
+
+      const normalizedStatus = normalizeResolutionStatus(status);
+      const stmt = db.prepare(`
+        UPDATE ${tableName}
+        SET resolution_status = @status, resolved_at = @resolved_at, updated_at = @updated_at
+        WHERE finding_id = @finding_id
+      `);
+      const timestamp = now();
+      ids.forEach((id) => stmt.run({
+        status: normalizedStatus,
+        resolved_at: normalizedStatus === 'pending' ? null : timestamp,
+        updated_at: timestamp,
+        finding_id: id,
+      }));
+    });
+    transaction();
+    return loadRejectionCheck();
+  }
+
+  async function exportRejectionReport(options = {}) {
+    const state = loadRejectionCheck();
+    const markdown = buildRejectionCheckReportMarkdown(state);
+    const requestedFormat = String(options.format || options.fileFormat || options.file_format || '').toLowerCase();
+    const format = ['docx', 'pdf'].includes(requestedFormat) ? requestedFormat : 'md';
+    const requestedPath = String(options.filePath || options.file_path || '').trim();
+    let filePath = requestedPath;
+    if (!filePath) {
+      const result = await dialog.showSaveDialog({
+        title: '导出废标项检查报告',
+        defaultPath: `废标项检查报告-${new Date().toISOString().slice(0, 10)}.${format}`,
+        filters: [
+          format === 'docx'
+            ? { name: 'Word 文档', extensions: ['docx'] }
+            : format === 'pdf'
+              ? { name: 'PDF 文档', extensions: ['pdf'] }
+              : { name: 'Markdown', extensions: ['md'] },
+          { name: '所有文件', extensions: ['*'] },
+        ],
+      });
+      if (result.canceled || !result.filePath) {
+        return { success: false, message: '已取消导出' };
+      }
+      filePath = result.filePath;
+    }
+    if (format === 'docx') {
+      const buffer = await buildRejectionCheckReportDocxBuffer(state);
+      fs.writeFileSync(filePath, buffer);
+      return {
+        success: true,
+        message: '废标项检查 Word 报告已导出',
+        filePath,
+        format,
+        bytes: buffer.length,
+        markdownChars: markdown.length,
+      };
+    }
+    if (format === 'pdf') {
+      const buffer = buildRejectionCheckReportPdfBuffer(state);
+      fs.writeFileSync(filePath, buffer);
+      return {
+        success: true,
+        message: '废标项检查 PDF 报告已导出',
+        filePath,
+        format,
+        bytes: buffer.length,
+        markdownChars: markdown.length,
+      };
+    }
+
+    fs.writeFileSync(filePath, markdown, 'utf-8');
+    return {
+      success: true,
+      message: '废标项检查报告已导出',
+      filePath,
+      format,
+      markdownChars: markdown.length,
+    };
+  }
+
   function clearRejectionCheck() {
     const transaction = db.transaction(() => {
       db.prepare('DELETE FROM rejection_check_tasks').run();
@@ -835,10 +1670,17 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
     readDocumentMarkdown,
     createDocumentSignature,
     createRejectionCheckInputSignature,
+    resolveFinding,
+    batchHandleFindings,
+    exportRejectionReport,
     saveUiState,
   };
 }
 
 module.exports = {
   createRejectionCheckStore,
+  buildRejectionCheckReportMarkdown,
+  buildRejectionCheckReportDocxBuffer,
+  buildRejectionCheckReportPdfBuffer,
+  markdownReportToDocxChildren,
 };

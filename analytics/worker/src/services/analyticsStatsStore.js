@@ -800,7 +800,7 @@ async function incrementResourceClickCounts(env, rows) {
   }
 }
 
-async function rollupResourceClicksDay(env, projectName, activityDate) {
+export async function rollupResourceClicksDay(env, projectName, activityDate) {
   if (!env.RESOURCE_DB) {
     return { skipped: true, reason: 'RESOURCE_DB is not configured' };
   }

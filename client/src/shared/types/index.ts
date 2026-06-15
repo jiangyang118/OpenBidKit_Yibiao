@@ -1,12 +1,23 @@
-export type { ChatCompletionRequest, ChatMessage, JsonCompletionRequest } from './ai';
+export type {
+  ChatCompletionRequest,
+  ChatMessage,
+  JsonCompletionRequest,
+  JsonFailureSample,
+  JsonFailureSampleInput,
+  JsonFailureSamplesResult,
+  JsonReplayLog,
+  JsonReplayLogsResult,
+} from './ai';
 export type {
   DuplicateAnalysisTabId,
   DuplicateAnalysisStatus,
   DuplicateCheckStep,
+  DuplicateCheckExportReportResult,
   DuplicateCheckTaskState,
   DuplicateCheckWorkspaceState,
   DuplicateContentAnalysisState,
   DuplicateContentExtractionItem,
+  DuplicateContentIgnoreRule,
   DuplicateContentSentenceItem,
   DuplicateImageAnalysisState,
   DuplicateImageFileResult,
@@ -22,6 +33,7 @@ export type {
   DuplicateOutlineItemSource,
   DuplicateOutlineMatchType,
   DuplicateOutlinePairwiseSimilarity,
+  DuplicateResolutionStatus,
   DuplicateSubTaskProgress,
   FileSelectionResult,
   LocalFileSelection,
@@ -29,8 +41,10 @@ export type {
 export type {
   AiConfig,
   AiRequestMode,
+  AppTheme,
   ClientConfig,
   ConfigSaveResult,
+  DisplayLanguage,
   FileParserConfig,
   FileParserProvider,
   ImageModelTestResult,
@@ -42,6 +56,7 @@ export type {
   TextModelConfig,
   TextModelProvider,
   TextModelProfiles,
+  SidebarLayout,
   UpdateChannel,
 } from './config';
 export type { AppMenuItem, SectionId } from './navigation';
@@ -66,9 +81,25 @@ export {
   HEADING_LEVEL_LABELS,
 } from './exportFormat';
 export type { OutlineData, OutlineItem, OutlineMode, TechnicalRequirementGroup } from './outline';
-export type { GpuHardwareAccelerationStatus, LatestReleaseInfo, UpdateCheckResult, WordExportProgressEvent, WordExportResult, WorkspaceDatabasePhase, WorkspaceDatabaseStatus, YibiaoBridge } from './ipc';
+export type {
+  GpuHardwareAccelerationStatus,
+  LatestReleaseInfo,
+  ProjectWorkspaceActiveResult,
+  ProjectWorkspaceListResult,
+  ProjectWorkspaceMutationResult,
+  ProjectWorkspacePackageResult,
+  ProjectWorkspacePathResult,
+  ProjectWorkspaceSummary,
+  UpdateCheckResult,
+  WordExportProgressEvent,
+  WordExportResult,
+  WorkspaceDatabasePhase,
+  WorkspaceDatabaseStatus,
+  YibiaoBridge,
+} from './ipc';
 export type {
   RejectionCheckFinding,
+  RejectionCheckExportReportResult,
   RejectionCheckResultState,
   RejectionCheckRunStatus,
   RejectionCheckStep,
@@ -83,6 +114,7 @@ export type {
   RejectionExtractionState,
   RejectionExtractionStatus,
   RejectionFindingSeverity,
+  RejectionFindingResolutionStatus,
   RejectionFindingType,
   RejectionResultTab,
 } from '../../features/rejection-check/types';

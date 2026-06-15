@@ -1,13 +1,19 @@
+import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useState } from 'react';
 import { trackConfigUsage } from '../../../shared/analytics/analytics';
 import { FloatingToolbar, InputWithAction, useToast } from '../../../shared/ui';
 import { showUpdateReadyToast } from '../../../shared/updateToast';
 import type { FloatingToolbarGroup } from '../../../shared/ui';
-import type { AiRequestMode, ClientConfig, FileParserProvider, ImageModelConfig, ImageModelProfiles, ImageModelProvider, ImageModelStatus, TextModelConfig, TextModelProfiles, TextModelProvider, UpdateChannel } from '../../../shared/types';
+import type { AiRequestMode, AppTheme, ClientConfig, DisplayLanguage, FileParserProvider, ImageModelConfig, ImageModelProfiles, ImageModelProvider, ImageModelStatus, ProjectWorkspaceListResult, ProjectWorkspaceSummary, SidebarLayout, TextModelConfig, TextModelProfiles, TextModelProvider, UpdateChannel } from '../../../shared/types';
 import type { SettingsPageState } from '../types';
 
 type SettingsTab = 'general' | 'text-model' | 'image-model' | 'file-parser' | 'about';
 type UpdateStatus = 'idle' | 'checking' | 'downloading' | 'downloaded' | 'error' | 'disabled';
+
+type ProjectWorkspaceDialog =
+  | { kind: 'switch'; project: ProjectWorkspaceSummary }
+  | { kind: 'delete'; project: ProjectWorkspaceSummary }
+  | null;
 
 const settingsTabs: Array<{ id: SettingsTab; label: string }> = [
   { id: 'general', label: '通用' },
@@ -22,8 +28,35 @@ const updateChannelOptions: Array<{ value: UpdateChannel; label: string; descrip
   { value: 'cloudflare', label: 'Cloudflare', description: '使用 Cloudflare R2 镜像检查和下载更新' },
 ];
 
+const languageOptions: Array<{ value: DisplayLanguage; label: string; description: string }> = [
+  { value: 'zh-CN', label: '简体中文', description: '当前版本固定为简体中文，后续增加多语言时会在这里切换。' },
+];
+
+const themeOptions: Array<{ value: AppTheme; label: string; description: string }> = [
+  { value: 'system', label: '跟随系统', description: '根据系统浅色/深色模式自动切换' },
+  { value: 'light', label: '浅色', description: '始终使用浅色界面' },
+  { value: 'dark', label: '深色', description: '始终使用深色界面' },
+];
+
+const sidebarLayoutOptions: Array<{ value: SidebarLayout; label: string; description: string }> = [
+  { value: 'classic', label: '经典布局', description: '显示完整菜单名称和说明，适合日常操作' },
+  { value: 'compact', label: '紧凑布局', description: '默认收起侧边栏，只保留图标，适合小屏或专注编辑' },
+];
+
 function normalizeUpdateChannel(value?: string): UpdateChannel {
   return value === 'cloudflare' ? 'cloudflare' : 'github';
+}
+
+function normalizeLanguage(value?: string): DisplayLanguage {
+  return value === 'zh-CN' ? 'zh-CN' : 'zh-CN';
+}
+
+function normalizeTheme(value?: string): AppTheme {
+  return value === 'light' || value === 'dark' ? value : 'system';
+}
+
+function normalizeSidebarLayout(value?: string): SidebarLayout {
+  return value === 'compact' ? 'compact' : 'classic';
 }
 
 const textModelProviders: Array<{ value: TextModelProvider; label: string }> = [
@@ -31,6 +64,13 @@ const textModelProviders: Array<{ value: TextModelProvider; label: string }> = [
   { value: 'volcengine', label: '火山方舟' },
   { value: 'deepseek', label: 'DeepSeek' },
   { value: 'longcat', label: '龙猫' },
+  { value: 'codex-cli', label: '本机 Codex CLI' },
+  { value: 'local-gemma', label: '本地 Gemma（Ollama）' },
+  { value: 'local-qwen', label: '本地千问/Qwen（Ollama）' },
+  { value: 'lm-studio', label: '本地 LM Studio' },
+  { value: 'vllm', label: '本地 vLLM' },
+  { value: 'llama-cpp', label: '本地 llama.cpp' },
+  { value: 'jan', label: '本地 Jan' },
   { value: 'custom', label: '自定义' },
 ];
 
@@ -44,6 +84,13 @@ const textProviderDefaults: TextModelProfiles = {
   volcengine: { api_key: '', base_url: 'https://ark.cn-beijing.volces.com/api/v3', model_name: '', request_mode: 'stream' },
   deepseek: { api_key: '', base_url: 'https://api.deepseek.com', model_name: '', request_mode: 'stream' },
   longcat: { api_key: '', base_url: 'https://api.longcat.chat/openai/v1', model_name: '', request_mode: 'stream' },
+  'codex-cli': { api_key: '', base_url: 'local-codex-cli', model_name: 'gpt-5.5', request_mode: 'normal' },
+  'local-gemma': { api_key: '', base_url: 'http://127.0.0.1:11434/v1', model_name: 'gemma4:31b', request_mode: 'normal' },
+  'local-qwen': { api_key: '', base_url: 'http://127.0.0.1:11434/v1', model_name: 'qwen3.6:27b', request_mode: 'normal' },
+  'lm-studio': { api_key: '', base_url: 'http://127.0.0.1:1234/v1', model_name: '', request_mode: 'normal' },
+  vllm: { api_key: '', base_url: 'http://127.0.0.1:8000/v1', model_name: '', request_mode: 'normal' },
+  'llama-cpp': { api_key: '', base_url: 'http://127.0.0.1:8080/v1', model_name: '', request_mode: 'normal' },
+  jan: { api_key: '', base_url: 'http://127.0.0.1:1337/v1', model_name: '', request_mode: 'normal' },
   custom: { api_key: '', base_url: '', model_name: '', request_mode: 'stream' },
 };
 
@@ -68,11 +115,14 @@ function normalizeAiRequestMode(value?: AiRequestMode): AiRequestMode {
 function normalizeTextModelProfile(provider: TextModelProvider, profile?: Partial<TextModelConfig>): TextModelConfig {
   const defaults = textProviderDefaults[provider];
   const baseUrl = provider === 'custom' ? profile?.base_url ?? defaults.base_url : defaults.base_url;
+  const requestMode = isApiKeylessTextProvider(provider)
+    ? 'normal'
+    : normalizeAiRequestMode(profile?.request_mode ?? defaults.request_mode);
   return {
     api_key: profile?.api_key ?? defaults.api_key,
     base_url: baseUrl,
     model_name: profile?.model_name ?? defaults.model_name,
-    request_mode: normalizeAiRequestMode(profile?.request_mode ?? defaults.request_mode),
+    request_mode: requestMode,
   };
 }
 
@@ -90,6 +140,111 @@ function textProfileFromState(textModel: SettingsPageState['textModel']): TextMo
     model_name: textModel.model_name,
     request_mode: textModel.request_mode,
   };
+}
+
+function isCodexCliTextProvider(provider: TextModelProvider) {
+  return provider === 'codex-cli';
+}
+
+function isLocalHttpTextProvider(provider: TextModelProvider) {
+  return provider === 'local-gemma'
+    || provider === 'local-qwen'
+    || provider === 'lm-studio'
+    || provider === 'vllm'
+    || provider === 'llama-cpp'
+    || provider === 'jan';
+}
+
+function isOllamaTextProvider(provider: TextModelProvider) {
+  return provider === 'local-gemma' || provider === 'local-qwen';
+}
+
+function isApiKeylessTextProvider(provider: TextModelProvider) {
+  return isCodexCliTextProvider(provider) || isLocalHttpTextProvider(provider);
+}
+
+function getTextBaseUrlDescription(provider: TextModelProvider) {
+  if (isCodexCliTextProvider(provider)) return '本机 Codex CLI 桥接模式，不使用 HTTP Base URL';
+  if (isOllamaTextProvider(provider)) return '本地 Ollama OpenAI 兼容接口地址，拉取模型时会读取 127.0.0.1:11434/api/tags';
+  if (provider === 'lm-studio') return '本地 LM Studio OpenAI 兼容接口地址，默认使用 127.0.0.1:1234';
+  if (provider === 'vllm') return '本地 vLLM OpenAI 兼容接口地址，默认使用 127.0.0.1:8000';
+  if (provider === 'llama-cpp') return '本地 llama.cpp server OpenAI 兼容接口地址，默认使用 127.0.0.1:8080';
+  if (provider === 'jan') return '本地 Jan Server OpenAI 兼容接口地址，默认使用 127.0.0.1:1337';
+  return 'OpenAI Like 接口地址，用于文本生成和分析任务';
+}
+
+function getTextApiKeyDescription(provider: TextModelProvider) {
+  if (isCodexCliTextProvider(provider)) return '使用本机 Codex 登录状态，不在本应用中保存 API Key';
+  if (isOllamaTextProvider(provider)) return '本地 Ollama 默认不需要 API Key';
+  if (provider === 'lm-studio') return '本地 LM Studio 默认不需要 API Key';
+  if (provider === 'vllm') return '本地 vLLM 默认不需要 API Key';
+  if (provider === 'llama-cpp') return '本地 llama.cpp server 默认不需要 API Key';
+  if (provider === 'jan') return '本地 Jan Server 默认不需要 API Key';
+  return '仅保存在本机配置文件中，不暴露给 Renderer 以外的原始能力';
+}
+
+function getTextModelDescription(provider: TextModelProvider) {
+  if (isCodexCliTextProvider(provider)) return '填写 Codex CLI 支持的模型名称，例如 gpt-5.5';
+  if (provider === 'local-gemma') return '填写本地已安装的 Gemma 模型名称，例如 gemma4:31b';
+  if (provider === 'local-qwen') return '填写本地已安装的千问/Qwen 模型名称，例如 qwen3.6:27b';
+  if (provider === 'lm-studio') return '从 LM Studio Local Server 拉取，或手动填写已加载模型名称';
+  if (provider === 'vllm') return '从 vLLM OpenAI 兼容服务拉取，或手动填写已部署模型名称';
+  if (provider === 'llama-cpp') return '从 llama.cpp server 拉取，或手动填写已加载模型名称';
+  if (provider === 'jan') return '从 Jan Server 拉取，或手动填写已加载模型名称';
+  return '可手动录入，也可从当前 Base URL 拉取可用模型';
+}
+
+function getTextModelPlaceholder(provider: TextModelProvider) {
+  if (isCodexCliTextProvider(provider)) return '例如 gpt-5.5';
+  if (provider === 'local-gemma') return '例如 gemma4:31b';
+  if (provider === 'local-qwen') return '例如 qwen3.6:27b';
+  if (provider === 'lm-studio') return '例如 qwen3-30b-a3b-instruct-mlx';
+  if (provider === 'vllm') return '例如 Qwen/Qwen3-32B';
+  if (provider === 'llama-cpp') return '例如 qwen3-8b-q4_k_m.gguf';
+  if (provider === 'jan') return '例如 qwen3-30b-a3b';
+  if (provider === 'deepseek') return '例如 deepseek-chat';
+  return '请输入文本模型名称';
+}
+
+function getLocalModelSizeScore(model: string) {
+  const match = /(\d+(?:\.\d+)?)b/i.exec(model);
+  return match ? Number(match[1]) : 0;
+}
+
+function getLocalTextModelScore(provider: TextModelProvider, model: string) {
+  const normalized = model.toLowerCase();
+  let score = getLocalModelSizeScore(normalized);
+
+  if (provider === 'local-gemma') {
+    if (normalized.includes('gemma4')) score += 1000;
+    if (normalized.includes('gemma3')) score += 500;
+  }
+
+  if (provider === 'local-qwen') {
+    if (normalized.includes('qwen3.6')) score += 1000;
+    if (normalized.includes('qwen3')) score += 700;
+    if (normalized.includes('qwen2.5')) score += 500;
+    if (normalized.includes('vl')) score -= 200;
+    if (normalized.includes('coder')) score -= 150;
+  }
+
+  return score;
+}
+
+function filterTextModelsForProvider(provider: TextModelProvider, models: string[]) {
+  if (provider === 'local-gemma') {
+    const gemmaModels = models.filter((model) => /gemma/i.test(model));
+    const filteredModels = gemmaModels.length > 0 ? gemmaModels : models;
+    return [...filteredModels].sort((a, b) => getLocalTextModelScore(provider, b) - getLocalTextModelScore(provider, a));
+  }
+
+  if (provider === 'local-qwen') {
+    const qwenModels = models.filter((model) => /(qwen|qwq)/i.test(model));
+    const filteredModels = qwenModels.length > 0 ? qwenModels : models;
+    return [...filteredModels].sort((a, b) => getLocalTextModelScore(provider, b) - getLocalTextModelScore(provider, a));
+  }
+
+  return models;
 }
 
 const imageProviders: Array<{ value: ImageModelProvider; label: string }> = [
@@ -262,6 +417,22 @@ function formatImageTestTime(value?: string) {
   return date.toLocaleString('zh-CN', { hour12: false });
 }
 
+function formatProjectTime(value?: string | null) {
+  if (!value) return '未记录';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('zh-CN', { hour12: false });
+}
+
+function getActiveProject(projectState: ProjectWorkspaceListResult | null) {
+  return projectState?.projects.find((project) => project.is_active) || null;
+}
+
+function getActiveTaskCount(tasks: unknown) {
+  if (!Array.isArray(tasks)) return 0;
+  return tasks.length;
+}
+
 const fileParserProviders: Array<{ value: FileParserProvider; label: string }> = [
   { value: 'local', label: '本地解析' },
   { value: 'mineru-accurate-api', label: 'MinerU-精准解析 API' },
@@ -328,6 +499,9 @@ const initialState: SettingsPageState = {
     mineru_token: '',
   },
   general: {
+    language: 'zh-CN',
+    theme: 'system',
+    sidebar_layout: 'classic',
     developer_mode: false,
     update_channel: 'github',
     gpu_hardware_acceleration_enabled: true,
@@ -337,9 +511,10 @@ const initialState: SettingsPageState = {
 
 interface SettingsPageProps {
   onDeveloperModeChange?: (developerMode: boolean) => void;
+  onAppearanceChange?: (appearance: { theme: AppTheme; sidebarLayout: SidebarLayout }) => void;
 }
 
-function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
+function SettingsPage({ onDeveloperModeChange, onAppearanceChange }: SettingsPageProps) {
   const [state, setState] = useState<SettingsPageState>(initialState);
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
   const [savedConfig, setSavedConfig] = useState<ClientConfig | null>(null);
@@ -354,10 +529,18 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
   const [updatePercent, setUpdatePercent] = useState(0);
   const [updateVersion, setUpdateVersion] = useState('');
   const [updateError, setUpdateError] = useState('');
+  const [projectState, setProjectState] = useState<ProjectWorkspaceListResult | null>(null);
+  const [projectLoading, setProjectLoading] = useState(false);
+  const [projectActionBusy, setProjectActionBusy] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [projectExportDir, setProjectExportDir] = useState('');
+  const [projectImportDir, setProjectImportDir] = useState('');
+  const [projectDialog, setProjectDialog] = useState<ProjectWorkspaceDialog>(null);
   const { showToast } = useToast();
 
   useEffect(() => {
     void loadTextConfig();
+    void loadProjectState();
     void window.yibiao?.getVersion().then(setAppVersion);
 
     const unsubs: Array<() => void> = [];
@@ -412,6 +595,9 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
           mineru_token: config.file_parser.mineru_token || '',
         },
         general: {
+          language: normalizeLanguage(config.language),
+          theme: normalizeTheme(config.theme),
+          sidebar_layout: normalizeSidebarLayout(config.sidebar_layout),
           developer_mode: Boolean(config.developer_mode),
           update_channel: normalizeUpdateChannel(config.update_channel),
           gpu_hardware_acceleration_enabled: Boolean(config.gpu_hardware_acceleration_enabled),
@@ -420,9 +606,35 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
       }));
       setSavedConfig(config);
       onDeveloperModeChange?.(Boolean(config.developer_mode));
+      onAppearanceChange?.({
+        theme: normalizeTheme(config.theme),
+        sidebarLayout: normalizeSidebarLayout(config.sidebar_layout),
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '加载客户端配置失败';
       showToast(errorMessage, 'error');
+    }
+  };
+
+  const loadProjectState = async () => {
+    try {
+      setProjectLoading(true);
+      const stateResult = await window.yibiao?.projectWorkspace?.list();
+      if (stateResult) {
+        setProjectState(stateResult);
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '加载项目工作区失败', 'error');
+    } finally {
+      setProjectLoading(false);
+    }
+  };
+
+  const assertNoActiveProjectTasks = async () => {
+    const activeTasks = await window.yibiao?.tasks?.getActiveTasks?.();
+    const activeTaskCount = getActiveTaskCount(activeTasks);
+    if (activeTaskCount > 0) {
+      throw new Error(`当前还有 ${activeTaskCount} 个后台任务运行中，请等待任务完成后再切换或删除项目。`);
     }
   };
 
@@ -455,6 +667,9 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
         provider: state.fileParser.provider,
         mineru_token: state.fileParser.mineru_token || '',
       },
+      language: state.general.language,
+      theme: state.general.theme,
+      sidebar_layout: state.general.sidebar_layout,
       update_channel: state.general.update_channel,
       gpu_hardware_acceleration_enabled: state.general.gpu_hardware_acceleration_enabled,
       gpu_hardware_acceleration_configured: state.general.gpu_hardware_acceleration_configured,
@@ -548,6 +763,10 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
       if (result?.success) {
         setSavedConfig(config);
         onDeveloperModeChange?.(Boolean(config.developer_mode));
+        onAppearanceChange?.({
+          theme: normalizeTheme(config.theme),
+          sidebarLayout: normalizeSidebarLayout(config.sidebar_layout),
+        });
         trackConfigUsage({}, config);
       }
       return Boolean(result?.success);
@@ -575,6 +794,22 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
       ...prev,
       general: { ...prev.general, update_channel: updateChannel },
     }));
+  };
+
+  const updateTheme = (theme: AppTheme) => {
+    setState((prev) => ({
+      ...prev,
+      general: { ...prev.general, theme },
+    }));
+    onAppearanceChange?.({ theme, sidebarLayout: state.general.sidebar_layout });
+  };
+
+  const updateSidebarLayout = (sidebarLayout: SidebarLayout) => {
+    setState((prev) => ({
+      ...prev,
+      general: { ...prev.general, sidebar_layout: sidebarLayout },
+    }));
+    onAppearanceChange?.({ theme: state.general.theme, sidebarLayout });
   };
 
   const updateGpuHardwareAcceleration = (enabled: boolean) => {
@@ -772,11 +1007,182 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
     }
   };
 
+  const createProject = async () => {
+    const name = newProjectName.trim();
+    if (!name) {
+      showToast('请先填写项目名称', 'info');
+      return;
+    }
+
+    try {
+      setProjectActionBusy(true);
+      const result = await window.yibiao?.projectWorkspace?.create({ name, makeActive: true });
+      if (result?.state) {
+        setProjectState(result.state);
+      }
+      setNewProjectName('');
+      showToast('项目已创建并设为当前项目，重启后加载该项目工作区', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '创建项目失败', 'error');
+    } finally {
+      setProjectActionBusy(false);
+    }
+  };
+
+  const archiveProject = async (project: ProjectWorkspaceSummary, archived: boolean) => {
+    try {
+      setProjectActionBusy(true);
+      const result = await window.yibiao?.projectWorkspace?.archive(project.id, archived);
+      if (result?.state) {
+        setProjectState(result.state);
+      }
+      showToast(archived ? '项目已归档' : '项目已恢复', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : archived ? '归档项目失败' : '恢复项目失败', 'error');
+    } finally {
+      setProjectActionBusy(false);
+    }
+  };
+
+  const duplicateProject = async (project: ProjectWorkspaceSummary) => {
+    try {
+      setProjectActionBusy(true);
+      await assertNoActiveProjectTasks();
+      const result = await window.yibiao?.projectWorkspace?.duplicate(project.id, { name: `${project.name} 副本`, makeActive: false });
+      if (result?.state) {
+        setProjectState(result.state);
+      }
+      showToast(`项目已复制：${result?.project?.name || `${project.name} 副本`}`, 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '复制项目失败', 'error');
+    } finally {
+      setProjectActionBusy(false);
+    }
+  };
+
+  const exportProjectPackage = async (project: ProjectWorkspaceSummary) => {
+    const packageDir = projectExportDir.trim();
+    if (!packageDir) {
+      showToast('请先填写项目包导出目录', 'info');
+      return;
+    }
+
+    try {
+      setProjectActionBusy(true);
+      await assertNoActiveProjectTasks();
+      const result = await window.yibiao?.projectWorkspace?.exportPackage(project.id, packageDir);
+      showToast(`项目包已导出到 ${result?.package_dir || packageDir}`, 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '导出项目包失败', 'error');
+    } finally {
+      setProjectActionBusy(false);
+    }
+  };
+
+  const importProjectPackage = async () => {
+    const packageDir = projectImportDir.trim();
+    if (!packageDir) {
+      showToast('请先填写项目包导入目录', 'info');
+      return;
+    }
+
+    try {
+      setProjectActionBusy(true);
+      await assertNoActiveProjectTasks();
+      const result = await window.yibiao?.projectWorkspace?.importPackage(packageDir, { makeActive: false });
+      if (result?.state) {
+        setProjectState(result.state);
+      }
+      showToast(`项目包已导入：${result?.project?.name || '新项目'}`, 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '导入项目包失败', 'error');
+    } finally {
+      setProjectActionBusy(false);
+    }
+  };
+
+  const requestSwitchProject = async (project: ProjectWorkspaceSummary) => {
+    if (project.is_active) return;
+    try {
+      await assertNoActiveProjectTasks();
+      setProjectDialog({ kind: 'switch', project });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '当前不能切换项目', 'error');
+    }
+  };
+
+  const confirmSwitchProject = async () => {
+    if (projectDialog?.kind !== 'switch') return;
+    try {
+      setProjectActionBusy(true);
+      await assertNoActiveProjectTasks();
+      const result = await window.yibiao?.projectWorkspace?.setActive(projectDialog.project.id);
+      if (result?.state) {
+        setProjectState(result.state);
+      }
+      setProjectDialog(null);
+      showToast(result?.restart_required ? '当前项目已切换，请重启应用加载新的项目数据' : '当前项目已切换', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '切换项目失败', 'error');
+    } finally {
+      setProjectActionBusy(false);
+    }
+  };
+
+  const requestDeleteProject = async (project: ProjectWorkspaceSummary) => {
+    try {
+      await assertNoActiveProjectTasks();
+      setProjectDialog({ kind: 'delete', project });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '当前不能删除项目', 'error');
+    }
+  };
+
+  const confirmDeleteProject = async () => {
+    if (projectDialog?.kind !== 'delete') return;
+    try {
+      setProjectActionBusy(true);
+      await assertNoActiveProjectTasks();
+      const result = await window.yibiao?.projectWorkspace?.delete(projectDialog.project.id, { deleteFiles: false });
+      if (result?.state) {
+        setProjectState(result.state);
+      }
+      setProjectDialog(null);
+      showToast('项目已从列表删除，工作区文件已保留', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '删除项目失败', 'error');
+    } finally {
+      setProjectActionBusy(false);
+    }
+  };
+
   const fetchTextModels = async () => {
     try {
       setLoadingModels('text');
+      if (isCodexCliTextProvider(state.textModel.provider)) {
+        const models = ['gpt-5.5', 'gpt-5', 'gpt-5-codex'];
+        setTextModels(models);
+        setState((prev) => ({
+          ...prev,
+          ...(() => {
+            const textModel = models.includes(prev.textModel.model_name)
+              ? prev.textModel
+              : { ...prev.textModel, model_name: models[0] };
+            return {
+              textModel,
+              textModelProfiles: {
+                ...prev.textModelProfiles,
+                [prev.textModel.provider]: textProfileFromState(textModel),
+              },
+            };
+          })(),
+        }));
+        showToast('已加载本机 Codex CLI 常用模型；实际可用性以测试结果为准', 'success');
+        return;
+      }
+
       const result = await window.yibiao?.config.listModels(createClientConfig());
-      const models = result?.models || [];
+      const models = filterTextModelsForProvider(state.textModel.provider, result?.models || []);
       setTextModels(models);
       if (result?.success && models.length > 0) {
         setState((prev) => ({
@@ -910,11 +1316,17 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
 
     if (activeTab === 'general') {
       return JSON.stringify({
+        language: state.general.language,
+        theme: state.general.theme,
+        sidebar_layout: state.general.sidebar_layout,
         developer_mode: Boolean(state.general.developer_mode),
         update_channel: state.general.update_channel,
         gpu_hardware_acceleration_enabled: Boolean(state.general.gpu_hardware_acceleration_enabled),
         gpu_hardware_acceleration_configured: Boolean(state.general.gpu_hardware_acceleration_configured),
       }) !== JSON.stringify({
+        language: normalizeLanguage(savedConfig.language),
+        theme: normalizeTheme(savedConfig.theme),
+        sidebar_layout: normalizeSidebarLayout(savedConfig.sidebar_layout),
         developer_mode: Boolean(savedConfig.developer_mode),
         update_channel: normalizeUpdateChannel(savedConfig.update_channel),
         gpu_hardware_acceleration_enabled: Boolean(savedConfig.gpu_hardware_acceleration_enabled),
@@ -1030,6 +1442,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
     : [];
 
   const updateBusy = updateStatus === 'checking' || updateStatus === 'downloading';
+  const activeProject = getActiveProject(projectState);
   const updateStatusText = (() => {
     if (updateStatus === 'checking') return '正在检查更新...';
     if (updateStatus === 'downloading') return `正在下载 ${updatePercent}%`;
@@ -1064,33 +1477,165 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
             <strong>通用</strong>
           </div>
           <div className="settings-list">
+            <div className="settings-row settings-row-wide">
+              <div className="settings-row-copy">
+                <strong>项目工作区</strong>
+                <span>
+                  {activeProject
+                    ? `当前项目：${activeProject.name}。切换项目会在重启后加载对应工作区数据。`
+                    : projectLoading ? '正在读取项目列表。' : '尚未读取到项目工作区。'}
+                </span>
+              </div>
+              <div className="project-workspace-panel">
+                <div className="project-workspace-current">
+                  <div>
+                    <span>当前项目</span>
+                    <strong>{activeProject?.name || '默认项目'}</strong>
+                    <small>{activeProject?.workspace_path || projectState?.projects_dir || '未读取到工作区路径'}</small>
+                  </div>
+                  <button type="button" className="inline-action" onClick={() => { void loadProjectState(); }} disabled={projectLoading}>
+                    {projectLoading ? '刷新中' : '刷新'}
+                  </button>
+                </div>
+                <div className="project-workspace-create">
+                  <input
+                    type="text"
+                    value={newProjectName}
+                    placeholder="新项目名称"
+                    onChange={(event) => setNewProjectName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        void createProject();
+                      }
+                    }}
+                  />
+                  <button type="button" className="inline-action" onClick={() => { void createProject(); }} disabled={projectActionBusy}>
+                    新建并切换
+                  </button>
+                </div>
+                <div className="project-workspace-package">
+                  <label>
+                    <span>导出目录</span>
+                    <input
+                      type="text"
+                      value={projectExportDir}
+                      placeholder="项目包导出目录，例如 D:\\投标项目备份\\医院后勤"
+                      aria-label="项目包导出目录"
+                      onChange={(event) => setProjectExportDir(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>导入目录</span>
+                    <input
+                      type="text"
+                      value={projectImportDir}
+                      placeholder="包含 project.json 的项目包目录"
+                      aria-label="项目包导入目录"
+                      onChange={(event) => setProjectImportDir(event.target.value)}
+                    />
+                  </label>
+                  <button type="button" className="inline-action" onClick={() => { void importProjectPackage(); }} disabled={projectActionBusy}>
+                    导入项目包
+                  </button>
+                </div>
+                <div className="project-workspace-list" aria-label="项目工作区列表">
+                  {(projectState?.projects || []).map((project) => (
+                    <article className={`project-workspace-item ${project.is_active ? 'is-active' : ''}`} key={project.id}>
+                      <div>
+                        <strong>{project.name}</strong>
+                        <span>{project.description || (project.is_default ? '默认旧版工作区' : '独立项目工作区')}</span>
+                        <small>
+                          {project.status === 'archived' ? '已归档' : project.is_active ? '当前项目' : '可切换'} · 更新于 {formatProjectTime(project.updated_at)}
+                        </small>
+                      </div>
+                      <div className="project-workspace-actions">
+                        <button
+                          type="button"
+                          className="inline-action"
+                          disabled={project.is_active || project.status === 'archived' || projectActionBusy}
+                          onClick={() => { void requestSwitchProject(project); }}
+                        >
+                          {project.is_active ? '当前' : '设为当前'}
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-action"
+                          disabled={project.status === 'archived' || projectActionBusy}
+                          onClick={() => { void duplicateProject(project); }}
+                        >
+                          复制
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-action"
+                          disabled={project.status === 'archived' || projectActionBusy}
+                          onClick={() => { void exportProjectPackage(project); }}
+                        >
+                          导出
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-action"
+                          disabled={project.is_default || projectActionBusy}
+                          onClick={() => { void archiveProject(project, project.status !== 'archived'); }}
+                        >
+                          {project.status === 'archived' ? '恢复' : '归档'}
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-action"
+                          disabled={project.is_default || project.is_active || projectActionBusy}
+                          onClick={() => { void requestDeleteProject(project); }}
+                        >
+                          删除
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                  {!projectLoading && !projectState?.projects.length && (
+                    <div className="project-workspace-empty">暂无项目数据，请刷新后重试。</div>
+                  )}
+                </div>
+              </div>
+            </div>
             <div className="settings-row">
               <div className="settings-row-copy">
                 <strong>显示语言</strong>
-                <span>选择界面的显示语言</span>
+                <span>{languageOptions[0].description}</span>
               </div>
-              <select value="zh-CN" disabled>
-                <option value="zh-CN">简体中文</option>
-              </select>
+              <span className="settings-static-value">{languageOptions[0].label}</span>
             </div>
-            <div className="settings-row">
+            <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>应用主题</strong>
-                <span>切换深色或浅色模式</span>
+                <span>{themeOptions.find((option) => option.value === state.general.theme)?.description || '切换深色或浅色模式'}</span>
               </div>
-              <select value="system" disabled>
-                <option value="system">跟随系统</option>
+              <select
+                aria-label="应用主题"
+                value={state.general.theme}
+                onChange={(event) => updateTheme(event.target.value as AppTheme)}
+              >
+                {themeOptions.map((option) => (
+                  <option value={option.value} key={option.value}>{option.label}</option>
+                ))}
               </select>
-            </div>
-            <div className="settings-row">
+            </label>
+            <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>侧边栏布局</strong>
-                <span>保持当前经典布局，后续可扩展为紧凑布局</span>
+                <span>{sidebarLayoutOptions.find((option) => option.value === state.general.sidebar_layout)?.description || '选择侧边栏显示密度'}</span>
               </div>
-              <select value="classic" disabled>
-                <option value="classic">经典布局</option>
+              <select
+                aria-label="侧边栏布局"
+                value={state.general.sidebar_layout}
+                onChange={(event) => updateSidebarLayout(event.target.value as SidebarLayout)}
+              >
+                {sidebarLayoutOptions.map((option) => (
+                  <option value={option.value} key={option.value}>{option.label}</option>
+                ))}
               </select>
-            </div>
+            </label>
             <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>自动更新渠道</strong>
@@ -1164,9 +1709,10 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
             <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>服务提供商</strong>
-                <span>选择服务商会自动使用预置 Base URL；只有自定义服务商允许修改</span>
+                <span>选择服务商会自动使用预置 Base URL；Codex CLI 使用本机登录状态</span>
               </div>
               <select
+                aria-label="服务提供商"
                 value={state.textModel.provider}
                 onChange={(event) => updateTextModelProvider(event.target.value as TextModelProvider)}
               >
@@ -1178,7 +1724,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
             <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>Base URL</strong>
-                <span>OpenAI Like 接口地址，用于文本生成和分析任务</span>
+                <span>{getTextBaseUrlDescription(state.textModel.provider)}</span>
               </div>
               <input
                 type="text"
@@ -1191,23 +1737,24 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
             <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>API Key</strong>
-                <span>仅保存在本机配置文件中，不暴露给 Renderer 以外的原始能力</span>
+                <span>{getTextApiKeyDescription(state.textModel.provider)}</span>
               </div>
               <InputWithAction
                 type="password"
                 value={state.textModel.api_key}
-                placeholder="请输入文本模型 API Key"
+                placeholder={isApiKeylessTextProvider(state.textModel.provider) ? '当前服务商不需要填写 API Key' : '请输入文本模型 API Key'}
                 onChange={(event) => updateTextModelConfig({ api_key: event.target.value }, { clearModels: true })}
                 actionLabel="获取"
                 actionTitle="打开当前服务商的 API Key 获取页面"
                 actionDisabled={!textProviderApiKeyUrls[state.textModel.provider]}
+                disabled={isApiKeylessTextProvider(state.textModel.provider)}
                 onAction={() => { void openTextProviderApiKeyPage(); }}
               />
             </label>
             <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>模型名称</strong>
-                <span>可手动录入，也可从当前 Base URL 拉取可用模型</span>
+                <span>{getTextModelDescription(state.textModel.provider)}</span>
               </div>
               <div className="settings-control-with-action">
                 {textModels.length > 0 ? (
@@ -1221,7 +1768,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                   <input
                     type="text"
                     value={state.textModel.model_name}
-                    placeholder="例如 deepseek-chat"
+                    placeholder={getTextModelPlaceholder(state.textModel.provider)}
                     onChange={(event) => updateTextModelConfig({ model_name: event.target.value })}
                   />
                 )}
@@ -1508,6 +2055,39 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
         </section>
       )}
       </div>
+      <Dialog.Root open={Boolean(projectDialog)} onOpenChange={(open) => !open && !projectActionBusy && setProjectDialog(null)}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="content-regenerate-modal" />
+          <Dialog.Content className="content-regenerate-dialog project-workspace-dialog">
+            <Dialog.Title>{projectDialog?.kind === 'delete' ? '删除项目' : '切换项目'}</Dialog.Title>
+            <Dialog.Description>
+              {projectDialog?.kind === 'delete'
+                ? `将从项目列表删除“${projectDialog.project.name}”，本地工作区文件会保留。`
+                : `将当前项目切换为“${projectDialog?.project.name || ''}”。切换后需要重启应用，业务数据才会从该项目工作区重新加载。`}
+            </Dialog.Description>
+            <div className="project-workspace-dialog-path">
+              {projectDialog?.project.workspace_path || ''}
+            </div>
+            <div className="content-regenerate-actions">
+              <button type="button" className="secondary-button" onClick={() => setProjectDialog(null)} disabled={projectActionBusy}>取消</button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => {
+                  if (projectDialog?.kind === 'delete') {
+                    void confirmDeleteProject();
+                    return;
+                  }
+                  void confirmSwitchProject();
+                }}
+                disabled={projectActionBusy}
+              >
+                {projectActionBusy ? '处理中...' : projectDialog?.kind === 'delete' ? '确认删除' : '确认切换'}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
       <FloatingToolbar groups={settingsToolbarGroups} label="设置保存工具条" />
     </div>
   );

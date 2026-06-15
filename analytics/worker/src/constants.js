@@ -26,11 +26,24 @@ export const CONFIG_USAGE_FIELDS = [
   { key: 'minimumWords' },
   { key: 'contentConcurrencies' },
   { key: 'contentGenerationActions' },
+  { key: 'businessBidActions' },
   { key: 'enableConsistencyAudit' },
   { key: 'enableOriginalPlanCoverageAudit' },
   { key: 'useMermaidImages' },
   { key: 'useAiImages' },
 ];
+
+export const CONFIG_USAGE_VALUE_ALLOWLISTS = {
+  businessBidActions: new Set([
+    'import_tender_document',
+    'generate_matrix_from_technical_plan',
+    'start_ai_extraction',
+    'confirm_clause',
+    'export_markdown',
+    'export_word',
+    'export_excel',
+  ]),
+};
 
 export const MODEL_USAGE_FIELDS = [
   { key: 'textModelUsage', requestType: 'text' },

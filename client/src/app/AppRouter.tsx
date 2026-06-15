@@ -1,11 +1,14 @@
 import type { SectionId } from '../shared/types/navigation';
+import type { AppTheme, SidebarLayout } from '../shared/types';
 import { getAppMenuItemById } from './menuConfig';
+import AiEvaluationPage from '../features/ai-evaluation/pages/AiEvaluationPage';
 import BidOpportunityPage from '../features/bid-opportunity/pages/BidOpportunityPage';
 import BusinessBidPage from '../features/business-bid/pages/BusinessBidPage';
 import DeveloperDemoPage, { isDeveloperDemoSection } from '../features/developer/pages/DeveloperDemoPage';
 import DeveloperTestPage from '../features/developer/pages/DeveloperTestPage';
 import ExportFormatPage from '../features/export-format/pages/ExportFormatPage';
 import DuplicateCheckPage from '../features/duplicate-check/pages/DuplicateCheckPage';
+import ImageKnowledgeBasePage from '../features/image-knowledge-base/pages/ImageKnowledgeBasePage';
 import KnowledgeBasePage from '../features/knowledge-base/pages/KnowledgeBasePage';
 import RejectionCheckPage from '../features/rejection-check/pages/RejectionCheckPage';
 import ResourcesPage from '../features/resources/pages/ResourcesPage';
@@ -17,11 +20,12 @@ interface AppRouterProps {
   activeSection: SectionId;
   developerMode: boolean;
   onDeveloperModeChange: (developerMode: boolean) => void;
+  onAppearanceChange: (appearance: { theme: AppTheme; sidebarLayout: SidebarLayout }) => void;
   onSectionChange: (section: SectionId) => void;
   registerLeaveGuard?: (guard: ((nextSection?: string) => Promise<boolean>) | null) => void;
 }
 
-function AppRouter({ activeSection, developerMode, onDeveloperModeChange, onSectionChange, registerLeaveGuard }: AppRouterProps) {
+function AppRouter({ activeSection, developerMode, onDeveloperModeChange, onAppearanceChange, onSectionChange, registerLeaveGuard }: AppRouterProps) {
   const activeMenuItem = getAppMenuItemById(activeSection, developerMode);
 
   if (activeMenuItem?.children?.length) {
@@ -41,12 +45,16 @@ function AppRouter({ activeSection, developerMode, onDeveloperModeChange, onSect
       return <BusinessBidPage />;
     case 'document-knowledge-base':
       return <KnowledgeBasePage />;
+    case 'image-knowledge-base':
+      return <ImageKnowledgeBasePage />;
     case 'resources':
       return <ResourcesPage />;
     case 'duplicate-check':
       return <DuplicateCheckPage />;
     case 'rejection-check':
       return <RejectionCheckPage />;
+    case 'ai-evaluation':
+      return <AiEvaluationPage />;
     case 'export-format':
       return <ExportFormatPage />;
     case 'bid-opportunity':
@@ -56,7 +64,7 @@ function AppRouter({ activeSection, developerMode, onDeveloperModeChange, onSect
     case 'developer-json-test':
       return <DeveloperTestPage />;
     case 'settings':
-      return <SettingsPage onDeveloperModeChange={onDeveloperModeChange} />;
+      return <SettingsPage onDeveloperModeChange={onDeveloperModeChange} onAppearanceChange={onAppearanceChange} />;
     default:
       return null;
   }

@@ -81,6 +81,14 @@ export interface PageSetupConfig {
   page_number_enabled: boolean;
   page_number_format: string;   // '第{page}页'
   header_enabled: boolean;
+  header_text: string;
+  header_first_page_different: boolean;
+  header_first_page_text: string;
+  header_even_odd_different: boolean;
+  header_even_text: string;
+  header_font: string;
+  header_size: string;
+  header_alignment: string;
 }
 
 // ── 完整导出格式配置 ──────────────────────────────
@@ -181,6 +189,14 @@ const DEFAULT_PAGE_SETUP: PageSetupConfig = {
   page_number_enabled: true,
   page_number_format: '第{page}页',
   header_enabled: false,
+  header_text: '投标技术文件',
+  header_first_page_different: false,
+  header_first_page_text: '',
+  header_even_odd_different: false,
+  header_even_text: '',
+  header_font: '宋体',
+  header_size: '小五',
+  header_alignment: '居中对齐',
 };
 
 const DEFAULT_BODY_TEXT: BodyTextStyleConfig = {

@@ -1,21 +1,31 @@
 const { ipcMain, shell } = require('electron');
 const { registerAiIpc } = require('./aiIpc.cjs');
+const { registerAiEvaluationIpc } = require('./aiEvaluationIpc.cjs');
+const { registerBidOpportunityIpc } = require('./bidOpportunityIpc.cjs');
+const { registerBusinessBidIpc } = require('./businessBidIpc.cjs');
 const { registerConfigIpc } = require('./configIpc.cjs');
 const { registerDuplicateCheckIpc } = require('./duplicateCheckIpc.cjs');
 const { registerExportIpc } = require('./exportIpc.cjs');
 const { registerFileIpc } = require('./fileIpc.cjs');
+const { registerImageKnowledgeBaseIpc } = require('./imageKnowledgeBaseIpc.cjs');
 const { registerKnowledgeBaseIpc } = require('./knowledgeBaseIpc.cjs');
+const { registerProjectWorkspaceIpc } = require('./projectWorkspaceIpc.cjs');
 const { registerRejectionCheckIpc } = require('./rejectionCheckIpc.cjs');
 const { registerTaskIpc } = require('./taskIpc.cjs');
 const { registerTechnicalPlanIpc } = require('./technicalPlanIpc.cjs');
 const { createAiService } = require('../services/aiService.cjs');
+const { createAiEvaluationStore } = require('../services/aiEvaluationStore.cjs');
+const { createBidOpportunityStore } = require('../services/bidOpportunityStore.cjs');
+const { createBusinessBidStore } = require('../services/businessBidStore.cjs');
 const { createConfigStore } = require('../services/configStore.cjs');
 const { createDuplicateCheckService } = require('../services/duplicateCheckService.cjs');
 const { createDuplicateCheckStore } = require('../services/duplicateCheckStore.cjs');
 const { createExportService } = require('../services/exportService.cjs');
 const { createFileService } = require('../services/fileService.cjs');
+const { createImageKnowledgeBaseStore } = require('../services/imageKnowledgeBaseStore.cjs');
 const { createKnowledgeBaseService } = require('../services/knowledgeBaseService.cjs');
 const { createKnowledgeBaseStore } = require('../services/knowledgeBaseStore.cjs');
+const { createProjectWorkspaceStore } = require('../services/projectWorkspaceStore.cjs');
 const { createRejectionCheckStore } = require('../services/rejectionCheckStore.cjs');
 const { createSqliteDatabase } = require('../services/sqliteDatabase.cjs');
 const { createTaskService } = require('../services/taskService.cjs');
@@ -54,6 +64,13 @@ const workspaceDatabaseChannels = [
   'duplicate-check:save-files',
   'duplicate-check:save-ui-state',
   'duplicate-check:update-state',
+  'duplicate-check:resolve-item',
+  'duplicate-check:batch-handle-items',
+  'duplicate-check:save-content-ignore-rule',
+  'duplicate-check:delete-content-ignore-rule',
+  'duplicate-check:export-content-ignore-rules',
+  'duplicate-check:import-content-ignore-rules',
+  'duplicate-check:export-report',
   'duplicate-check:clear',
   'rejection-check:load-state',
   'rejection-check:import-document',
@@ -62,6 +79,33 @@ const workspaceDatabaseChannels = [
   'rejection-check:save-ui-state',
   'rejection-check:update-state',
   'rejection-check:clear',
+  'ai-evaluation:load-state',
+  'ai-evaluation:generate-from-technical-plan',
+  'ai-evaluation:import-bid-document',
+  'ai-evaluation:update-item',
+  'ai-evaluation:export-report',
+  'ai-evaluation:export-office-package',
+  'ai-evaluation:clear',
+  'business-bid:load-state',
+  'business-bid:import-from-technical-plan',
+  'business-bid:import-tender-document',
+  'business-bid:update-clause',
+  'business-bid:import-attachments',
+  'business-bid:update-attachment',
+  'business-bid:delete-attachment',
+  'business-bid:export-report',
+  'business-bid:export-office-package',
+  'business-bid:clear',
+  'bid-opportunity:load-state',
+  'bid-opportunity:save-opportunity',
+  'bid-opportunity:import-document',
+  'bid-opportunity:import-url',
+  'bid-opportunity:update-follow-up',
+  'bid-opportunity:update-status',
+  'bid-opportunity:delete-opportunity',
+  'bid-opportunity:export-report',
+  'bid-opportunity:export-calendar',
+  'bid-opportunity:clear',
   'knowledge-base:get-migration-status',
   'knowledge-base:migrate-legacy',
   'knowledge-base:list',
@@ -74,6 +118,16 @@ const workspaceDatabaseChannels = [
   'knowledge-base:read-markdown',
   'knowledge-base:read-items',
   'knowledge-base:read-analysis',
+  'image-knowledge-base:list',
+  'image-knowledge-base:upload-images',
+  'image-knowledge-base:update-asset',
+  'image-knowledge-base:batch-update-assets',
+  'image-knowledge-base:rename-tag',
+  'image-knowledge-base:delete-tag',
+  'image-knowledge-base:delete-asset',
+  'image-knowledge-base:batch-delete-assets',
+  'image-knowledge-base:create-markdown-reference',
+  'image-knowledge-base:list-references',
   'tasks:start-bid-analysis',
   'tasks:start-outline-generation',
   'tasks:start-global-facts-generation',
@@ -82,6 +136,9 @@ const workspaceDatabaseChannels = [
   'tasks:start-rejection-items-extraction',
   'tasks:start-rejection-check',
   'tasks:start-duplicate-analysis',
+  'tasks:start-business-bid-ai-extraction',
+  'tasks:start-ai-evaluation-extraction',
+  'tasks:start-ai-evaluation-batch-scoring',
   'tasks:get-active',
 ];
 
@@ -145,26 +202,53 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, fileSe
   const sqliteDatabase = createSqliteDatabase(app, { onStatus: updateStatus });
   const knowledgeBaseStore = createKnowledgeBaseStore({ app, db: sqliteDatabase.db });
   const knowledgeBaseService = createKnowledgeBaseService({ app, aiService, configStore, knowledgeBaseStore });
+  const imageKnowledgeBaseStore = createImageKnowledgeBaseStore({ app, db: sqliteDatabase.db });
   const technicalPlanStore = createTechnicalPlanStore({ app, db: sqliteDatabase.db, fileService });
   const duplicateCheckStore = createDuplicateCheckStore({ app, db: sqliteDatabase.db });
   const rejectionCheckStore = createRejectionCheckStore({ app, db: sqliteDatabase.db, fileService, technicalPlanStore });
+  const aiEvaluationStore = createAiEvaluationStore({ app, db: sqliteDatabase.db, technicalPlanStore, fileService, aiService });
+  const businessBidStore = createBusinessBidStore({ db: sqliteDatabase.db, technicalPlanStore, fileService, aiService, app });
+  const bidOpportunityStore = createBidOpportunityStore({ db: sqliteDatabase.db, fileService, aiService });
   const duplicateCheckService = createDuplicateCheckService({ app, configStore, workspaceStore: duplicateCheckStore });
-  const taskService = createTaskService({ aiService, technicalPlanStore, rejectionCheckStore, duplicateCheckStore, knowledgeBaseService, duplicateCheckService });
+  const taskService = createTaskService({ aiService, technicalPlanStore, rejectionCheckStore, duplicateCheckStore, knowledgeBaseService, imageKnowledgeBaseStore, duplicateCheckService, businessBidStore, aiEvaluationStore });
 
   clearWorkspaceDatabaseIpc();
   registerKnowledgeBaseIpc({ knowledgeBaseService });
+  registerImageKnowledgeBaseIpc({ imageKnowledgeBaseStore });
   registerTechnicalPlanIpc({ technicalPlanStore });
   registerDuplicateCheckIpc({ duplicateCheckStore });
   registerRejectionCheckIpc({ rejectionCheckStore });
+  registerAiEvaluationIpc({ aiEvaluationStore });
+  registerBusinessBidIpc({ businessBidStore });
+  registerBidOpportunityIpc({ bidOpportunityStore });
   registerTaskIpc({ taskService });
   updateStatus({ phase: 'ready', ready: true, message: '本地数据库已就绪' });
   return { sqliteDatabase };
 }
 
+function createProjectScopedApp(app, activeProject) {
+  const workspaceDir = activeProject?.workspace_path || '';
+  return new Proxy(app, {
+    get(target, prop) {
+      if (prop === 'getYibiaoWorkspaceDir') {
+        return () => workspaceDir;
+      }
+      if (prop === 'yibiaoWorkspaceDir') {
+        return workspaceDir;
+      }
+      const value = target[prop];
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
 function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerUpdateDownload, quitAndInstall, getLatestVersion, getUpdateDownloadUrl, gpuStartupState = {}, gpuTrialArg = '--yibiao-trial-hardware-acceleration', forceDisableGpuArgs = [] }) {
   const configStore = createConfigStore(app);
-  const aiService = createAiService({ app, configStore });
-  const fileService = createFileService({ app, configStore });
+  const projectWorkspaceStore = createProjectWorkspaceStore({ app });
+  const activeProject = projectWorkspaceStore.getActiveProject();
+  const projectApp = createProjectScopedApp(app, activeProject);
+  const aiService = createAiService({ app: projectApp, configStore });
+  const fileService = createFileService({ app: projectApp, configStore });
   const exportService = createExportService({ configStore });
   const databaseStatus = registerWorkspaceDatabaseStatusIpc({ mainWindow });
   let workspaceDatabaseStarted = false;
@@ -206,15 +290,22 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
   registerAiIpc({ aiService });
   registerFileIpc({ fileService });
   registerExportIpc({ exportService });
+  registerProjectWorkspaceIpc({ projectWorkspaceStore });
   registerPendingWorkspaceDatabaseIpc(databaseStatus.getStatus);
 
   const startWorkspaceDatabase = () => {
     if (workspaceDatabaseStarted) return;
     workspaceDatabaseStarted = true;
-    databaseStatus.updateStatus({ phase: 'checking', ready: false, message: '正在检查本地数据库' });
+    databaseStatus.updateStatus({
+      phase: 'checking',
+      ready: false,
+      message: `正在检查本地数据库：${activeProject.project?.name || '默认项目'}`,
+      activeProjectId: activeProject.project?.id,
+      workspacePath: activeProject.workspace_path,
+    });
     setTimeout(() => {
       try {
-        registerWorkspaceDatabaseServices({ app, configStore, aiService, fileService, updateStatus: databaseStatus.updateStatus });
+        registerWorkspaceDatabaseServices({ app: projectApp, configStore, aiService, fileService, updateStatus: databaseStatus.updateStatus });
       } catch (error) {
         databaseStatus.updateStatus({
           phase: 'error',

@@ -85,19 +85,23 @@ async function fetchGithubLatestRelease() {
   };
 }
 
-function pickCloudflareDownloadFile(files = []) {
+function pickCloudflareDownloadFileForPlatform(files = [], platform = process.platform, arch = process.arch) {
   const validFiles = Array.isArray(files) ? files.filter((file) => file?.url && file?.name) : [];
-  if (process.platform === 'win32') {
+  if (platform === 'win32') {
     return validFiles.find((file) => /-win-x64\.exe$/i.test(file.name))
       || validFiles.find((file) => /-win-x64\.msi$/i.test(file.name))
       || validFiles.find((file) => /-win-x64\.zip$/i.test(file.name));
   }
-  if (process.platform === 'darwin') {
-    const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
-    return validFiles.find((file) => new RegExp(`-mac-${arch}-package\\.zip$`, 'i').test(file.name))
+  if (platform === 'darwin') {
+    const normalizedArch = arch === 'arm64' ? 'arm64' : 'x64';
+    return validFiles.find((file) => new RegExp(`-mac-${normalizedArch}-package\\.zip$`, 'i').test(file.name))
       || validFiles.find((file) => /-mac-(?:x64|arm64)-package\.zip$/i.test(file.name));
   }
   return null;
+}
+
+function pickCloudflareDownloadFile(files = []) {
+  return pickCloudflareDownloadFileForPlatform(files, process.platform, process.arch);
 }
 
 async function fetchCloudflareLatestRelease() {
@@ -306,4 +310,11 @@ module.exports = {
   quitAndInstall,
   getLatestVersion,
   getUpdateDownloadUrl,
+  __testing: {
+    CLOUDFLARE_RELEASE_BASE_URL,
+    GITHUB_PROVIDER_OPTIONS,
+    compareVersions,
+    normalizeUpdateChannel,
+    pickCloudflareDownloadFileForPlatform,
+  },
 };

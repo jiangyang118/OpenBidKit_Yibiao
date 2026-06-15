@@ -12,6 +12,7 @@ const parserLabels = {
   'mineru-accurate-api': 'MinerU 精准解析 API',
   'mineru-agent-api': 'MinerU-Agent 轻量解析 API',
 };
+const parserProviders = new Set(Object.keys(parserLabels));
 
 const localSupportedExtensions = new Set(['.txt', '.md', '.markdown', '.docx', '.pdf', '.doc', '.wps']);
 const mineruAgentSupportedExtensions = new Set([
@@ -21,6 +22,7 @@ const mineruAccurateSupportedExtensions = new Set([
   '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.png', '.jpg', '.jpeg', '.jp2', '.webp', '.gif', '.bmp', '.html',
 ]);
 const duplicateCheckSupportedExtensions = new Set(['.doc', '.docx', '.wps', '.pdf', '.md', '.markdown']);
+const parserSandboxSampleExtensions = ['.pdf', '.docx', '.doc', '.wps', '.ofd', '.jpeg', '.png'];
 const remoteImageTimeoutMs = 10000;
 const markdownImagePattern = /!\[(?<alt>[^\]]*)\]\((?<target><[^>]+>|[^)\s]+)(?<title>\s+"[^"]*")?\)/gi;
 const htmlImageSrcPattern = /(<img\b[^>]*?\bsrc=["'])(?<src>[^"']+)(["'][^>]*>)/gi;
@@ -44,6 +46,71 @@ function getSelectableExtensions(provider) {
     return localSupportedExtensions;
   }
   return new Set([...getSupportedExtensions(provider), ...localSupportedExtensions]);
+}
+
+function createParserCapability(extension) {
+  const ext = String(extension || '').trim().toLowerCase().replace(/^\./, '.');
+  const localSupported = localSupportedExtensions.has(ext);
+  const mineruAccurateSupported = mineruAccurateSupportedExtensions.has(ext);
+  const mineruAgentSupported = mineruAgentSupportedExtensions.has(ext);
+  const imageLike = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.jp2'].includes(ext);
+  let recommendedProvider = '';
+  let status = 'unsupported';
+  let note = '当前未接入该格式解析，请先转换为 PDF 或 DOCX 后再导入。';
+
+  if (localSupported) {
+    recommendedProvider = 'local';
+    status = 'local';
+    note = '本地解析可处理该格式；Windows 中文路径和中文文件名按默认场景支持。';
+  }
+
+  if (ext === '.pdf') {
+    recommendedProvider = 'local';
+    status = 'mixed';
+    note = '文本型 PDF 可先走本地解析；扫描件 PDF 建议使用 MinerU 精准解析或 MinerU-Agent OCR。';
+  } else if (['.doc', '.wps'].includes(ext)) {
+    note = '本地解析依赖系统文档转换能力；Windows 中文路径需要保留，解析失败时建议另存为标准 DOCX。';
+  } else if (imageLike && (mineruAccurateSupported || mineruAgentSupported)) {
+    recommendedProvider = mineruAccurateSupported ? 'mineru-accurate-api' : 'mineru-agent-api';
+    status = 'remote-ocr';
+    note = '图片/扫描件不走本地解析；建议使用 MinerU OCR，并在设置中配置 Token 后验证。';
+  } else if (ext === '.ofd') {
+    recommendedProvider = '';
+    status = 'unsupported';
+    note = '当前未接入 OFD 解析；建议先转换为 PDF/DOCX，或用解析沙盘记录失败样本后再接入专用转换链路。';
+  } else if (!localSupported && (mineruAccurateSupported || mineruAgentSupported)) {
+    recommendedProvider = mineruAccurateSupported ? 'mineru-accurate-api' : 'mineru-agent-api';
+    status = 'remote';
+    note = '该格式需要远程解析；导入前请确认网络和 MinerU Token。';
+  }
+
+  return {
+    extension: ext,
+    local_supported: localSupported,
+    mineru_accurate_supported: mineruAccurateSupported,
+    mineru_agent_supported: mineruAgentSupported,
+    recommended_provider: recommendedProvider,
+    status,
+    note,
+  };
+}
+
+function createDeveloperParserCapabilityReport() {
+  return {
+    providers: Object.entries(parserLabels).map(([provider, label]) => ({
+      provider,
+      label,
+      supported_extensions: [...getSupportedExtensions(provider)].sort(),
+      selectable_extensions: [...getSelectableExtensions(provider)].sort(),
+    })),
+    samples: parserSandboxSampleExtensions.map(createParserCapability),
+    chinese_path_smoke: {
+      required: true,
+      note: '解析回归样本应至少包含一个中文目录和中文文件名，用于验证 Windows 中文路径、WPS/Word/LibreOffice 转换链路不丢路径。',
+      example: 'C:\\投标项目\\样本文档\\技术方案样例.docx',
+    },
+    scanned_document_policy: '扫描件 PDF、JPEG、PNG 不走本地解析，优先使用 MinerU OCR；本地解析结果为空时必须给出可操作提示。',
+  };
 }
 
 function resolveFileParser(config, filePath) {
@@ -314,6 +381,14 @@ function stripMarkdownImages(text) {
     .replace(markdownImagePattern, '')
     .replace(/<img\b[^>]*>/gi, '')
     .replace(/\n{3,}/g, '\n\n');
+}
+
+function countMarkdownImages(text) {
+  return countRegex(text, markdownImagePattern) + countRegex(text, htmlImageSrcPattern);
+}
+
+function countRegex(text, pattern) {
+  return [...String(text || '').matchAll(new RegExp(pattern.source, pattern.flags))].length;
 }
 
 function createAssetContext(app, scope = 'documents') {
@@ -615,6 +690,85 @@ function createFileService({ app, configStore } = {}) {
 
     importTechnicalPlanDocument,
 
+    getDeveloperParserCapabilities() {
+      return createDeveloperParserCapabilityReport();
+    },
+
+    async parseDeveloperSample(options = {}) {
+      const baseConfig = configStore ? configStore.load() : { file_parser: { provider: 'local' } };
+      const requestedProvider = parserProviders.has(options?.provider) ? options.provider : (baseConfig.file_parser?.provider || 'local');
+      const config = {
+        ...baseConfig,
+        file_parser: {
+          ...(baseConfig.file_parser || {}),
+          provider: requestedProvider,
+        },
+      };
+      const supportedExtensions = getSelectableExtensions(requestedProvider);
+      const result = await dialog.showOpenDialog({
+        title: '选择解析沙盘样本文件',
+        properties: ['openFile'],
+        filters: [
+          { name: parserLabels[requestedProvider] || '文件解析', extensions: [...supportedExtensions].map((item) => item.slice(1)) },
+          { name: '所有文件', extensions: ['*'] },
+        ],
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, message: '已取消选择' };
+      }
+
+      const filePath = result.filePaths[0];
+      const parser = resolveFileParser(config, filePath);
+      const startedAt = Date.now();
+      const file = await createLocalFileSelection(filePath);
+      if (!supportedExtensions.has(path.extname(filePath).toLowerCase())) {
+        return {
+          success: false,
+          message: `当前${parserLabels[requestedProvider] || '解析方式'}不支持该文件格式`,
+          file,
+          parser_provider: parser.provider,
+          parser_label: parserLabels[parser.provider] || '本地解析',
+        };
+      }
+
+      try {
+        const assetHash = crypto.createHash('sha1').update(`${filePath}\n${Date.now()}`).digest('hex').slice(0, 12);
+        const markdown = (await parseDocumentWithConfig(app, filePath, config, {
+          assetScope: `developer-parser-sandbox-${assetHash}`,
+          preserveImages: options?.preserveImages === true,
+        })).trim();
+        const imageCount = countMarkdownImages(markdown);
+        const markdownLimit = 80000;
+        return {
+          success: true,
+          message: parser.fallbackToLocal ? '文件解析完成，当前格式已自动使用本地解析' : '文件解析完成',
+          file,
+          parser_provider: parser.provider,
+          parser_label: parserLabels[parser.provider] || '本地解析',
+          requested_provider: requestedProvider,
+          fallback_to_local: Boolean(parser.fallbackToLocal),
+          duration_ms: Date.now() - startedAt,
+          markdown,
+          markdown_preview: markdown.slice(0, markdownLimit),
+          truncated: markdown.length > markdownLimit,
+          markdown_chars: markdown.length,
+          image_count: imageCount,
+          line_count: markdown ? markdown.split(/\r?\n/).length : 0,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: formatImportError(error, filePath),
+          file,
+          parser_provider: parser.provider,
+          parser_label: parserLabels[parser.provider] || '本地解析',
+          requested_provider: requestedProvider,
+          duration_ms: Date.now() - startedAt,
+        };
+      }
+    },
+
     async importRejectionCheckDocument(role = 'tender') {
       const documentRole = role === 'bid' ? 'bid' : 'tender';
       const documentLabel = documentRole === 'bid' ? '投标文件' : '招标文件';
@@ -723,6 +877,7 @@ function createFileService({ app, configStore } = {}) {
 }
 
 module.exports = {
+  createDeveloperParserCapabilityReport,
   createFileService,
   parseDocumentWithConfig,
   resolveFileParser,

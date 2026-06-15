@@ -533,6 +533,33 @@ function createRunningResult(inputSignature, progressMessage) {
   return { status: 'running', findings: [], inputSignature, progressMessage, updatedAt: now() };
 }
 
+function normalizeTargetBidDocumentIds(value, bidDocuments) {
+  const validIds = new Set((Array.isArray(bidDocuments) ? bidDocuments : []).map((document) => document.id).filter(Boolean));
+  const rawIds = Array.isArray(value) ? value : [];
+  return [...new Set(rawIds.map((id) => normalizeText(id)).filter((id) => validIds.has(id)))];
+}
+
+function preserveNonTargetFindings(findings, targetBidDocumentIds) {
+  if (!targetBidDocumentIds.length) return [];
+  const targetSet = new Set(targetBidDocumentIds);
+  return (Array.isArray(findings) ? findings : []).filter((finding) => !targetSet.has(finding.bidDocumentId));
+}
+
+function createRunningResultForTargets(previousResult, inputSignature, progressMessage, targetBidDocumentIds) {
+  return {
+    ...createRunningResult(inputSignature, progressMessage),
+    findings: preserveNonTargetFindings(previousResult?.findings || [], targetBidDocumentIds),
+  };
+}
+
+function mergeTargetFindings(previousResult, targetBidDocumentIds, nextFindings) {
+  if (!targetBidDocumentIds.length) return nextFindings;
+  return [
+    ...preserveNonTargetFindings(previousResult?.findings || [], targetBidDocumentIds),
+    ...nextFindings,
+  ];
+}
+
 function updateCheckWorkspace(workspaceStore, updateTask, taskPartial, partial) {
   const task = updateTask(taskPartial);
   const rejectionCheck = workspaceStore.updateRejectionCheck({ ...partial, checkTask: task });
@@ -545,18 +572,22 @@ async function runRejectionCheckTask({ aiService, workspaceStore, updateTask, pa
   const options = state.checkOptions || {};
   const runOptions = payload?.runOptions || options;
   const bidDocuments = Array.isArray(state.bidDocuments) ? state.bidDocuments : [];
+  const targetBidDocumentIds = normalizeTargetBidDocumentIds(payload?.targetBidDocumentIds, bidDocuments);
   if (typeof workspaceStore.readDocumentMarkdown !== 'function'
     || typeof workspaceStore.createDocumentSignature !== 'function'
     || typeof workspaceStore.createRejectionCheckInputSignature !== 'function') {
     throw new Error('废标项检查存储接口尚未初始化');
   }
-  const currentBidDocuments = bidDocuments
+  const allBidDocuments = bidDocuments
     .map((document) => ({ ...document, content: String(workspaceStore.readDocumentMarkdown(document.id) || '') }))
     .filter((document) => document.id && document.content.trim());
+  const currentBidDocuments = targetBidDocumentIds.length
+    ? allBidDocuments.filter((document) => targetBidDocumentIds.includes(document.id))
+    : allBidDocuments;
   const invalidBidAndRejectionItems = String(state.invalidBidAndRejectionItems?.content || '');
   const customCheckItems = String(state.customCheckItems ?? '');
-  const rejectionInputSignature = String(workspaceStore.createRejectionCheckInputSignature(currentBidDocuments, invalidBidAndRejectionItems, customCheckItems) || '');
-  const bidSignature = currentBidDocuments.map((document) => workspaceStore.createDocumentSignature(document)).filter(Boolean).join('\n---yibiao-rejection-bid-signature---\n');
+  const rejectionInputSignature = String(workspaceStore.createRejectionCheckInputSignature(allBidDocuments, invalidBidAndRejectionItems, customCheckItems) || '');
+  const bidSignature = allBidDocuments.map((document) => workspaceStore.createDocumentSignature(document)).filter(Boolean).join('\n---yibiao-rejection-bid-signature---\n');
   if (!currentBidDocuments.length || !bidSignature) throw new Error('缺少投标文件内容，无法开始检查');
 
   const enabledTasks = [
@@ -573,23 +604,25 @@ async function runRejectionCheckTask({ aiService, workspaceStore, updateTask, pa
     bid_signature: bidSignature,
     rejection_input_signature: rejectionInputSignature,
     enabled_tasks: enabledTasks,
+    target_bid_document_ids: targetBidDocumentIds,
   });
   developerLogger.write('rejection.check.started', {
     bid_signature: bidSignature,
     rejection_input_signature: rejectionInputSignature,
     enabled_tasks: enabledTasks,
-    bid_document_count: currentBidDocuments.length,
+    bid_document_count: allBidDocuments.length,
+    target_bid_document_ids: targetBidDocumentIds,
     bid_content_metrics: currentBidDocuments.map((document) => ({ id: document.id, file_name: document.fileName, ...textMetrics(document.content) })),
     invalid_items_metrics: textMetrics(invalidBidAndRejectionItems),
     custom_items_metrics: textMetrics(customCheckItems),
   });
 
   let completed = 0;
-  const logs = ['开始检查投标文件。'];
+  const logs = [targetBidDocumentIds.length ? `开始重新检查 ${targetBidDocumentIds.length} 份投标文件。` : '开始检查投标文件。'];
   const initialPartial = { checkOptions: options };
-  if (runOptions.rejectionCheck) initialPartial.rejectionCheckResult = createRunningResult(rejectionInputSignature, '第一轮：正在分析检查范围。');
-  if (runOptions.typoCheck) initialPartial.typoCheckResult = createRunningResult(bidSignature, '正在识别错别字候选。');
-  if (runOptions.logicCheck) initialPartial.logicCheckResult = createRunningResult(bidSignature, '正在检查逻辑谬误。');
+  if (runOptions.rejectionCheck) initialPartial.rejectionCheckResult = createRunningResultForTargets(state.rejectionCheckResult, rejectionInputSignature, '第一轮：正在分析检查范围。', targetBidDocumentIds);
+  if (runOptions.typoCheck) initialPartial.typoCheckResult = createRunningResultForTargets(state.typoCheckResult, bidSignature, '正在识别错别字候选。', targetBidDocumentIds);
+  if (runOptions.logicCheck) initialPartial.logicCheckResult = createRunningResultForTargets(state.logicCheckResult, bidSignature, '正在检查逻辑谬误。', targetBidDocumentIds);
   updateCheckWorkspace(workspaceStore, updateTask, { status: 'running', progress: 5, logs }, initialPartial);
 
   function updateOverall(label, partial) {
@@ -617,7 +650,7 @@ async function runRejectionCheckTask({ aiService, workspaceStore, updateTask, pa
       updateOverall(`${label}完成。`, {
         [resultKey]: {
           status: 'success',
-          findings,
+          findings: mergeTargetFindings(state[resultKey], targetBidDocumentIds, findings),
           inputSignature,
           activeFindingId: findings[0]?.id,
           progressMessage: findings.length ? `${label}发现 ${findings.length} 项` : `${label}未发现问题`,
@@ -635,7 +668,7 @@ async function runRejectionCheckTask({ aiService, workspaceStore, updateTask, pa
         error: compactLogError(error),
       });
       updateOverall(`${label}失败：${message}`, {
-        [resultKey]: { status: 'error', findings: [], inputSignature, error: message, progressMessage: message, updatedAt: now() },
+        [resultKey]: { status: 'error', findings: preserveNonTargetFindings(state[resultKey]?.findings || [], targetBidDocumentIds), inputSignature, error: message, progressMessage: message, updatedAt: now() },
       });
       return { kind, status: 'error', error: message };
     }

@@ -1,4 +1,4 @@
-import type { FileParserConfig, ImageModelConfig, ImageModelProfiles, TextModelConfig, TextModelProfiles, TextModelProvider, UpdateChannel } from '../../shared/types';
+import type { AppTheme, DisplayLanguage, FileParserConfig, ImageModelConfig, ImageModelProfiles, SidebarLayout, TextModelConfig, TextModelProfiles, TextModelProvider, UpdateChannel } from '../../shared/types';
 
 export interface SettingsPageState {
   textModel: TextModelConfig & {
@@ -9,6 +9,9 @@ export interface SettingsPageState {
   imageModelProfiles: ImageModelProfiles;
   fileParser: FileParserConfig;
   general: {
+    language: DisplayLanguage;
+    theme: AppTheme;
+    sidebar_layout: SidebarLayout;
     developer_mode: boolean;
     update_channel: UpdateChannel;
     gpu_hardware_acceleration_enabled: boolean;

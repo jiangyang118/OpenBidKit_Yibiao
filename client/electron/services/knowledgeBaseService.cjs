@@ -751,6 +751,26 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
     return [...new Set([...activePreparations, ...activeMatches])];
   }
 
+  function getActiveTasksSnapshot() {
+    const tasks = [];
+    for (const documentId of activePreparations) {
+      const document = getDocument(documentId);
+      if (document) {
+        tasks.push({ document_id: documentId, phase: 'preparing', document });
+      }
+    }
+    for (const documentId of activeMatches) {
+      const document = getDocument(documentId);
+      if (document) {
+        tasks.push({ document_id: documentId, phase: 'matching', document });
+      }
+    }
+    return {
+      tasks,
+      documents: tasks.map((task) => task.document),
+    };
+  }
+
   function recoverInterruptedDocuments() {
     const recovered = knowledgeBaseStore.recoverInterruptedDocuments(getActiveDocumentIds());
     recovered.forEach((document) => debugLog(document.id, 'document:recover-interrupted', { status: document.status, message: document.message }));
@@ -1280,6 +1300,11 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
     list() {
       recoverInterruptedDocuments();
       return knowledgeBaseStore.list();
+    },
+
+    getActiveTasks() {
+      recoverInterruptedDocuments();
+      return getActiveTasksSnapshot();
     },
 
     createFolder(name) {

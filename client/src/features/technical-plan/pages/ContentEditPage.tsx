@@ -7,7 +7,8 @@ import { trackConfigUsage } from '../../../shared/analytics/analytics';
 import { DetailHelpLink, MarkdownEditor, MarkdownRenderer, useToast } from '../../../shared/ui';
 import type { ClientConfig, ImageModelStatus, OutlineData, OutlineItem } from '../../../shared/types';
 import { countReadableWords } from '../../../shared/utils/wordCount';
-import type { BackgroundTaskState, ContentGenerationOptions, ContentGenerationSectionStatus, ContentGenerationSections, ContentImageStats, ContentTableRequirement, TechnicalPlanWorkflowKind } from '../types';
+import type { BackgroundTaskState, ContentGenerationOptions, ContentGenerationSectionStatus, ContentGenerationSections, ContentImageStats, ContentTableRequirement, TechnicalPlanState, TechnicalPlanWorkflowKind } from '../types';
+import type { ImageKnowledgeAsset, ImageKnowledgeState } from '../../image-knowledge-base/types';
 import type { ExportFormatConfig } from '../../../shared/types/exportFormat';
 import { DEFAULT_EXPORT_FORMAT } from '../../../shared/types/exportFormat';
 import { buildExportFormatCssVars } from '../../../shared/utils/exportFormatCss';
@@ -21,6 +22,7 @@ interface ContentEditPageProps {
   sections: ContentGenerationSections;
   onContentGenerationOptionsChange: (options: ContentGenerationOptions) => Promise<void> | void;
   onContentSaved: (item: OutlineItem, content: string) => Promise<void> | void;
+  onStateChanged?: (state: Partial<TechnicalPlanState>) => void;
 }
 
 type TreeStatus = ContentGenerationSectionStatus | 'partial' | 'planning';
@@ -107,9 +109,51 @@ function normalizeGenerationOptions(options: ContentGenerationOptions | undefine
 }
 
 const emptyImageStats: ContentImageStats = { planned: 0, attempted: 0, success: 0, failed: 0, skipped: 0 };
+const emptyImageKnowledgeState: ImageKnowledgeState = { assets: [], categories: [], folders: [], tags: [] };
 
 function normalizeImageStats(stats?: Partial<ContentImageStats>): ContentImageStats {
   return { ...emptyImageStats, ...(stats || {}) };
+}
+
+function hasImageStatActivity(stats: ContentImageStats) {
+  return stats.planned > 0 || stats.attempted > 0 || stats.success > 0 || stats.failed > 0 || stats.skipped > 0;
+}
+
+function formatImageStatLine(label: string, stats: ContentImageStats) {
+  return `${label}：计划 ${stats.planned}，已尝试 ${stats.attempted}，成功 ${stats.success}，失败 ${stats.failed}，跳过 ${stats.skipped}`;
+}
+
+function formatAuditStatus(status?: string) {
+  if (status === 'fixed') return '已修复';
+  if (status === 'manual') return '需人工核对';
+  return '待修复';
+}
+
+function formatAuditSeverity(severity?: string) {
+  if (severity === 'high') return '高风险';
+  if (severity === 'low') return '低风险';
+  return '中风险';
+}
+
+function formatOriginalCoverageStatus(status?: string, repairStatus?: string) {
+  if (repairStatus === 'fixed') return '已补回';
+  if (status === 'covered') return '已覆盖';
+  if (status === 'partial') return '部分覆盖';
+  if (status === 'missing') return '未覆盖';
+  if (status === 'conflict') return '存在冲突';
+  return '待核对';
+}
+
+function formatOriginalCommitmentStatus(status?: string) {
+  if (status === 'preserved') return '已保留';
+  if (status === 'partial') return '部分缺失';
+  if (status === 'missing') return '未保留';
+  if (status === 'conflict') return '存在冲突';
+  return '待核对';
+}
+
+function formatPercent(value?: number) {
+  return `${Math.round((value || 0) * 100)}%`;
 }
 
 function collectLeafItems(items: OutlineItem[]): OutlineItem[] {
@@ -347,6 +391,7 @@ function ContentEditPage({
   sections,
   onContentGenerationOptionsChange,
   onContentSaved,
+  onStateChanged,
 }: ContentEditPageProps) {
   const { showToast } = useToast();
   const isExpansionWorkflow = workflowKind === 'existing-plan-expansion';
@@ -365,8 +410,15 @@ function ContentEditPage({
   const [draftGenerationOptions, setDraftGenerationOptions] = useState<ContentGenerationOptions>(defaultContentGenerationOptions);
   const [pendingMinimumWordsChoice, setPendingMinimumWordsChoice] = useState<PendingMinimumWordsChoice | null>(null);
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null);
+  const [imagePickerOpen, setImagePickerOpen] = useState(false);
+  const [imageKnowledgeState, setImageKnowledgeState] = useState<ImageKnowledgeState>(emptyImageKnowledgeState);
+  const [imageKnowledgeKeyword, setImageKnowledgeKeyword] = useState('');
+  const [imageKnowledgeCategory, setImageKnowledgeCategory] = useState('');
+  const [imageKnowledgeLoading, setImageKnowledgeLoading] = useState(false);
+  const [imageInsertingId, setImageInsertingId] = useState<string | null>(null);
   const [pausePending, setPausePending] = useState(false);
   const [exportFormat, setExportFormat] = useState<ExportFormatConfig>(DEFAULT_EXPORT_FORMAT);
+  const [originalCoverageBindTargets, setOriginalCoverageBindTargets] = useState<Record<string, string>>({});
   const firstLeafId = leaves[0]?.id || '';
   const selectedItem = outlineData?.outline && selectedItemId ? findItem(outlineData.outline, selectedItemId) : null;
   const selectedIsLeaf = Boolean(selectedItem && !selectedItem.children?.length);
@@ -501,9 +553,100 @@ function ContentEditPage({
   const imageStats = task?.stats?.images;
   const aiImageStats = normalizeImageStats(imageStats?.ai);
   const mermaidImageStats = normalizeImageStats(imageStats?.mermaid);
+  const knowledgeImageStats = normalizeImageStats(imageStats?.knowledge);
+  const totalImageStats = normalizeImageStats(imageStats?.total);
+  const hasIllustrationReport = Boolean(imageStats && (hasImageStatActivity(totalImageStats) || hasImageStatActivity(aiImageStats) || hasImageStatActivity(mermaidImageStats) || hasImageStatActivity(knowledgeImageStats)));
+  const illustrationReportTitle = task?.status === 'success'
+    ? '配图策略报告'
+    : illustrating
+      ? '配图策略报告'
+      : '最近一次配图策略报告';
+  const illustrationReportSummary = task?.status === 'success'
+    ? `配图已完成：计划 ${totalImageStats.planned} 张，成功 ${totalImageStats.success} 张，失败 ${totalImageStats.failed} 张，跳过 ${totalImageStats.skipped} 张。`
+    : illustrating
+      ? `配图进行中：计划 ${totalImageStats.planned} 张，已尝试 ${totalImageStats.attempted} 张，成功 ${totalImageStats.success} 张。`
+      : `最近一次配图：计划 ${totalImageStats.planned} 张，成功 ${totalImageStats.success} 张，失败 ${totalImageStats.failed} 张。`;
+  const auditReport = task?.stats?.audit;
+  const auditItems = auditReport?.items || [];
+  const auditFailedGroups = auditReport?.failed_groups || [];
+  const hasAuditReport = Boolean(auditReport?.enabled && (auditReport.ran || auditItems.length || auditReport.failed_group_total));
+  const auditReportTitle = auditReport?.status === 'running' ? '全文一致性审计进行中' : '全文一致性审计报告';
+  const auditReportSummary = auditReport?.status === 'running'
+    ? `正在审计全文一致性：已完成 ${auditReport.group_completed}/${auditReport.group_total} 组，发现 ${auditReport.conflict_total} 条冲突。`
+    : auditReport?.status === 'partial'
+      ? `审计已完成但需要人工核对：发现 ${auditReport.conflict_total} 条冲突，已修复 ${auditReport.fixed_total} 条，${auditReport.manual_total} 条需处理，${auditReport.failed_group_total} 组审计失败。`
+      : `审计已完成：发现 ${auditReport?.conflict_total || 0} 条冲突，已修复 ${auditReport?.fixed_total || 0} 条，${auditReport?.manual_total || 0} 条需人工处理。`;
+  const originalCoverageReport = task?.stats?.originalCoverage;
+  const originalCoverageItems = originalCoverageReport?.items || [];
+  const originalCoverageUnassignedItems = originalCoverageReport?.unassigned_items || [];
+  const originalCoveragePendingUnassignedItems = originalCoverageUnassignedItems.filter((item) => item.status === 'pending');
+  const originalCoverageFailedSections = originalCoverageReport?.failed_sections || [];
+  const originalCommitmentSummary = originalCoverageReport?.commitment_summary;
+  const originalCommitmentRiskItems = originalCommitmentSummary?.items.filter((item) => item.status !== 'preserved') || [];
+  const hasOriginalCoverageReport = Boolean(isExpansionWorkflow && originalCoverageReport?.enabled && (originalCoverageReport.ran || originalCoverageItems.length || originalCoverageUnassignedItems.length || originalCoverageFailedSections.length));
+  const originalCoverageReportTitle = originalCoverageReport?.status === 'running' ? '原方案覆盖审计进行中' : '原方案覆盖审计报告';
+  const originalCoverageReportSummary = originalCoverageReport?.status === 'running'
+    ? `正在核对原方案保留情况：已审计 ${originalCoverageReport.audited_total}/${originalCoverageReport.source_total} 个来源段。`
+    : `覆盖率 ${formatPercent(originalCoverageReport?.coverage_rate)}：已覆盖 ${originalCoverageReport?.covered_total || 0} 段，部分覆盖 ${originalCoverageReport?.partial_total || 0} 段，未覆盖 ${originalCoverageReport?.missing_total || 0} 段，冲突 ${originalCoverageReport?.conflict_total || 0} 段。${originalCommitmentSummary?.total ? ` 核心承诺保留率 ${formatPercent(originalCommitmentSummary.preservation_rate)}，${originalCommitmentSummary.risk_total} 条需核对。` : ''}`;
   const imageModelAvailable = imageModelStatus === 'available';
 
   const handlePreviewImage = useCallback((src: string, alt: string) => setPreviewImage({ src, alt }), []);
+
+  const loadImageKnowledgeAssets = async (nextKeyword = imageKnowledgeKeyword, nextCategory = imageKnowledgeCategory) => {
+    const loader = window.yibiao?.imageKnowledgeBase?.list;
+    if (!loader) {
+      showToast('当前环境不支持图片知识库，请在桌面客户端中使用', 'error');
+      return;
+    }
+
+    setImageKnowledgeLoading(true);
+    try {
+      const nextState = await loader({ keyword: nextKeyword, category: nextCategory });
+      setImageKnowledgeState(nextState);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '图片知识库加载失败', 'error');
+    } finally {
+      setImageKnowledgeLoading(false);
+    }
+  };
+
+  const toggleImagePicker = () => {
+    setImagePickerOpen((open) => {
+      const nextOpen = !open;
+      if (nextOpen && !imageKnowledgeState.assets.length) {
+        void loadImageKnowledgeAssets('', '');
+      }
+      return nextOpen;
+    });
+  };
+
+  const insertImageKnowledgeAsset = async (asset: ImageKnowledgeAsset) => {
+    if (!selectedItem || !selectedIsLeaf) {
+      showToast('请选择一个叶子小节后再插入图片', 'info');
+      return;
+    }
+    const inserter = window.yibiao?.imageKnowledgeBase?.createMarkdownReference;
+    if (!inserter) {
+      showToast('当前环境不支持插入图片素材，请在桌面客户端中使用', 'error');
+      return;
+    }
+
+    setImageInsertingId(asset.id);
+    try {
+      const result = await inserter({
+        imageId: asset.id,
+        targetType: 'technical-plan',
+        targetId: selectedItem.id,
+      });
+      setDraftContent((prev) => `${prev.trim() ? `${prev.trimEnd()}\n\n` : ''}${result.markdown}\n`);
+      setImageKnowledgeState(result.state);
+      showToast('图片素材已插入当前正文', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '图片素材插入失败', 'error');
+    } finally {
+      setImageInsertingId(null);
+    }
+  };
 
   useEffect(() => {
     if (!outlineData?.outline?.length) {
@@ -857,6 +1000,106 @@ function ContentEditPage({
     setDraftContent(selectedContent);
   };
 
+  const selectAuditSection = (sectionId: string) => {
+    const item = outlineData?.outline ? findItem(outlineData.outline, sectionId) : null;
+    if (!item || item.children?.length) {
+      showToast('未找到对应正文小节', 'error');
+      return null;
+    }
+    setSelectedItemId(sectionId);
+    return item;
+  };
+
+  const viewAuditSection = (sectionId: string) => {
+    const item = selectAuditSection(sectionId);
+    if (item) {
+      showToast(`已定位到 ${item.id} ${item.title}`, 'success');
+    }
+  };
+
+  const editAuditSection = (sectionId: string) => {
+    const item = selectAuditSection(sectionId);
+    if (!item) return;
+    setEditingItemId(item.id);
+    setIsPreviewing(false);
+    setDraftContent(getLeafContent(item, sections));
+  };
+
+  const prepareAuditRecheck = (item: { section_id: string; fact_title?: string; evidence?: string; reason?: string }) => {
+    const target = selectAuditSection(item.section_id);
+    if (!target) return;
+    setRequirementItem(target);
+    setRegenerateRequirement([
+      `请只复核并修正全文一致性审计项：${item.fact_title || '未命名事实'}。`,
+      item.evidence ? `冲突证据：${item.evidence}` : '',
+      item.reason ? `冲突原因：${item.reason}` : '',
+      '不要重写整节，只修正与该事实冲突的局部内容；如果正文已无冲突，请保持原内容。'
+    ].filter(Boolean).join('\n'));
+  };
+
+  const resolveAuditItem = async (sectionId: string, index: number) => {
+    try {
+      const saved = await window.yibiao?.technicalPlan.resolveConsistencyAuditItem({ sectionId, index });
+      if (saved) {
+        onStateChanged?.(saved);
+      }
+      showToast('审计项已标记为已处理', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '标记审计项失败', 'error');
+    }
+  };
+
+  const handleOriginalCoverageUnassignedSegment = async (sourceId: string, action: 'ignore' | 'bind') => {
+    const nodeId = originalCoverageBindTargets[sourceId] || firstLeafId;
+    if (action === 'bind' && !nodeId) {
+      showToast('请选择要绑定的目标章节', 'info');
+      return;
+    }
+
+    try {
+      const saved = await window.yibiao?.technicalPlan.handleOriginalCoverageUnassignedSegment({
+        sourceId,
+        action,
+        ...(action === 'bind' ? { nodeId } : {}),
+      });
+      if (saved) {
+        onStateChanged?.(saved);
+      }
+      if (action === 'bind') {
+        setSelectedItemId(nodeId);
+        showToast('原方案段落已绑定到章节', 'success');
+      } else {
+        showToast('原方案段落已忽略', 'success');
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '处理原方案段落失败', 'error');
+    }
+  };
+
+  const recheckFailedAuditGroup = async (group: { index: number; total: number; section_ids?: string[] }) => {
+    const sectionIds = [...new Set((group.section_ids || []).map((item) => String(item || '').trim()).filter(Boolean))];
+    if (!sectionIds.length) {
+      showToast('该失败分组缺少章节清单，请重新生成正文后再复审', 'error');
+      return;
+    }
+
+    try {
+      const savedGenerationOptions = normalizeGenerationOptions(contentGenerationOptions, imageModelAvailable, leaves.length, isExpansionWorkflow);
+      await window.yibiao?.tasks.startContentGeneration({
+        auditOnly: true,
+        auditTargetItemIds: sectionIds,
+        generationOptions: {
+          ...savedGenerationOptions,
+          enableConsistencyAudit: true,
+          enableOriginalPlanCoverageAudit: false,
+        },
+      });
+      showToast(`已开始重新审计第 ${group.index}/${group.total} 组`, 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '重新审计失败分组失败', 'error');
+    }
+  };
+
   const togglePreview = () => {
     setIsPreviewing((prev) => !prev);
   };
@@ -865,6 +1108,7 @@ function ContentEditPage({
     setEditingItemId(null);
     setIsPreviewing(false);
     setDraftContent('');
+    setImagePickerOpen(false);
   };
 
   const saveEditingContent = async () => {
@@ -993,7 +1237,172 @@ function ContentEditPage({
           <strong>配图统计</strong>
           <span>AI 生图 计划 {aiImageStats.planned} / 尝试 {aiImageStats.attempted} / 成功 {aiImageStats.success} / 失败 {aiImageStats.failed} / 跳过 {aiImageStats.skipped}</span>
           <span>Mermaid 计划 {mermaidImageStats.planned} / 尝试 {mermaidImageStats.attempted} / 成功 {mermaidImageStats.success} / 失败 {mermaidImageStats.failed}</span>
+          <span>图片知识库 计划 {knowledgeImageStats.planned} / 引用 {knowledgeImageStats.attempted} / 成功 {knowledgeImageStats.success} / 失败 {knowledgeImageStats.failed}</span>
         </aside>
+      )}
+
+      {hasIllustrationReport && (
+        <section className="content-illustration-report" aria-label="配图策略报告">
+          <div>
+            <span className="section-kicker">ILLUSTRATION</span>
+            <strong>{illustrationReportTitle}</strong>
+            <p>{illustrationReportSummary}</p>
+          </div>
+          <div className="content-illustration-report-grid">
+            <span>{formatImageStatLine('AI 生图', aiImageStats)}</span>
+            <span>{formatImageStatLine('Mermaid', mermaidImageStats)}</span>
+            {hasImageStatActivity(knowledgeImageStats) && <span>{formatImageStatLine('图片知识库', knowledgeImageStats)}</span>}
+          </div>
+        </section>
+      )}
+
+      {hasAuditReport && auditReport && (
+        <section className="content-audit-report" aria-label="全文一致性审计报告">
+          <div className="content-audit-report-head">
+            <span className="section-kicker">CONSISTENCY</span>
+            <strong>{auditReportTitle}</strong>
+            <p>{auditReportSummary}</p>
+          </div>
+          <div className="content-audit-report-stats">
+            <span>审计分组 {auditReport.group_completed}/{auditReport.group_total}</span>
+            <span>冲突项 {auditReport.conflict_total}</span>
+            <span>已修复 {auditReport.fixed_total}</span>
+            <span>需人工核对 {auditReport.manual_total}</span>
+            {auditReport.failed_group_total > 0 && <span>失败分组 {auditReport.failed_group_total}</span>}
+          </div>
+          {(auditItems.length > 0 || auditFailedGroups.length > 0) && (
+            <div className="content-audit-report-list">
+              {auditItems.map((item, index) => (
+                <article className={`content-audit-report-item is-${item.status}`} key={`${item.section_id}-${index}`}>
+                  <div>
+                    <strong>{item.section_id} {item.title}</strong>
+                    <span>{formatAuditStatus(item.status)} · {formatAuditSeverity(item.severity)} · {item.fact_title || '未命名事实'}</span>
+                  </div>
+                  {item.evidence && <p>证据：{item.evidence}</p>}
+                  {item.reason && <p>原因：{item.reason}</p>}
+                  {item.errors?.length ? <p>处理提示：{item.errors.join('；')}</p> : null}
+                  <div className="content-audit-report-actions">
+                    <button type="button" className="secondary-action" onClick={() => viewAuditSection(item.section_id)}>查看章节</button>
+                    <button type="button" className="secondary-action" onClick={() => editAuditSection(item.section_id)} disabled={taskInFlight}>编辑章节</button>
+                    {item.status === 'manual' && (
+                      <>
+                        <button type="button" className="secondary-action" onClick={() => prepareAuditRecheck(item)} disabled={taskBlocksGeneration}>重新审计</button>
+                        <button type="button" className="primary-action" onClick={() => void resolveAuditItem(item.section_id, index)}>标记已处理</button>
+                      </>
+                    )}
+                  </div>
+                </article>
+              ))}
+              {auditFailedGroups.map((group) => (
+                <article className="content-audit-report-item is-manual" key={`failed-group-${group.index}`}>
+                  <div>
+                    <strong>第 {group.index}/{group.total} 组审计失败</strong>
+                    <span>需重新生成或人工复核</span>
+                  </div>
+                  <p>{group.error}</p>
+                  {group.section_ids?.length ? <p>涉及章节：{group.section_ids.join('、')}</p> : null}
+                  <div className="content-audit-report-actions">
+                    <button type="button" className="primary-action" onClick={() => void recheckFailedAuditGroup(group)} disabled={taskBlocksGeneration || !group.section_ids?.length}>重新审计失败分组</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {hasOriginalCoverageReport && originalCoverageReport && (
+        <section className="content-audit-report" aria-label="原方案覆盖审计报告">
+          <div className="content-audit-report-head">
+            <span className="section-kicker">ORIGINAL COVERAGE</span>
+            <strong>{originalCoverageReportTitle}</strong>
+            <p>{originalCoverageReportSummary}</p>
+          </div>
+          <div className="content-audit-report-stats">
+            <span>来源段 {originalCoverageReport.audited_total}/{originalCoverageReport.source_total}</span>
+            <span>覆盖率 {formatPercent(originalCoverageReport.coverage_rate)}</span>
+            <span>已补回 {originalCoverageReport.fixed_total}</span>
+            <span>需人工核对 {originalCoverageReport.manual_total}</span>
+            {originalCoverageUnassignedItems.length > 0 && <span>未分配 {originalCoverageReport.pending_unassigned_total ?? originalCoveragePendingUnassignedItems.length}/{originalCoverageUnassignedItems.length}</span>}
+            {originalCoverageFailedSections.length > 0 && <span>失败章节 {originalCoverageFailedSections.length}</span>}
+            {originalCommitmentSummary?.total ? <span>核心承诺 {originalCommitmentSummary.preserved_total}/{originalCommitmentSummary.total}</span> : null}
+          </div>
+          {(originalCoverageItems.length > 0 || originalCoverageUnassignedItems.length > 0 || originalCoverageFailedSections.length > 0) && (
+            <div className="content-audit-report-list">
+              {originalCommitmentSummary?.total ? (
+                <article className={`content-audit-report-item is-${originalCommitmentSummary.risk_total ? 'manual' : 'fixed'}`}>
+                  <div>
+                    <strong>核心承诺保留审计</strong>
+                    <span>保留率 {formatPercent(originalCommitmentSummary.preservation_rate)} · 已保留 {originalCommitmentSummary.preserved_total} 条 · 需核对 {originalCommitmentSummary.risk_total} 条</span>
+                  </div>
+                  {originalCommitmentRiskItems.length > 0 ? (
+                    <ul className="content-audit-report-points">
+                      {originalCommitmentRiskItems.map((item) => (
+                        <li key={`original-commitment-${item.source_id}-${item.node_id}`}>
+                          {formatOriginalCommitmentStatus(item.status)} · {item.category} · {item.source_id} {item.source_title}
+                          {item.missing_points.length ? `：${item.missing_points.join('；')}` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>原方案中的核心承诺均已保留。</p>
+                  )}
+                </article>
+              ) : null}
+              {originalCoverageItems.filter((item) => item.status !== 'covered' || item.repair_status === 'fixed').map((item, index) => (
+                <article className={`content-audit-report-item is-${item.repair_status === 'fixed' || item.status === 'covered' ? 'fixed' : 'manual'}`} key={`${item.node_id}-${item.source_id}-${index}`}>
+                  <div>
+                    <strong>{item.node_id} {item.title}</strong>
+                    <span>{formatOriginalCoverageStatus(item.status, item.repair_status)} · {item.source_id} · {item.source_title}</span>
+                  </div>
+                  {item.missing_points?.length ? <p>缺失要点：{item.missing_points.join('；')}</p> : null}
+                  {item.repair_suggestion ? <p>修复建议：{item.repair_suggestion}</p> : null}
+                  {item.errors?.length ? <p>处理提示：{item.errors.join('；')}</p> : null}
+                  <div className="content-audit-report-actions">
+                    <button type="button" className="secondary-action" onClick={() => viewAuditSection(item.node_id)}>查看章节</button>
+                    <button type="button" className="secondary-action" onClick={() => editAuditSection(item.node_id)} disabled={taskInFlight}>编辑章节</button>
+                  </div>
+                </article>
+              ))}
+              {originalCoverageUnassignedItems.map((item) => (
+                <article className={`content-audit-report-item is-${item.status === 'pending' ? 'manual' : 'fixed'}`} key={`original-coverage-unassigned-${item.source_id}`}>
+                  <div>
+                    <strong>{item.source_id} {item.source_title}</strong>
+                    <span>{item.status === 'bound' ? `已绑定到 ${item.bound_node_id || ''} ${item.bound_node_title || ''}` : item.status === 'ignored' ? '已忽略' : `未分配原方案段落 · ${item.chars} 字`}</span>
+                  </div>
+                  <p>{item.excerpt}</p>
+                  {item.status === 'pending' && (
+                    <div className="content-audit-report-actions">
+                      <label className="field-label">
+                        <span>目标章节</span>
+                        <select
+                          value={originalCoverageBindTargets[item.source_id] || firstLeafId}
+                          onChange={(event) => setOriginalCoverageBindTargets((prev) => ({ ...prev, [item.source_id]: event.target.value }))}
+                          disabled={taskBlocksGeneration}
+                        >
+                          {leaves.map((leaf) => (
+                            <option key={leaf.id} value={leaf.id}>{leaf.id} {leaf.title}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <button type="button" className="primary-action" onClick={() => void handleOriginalCoverageUnassignedSegment(item.source_id, 'bind')} disabled={taskBlocksGeneration || !leaves.length}>绑定章节</button>
+                      <button type="button" className="secondary-action" onClick={() => void handleOriginalCoverageUnassignedSegment(item.source_id, 'ignore')} disabled={taskBlocksGeneration}>忽略</button>
+                    </div>
+                  )}
+                </article>
+              ))}
+              {originalCoverageFailedSections.map((section) => (
+                <article className="content-audit-report-item is-manual" key={`original-coverage-failed-${section.node_id}`}>
+                  <div>
+                    <strong>{section.node_id} {section.title}</strong>
+                    <span>覆盖审计失败</span>
+                  </div>
+                  <p>{section.error}</p>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
       <section className="content-generation-workspace">
@@ -1034,6 +1443,9 @@ function ContentEditPage({
               <span className={`content-status-badge is-${selectedStatus}`}>{statusLabels[selectedStatus]}</span>
               {editing ? (
                 <>
+                  <button type="button" className="secondary-action" onClick={toggleImagePicker}>
+                    {imagePickerOpen ? '收起图片库' : '插入图片'}
+                  </button>
                   <button type="button" className={isPreviewing ? 'secondary-action' : 'primary-action'} onClick={togglePreview}>
                     {isPreviewing ? '编辑' : '预览'}
                   </button>
@@ -1045,6 +1457,70 @@ function ContentEditPage({
               )}
             </div>
           </div>
+
+          {selectedItem && selectedIsLeaf && editing && imagePickerOpen && (
+            <section className="content-image-library-panel" aria-label="从图片知识库插入">
+              <div className="content-image-library-head">
+                <div>
+                  <span className="section-kicker">图片知识库</span>
+                  <strong>从素材库插入当前小节</strong>
+                </div>
+                {imageKnowledgeLoading ? <em>加载中</em> : <em>{imageKnowledgeState.assets.length} 张</em>}
+              </div>
+              <div className="content-image-library-toolbar">
+                <label>
+                  <span>搜索</span>
+                  <input
+                    value={imageKnowledgeKeyword}
+                    onChange={(event) => setImageKnowledgeKeyword(event.target.value)}
+                    onKeyDown={(event) => event.key === 'Enter' && void loadImageKnowledgeAssets(imageKnowledgeKeyword, imageKnowledgeCategory)}
+                    placeholder="标题、标签、来源或场景"
+                  />
+                </label>
+                <label>
+                  <span>分类</span>
+                  <select
+                    value={imageKnowledgeCategory}
+                    onChange={(event) => {
+                      const nextCategory = event.target.value;
+                      setImageKnowledgeCategory(nextCategory);
+                      void loadImageKnowledgeAssets(imageKnowledgeKeyword, nextCategory);
+                    }}
+                  >
+                    <option value="">全部分类</option>
+                    {imageKnowledgeState.categories.map((item) => <option value={item} key={item}>{item}</option>)}
+                  </select>
+                </label>
+                <button type="button" className="secondary-action" onClick={() => void loadImageKnowledgeAssets(imageKnowledgeKeyword, imageKnowledgeCategory)}>筛选</button>
+              </div>
+              {imageKnowledgeState.assets.length ? (
+                <div className="content-image-library-grid">
+                  {imageKnowledgeState.assets.map((asset) => (
+                    <article className="content-image-library-card" key={asset.id}>
+                      <img src={asset.thumbnailDataUrl} alt={asset.title || asset.fileName} />
+                      <div>
+                        <strong>{asset.title || asset.fileName}</strong>
+                        <span>{asset.category || '未分类'} · 引用 {asset.referenceCount} 次</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="primary-action"
+                        onClick={() => void insertImageKnowledgeAsset(asset)}
+                        disabled={imageInsertingId === asset.id}
+                      >
+                        {imageInsertingId === asset.id ? '插入中' : '插入'}
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="markdown-empty-state content-generation-empty compact">
+                  <strong>暂无可插入图片</strong>
+                  <p>请先在图片知识库上传素材，或调整筛选条件。</p>
+                </div>
+              )}
+            </section>
+          )}
 
           {selectedItem && selectedIsLeaf && editing && !isPreviewing ? (
             <MarkdownEditor

@@ -1,14 +1,24 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const os = require('node:os');
+const { spawn } = require('node:child_process');
 const { getAiLogsDir, getGeneratedImagesDir } = require('../utils/paths.cjs');
 const { createDeveloperLogger } = require('../utils/developerLog.cjs');
 
 const AI_REQUEST_TIMEOUT_MS = 300000;
 const MAX_AI_LOG_TITLE_LENGTH = 64;
+const CODEX_CLI_PROVIDER = 'codex-cli';
+const CODEX_CLI_MODELS = ['gpt-5.5', 'gpt-5', 'gpt-5-codex'];
+const OLLAMA_TEXT_MODEL_PROVIDERS = new Set(['local-gemma', 'local-qwen']);
+const LOCAL_TEXT_MODEL_PROVIDERS = new Set([...OLLAMA_TEXT_MODEL_PROVIDERS, 'lm-studio', 'vllm', 'llama-cpp', 'jan']);
 const IMAGE_MODEL_TEST_TIMEOUT_MESSAGE = '生图模型测试超时，请检查 Base URL、API Key 或模型名称';
 const ANALYTICS_ENDPOINT = 'https://analytics.agnet.top/track';
 const ANALYTICS_PROJECT_NAME = 'yibiao-client';
+const JSON_FAILURE_SAMPLE_LIMIT = 20;
+const JSON_FAILURE_SAMPLE_TEXT_LIMIT = 12000;
+const JSON_FAILURE_SAMPLE_FILE = 'failure-samples.json';
+const JSON_LOG_REPLAY_LIMIT = 20;
 const OPENAI_IMAGE_PROVIDER_META = {
   jinlong: {
     label: '金龙中转站',
@@ -32,6 +42,12 @@ const OPENAI_IMAGE_PROVIDER_META = {
 
 function trimBaseUrl(baseUrl) {
   return String(baseUrl || '').trim().replace(/\/+$/, '');
+}
+
+function resolveOllamaTagsUrl(baseUrl) {
+  const trimmed = trimBaseUrl(baseUrl);
+  const root = trimmed.replace(/\/v1$/i, '');
+  return `${root}/api/tags`;
 }
 
 function requireBaseUrl(baseUrl, message) {
@@ -107,6 +123,158 @@ function createModuleDeveloperLogger(app, config, moduleName, request = {}) {
     name: request.name || request.logTitle || moduleName,
     meta: request.meta || {},
   });
+}
+
+function getJsonFailureSamplesPath(app) {
+  return path.join(app.getPath('userData'), 'logs', 'developer-json-lab', JSON_FAILURE_SAMPLE_FILE);
+}
+
+function compactJsonFailureText(value, limit = JSON_FAILURE_SAMPLE_TEXT_LIMIT) {
+  return String(value || '').slice(0, limit);
+}
+
+function normalizeJsonFailureIssues(issues) {
+  return (Array.isArray(issues) ? issues : [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+function normalizeJsonFailureSample(input = {}) {
+  return {
+    id: String(input.id || createRequestId()),
+    created_at: String(input.created_at || new Date().toISOString()),
+    scenario_id: String(input.scenario_id || input.scenarioId || '').slice(0, 80),
+    scenario_label: String(input.scenario_label || input.scenarioLabel || '').slice(0, 120),
+    schema_name: String(input.schema_name || input.schemaName || '').slice(0, 120),
+    target_description: String(input.target_description || input.targetDescription || '').slice(0, 500),
+    invalid_content: compactJsonFailureText(input.invalid_content || input.invalidContent),
+    issues: normalizeJsonFailureIssues(input.issues),
+    error_message: String(input.error_message || input.errorMessage || '').replace(/\s+/g, ' ').trim().slice(0, 1000),
+  };
+}
+
+function readJsonFailureSamples(app) {
+  const filePath = getJsonFailureSamplesPath(app);
+  if (!fs.existsSync(filePath)) return [];
+  try {
+    const payload = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    return (Array.isArray(payload?.samples) ? payload.samples : [])
+      .map(normalizeJsonFailureSample)
+      .filter((sample) => sample.scenario_id && sample.invalid_content)
+      .slice(0, JSON_FAILURE_SAMPLE_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function writeJsonFailureSamples(app, samples) {
+  const filePath = getJsonFailureSamplesPath(app);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify({
+    updated_at: new Date().toISOString(),
+    samples: samples.slice(0, JSON_FAILURE_SAMPLE_LIMIT),
+  }, null, 2), 'utf-8');
+  return filePath;
+}
+
+function saveJsonFailureSample(app, input) {
+  const sample = normalizeJsonFailureSample(input);
+  if (!sample.scenario_id || !sample.invalid_content) {
+    throw new Error('缺少可保存的 JSON 失败样本');
+  }
+  const samples = [
+    sample,
+    ...readJsonFailureSamples(app).filter((item) => item.id !== sample.id),
+  ].slice(0, JSON_FAILURE_SAMPLE_LIMIT);
+  const filePath = writeJsonFailureSamples(app, samples);
+  return { success: true, message: 'JSON 失败样本已保存', sample, samples, filePath };
+}
+
+function redactJsonReplayText(value) {
+  return compactJsonFailureText(value)
+    .replace(/sk-[A-Za-z0-9_-]{12,}/g, '[API_KEY_REMOVED]')
+    .replace(/[A-Za-z]:\\[^\s"'`]+/g, '[LOCAL_PATH_REMOVED]')
+    .replace(/\/Users\/[^\s"'`]+/g, '[LOCAL_PATH_REMOVED]');
+}
+
+function readJsonLogPayload(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+function isJsonReplayLogPayload(payload) {
+  const type = String(payload?.type || '');
+  if (type !== 'chat' && type !== 'chat-error') return false;
+  const responseFormat = payload?.request?.response_format;
+  const logTitle = String(payload?.log_title || '');
+  return responseFormat?.type === 'json_object' || /json/i.test(logTitle);
+}
+
+function extractJsonReplayContent(payload) {
+  if (typeof payload?.content === 'string' && payload.content.trim()) {
+    return payload.content;
+  }
+
+  const response = payload?.response;
+  const choiceContent = response?.choices?.[0]?.message?.content;
+  if (typeof choiceContent === 'string' && choiceContent.trim()) {
+    return choiceContent;
+  }
+
+  const candidateText = response?.candidates?.[0]?.content?.parts
+    ?.map((part) => part?.text)
+    .filter(Boolean)
+    .join('\n');
+  if (candidateText) return candidateText;
+
+  return '';
+}
+
+function normalizeJsonReplayLog(payload, fileName, mtimeMs) {
+  if (!isJsonReplayLogPayload(payload)) return null;
+  const invalidContent = redactJsonReplayText(extractJsonReplayContent(payload));
+  if (!invalidContent.trim()) return null;
+
+  const errorMessage = String(payload.error || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+  const logTitle = sanitizeAiLogTitle(payload.log_title || payload.request?.schemaName || 'JSON 请求日志');
+  return {
+    id: String(payload.request_id || fileName || createRequestId()),
+    created_at: String(payload.created_at || new Date(mtimeMs || Date.now()).toISOString()),
+    log_title: logTitle,
+    type: String(payload.type || ''),
+    request_mode: String(payload.request_mode || ''),
+    error_message: errorMessage,
+    content_preview: invalidContent.slice(0, 800),
+    invalid_content: invalidContent,
+    issues: errorMessage
+      ? [`AI 请求失败：${errorMessage}`]
+      : [`来自开发者 AI 日志：${logTitle || 'JSON 请求'}，请人工确认 JSON 校验问题。`],
+  };
+}
+
+function listJsonReplayLogs(app) {
+  const logsDir = getAiLogsDir(app);
+  if (!fs.existsSync(logsDir)) {
+    return { success: true, logs: [] };
+  }
+
+  const logs = fs.readdirSync(logsDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+    .map((entry) => {
+      const filePath = path.join(logsDir, entry.name);
+      const stat = fs.statSync(filePath);
+      const payload = readJsonLogPayload(filePath);
+      return payload ? normalizeJsonReplayLog(payload, entry.name, stat.mtimeMs) : null;
+    })
+    .filter(Boolean)
+    .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime())
+    .slice(0, JSON_LOG_REPLAY_LIMIT);
+
+  return { success: true, logs };
 }
 
 function normalizeTokenNumber(value) {
@@ -200,10 +368,13 @@ function createOperationTimeout(timeoutMs) {
 }
 
 function createHeaders(apiKey) {
-  return {
+  const headers = {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${apiKey}`,
   };
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+  return headers;
 }
 
 function trackAiRequest(app, config, payload) {
@@ -736,6 +907,140 @@ function createChatRequestBody(config, request, options = {}) {
   return body;
 }
 
+function isCodexCliTextProvider(config) {
+  return config?.text_model_provider === CODEX_CLI_PROVIDER;
+}
+
+function isLocalHttpTextProvider(config) {
+  return LOCAL_TEXT_MODEL_PROVIDERS.has(config?.text_model_provider);
+}
+
+function isOllamaTextProvider(config) {
+  return OLLAMA_TEXT_MODEL_PROVIDERS.has(config?.text_model_provider);
+}
+
+function formatCodexCliMessage(message) {
+  const roleLabels = {
+    system: '系统',
+    user: '用户',
+    assistant: '助手',
+  };
+  return `## ${roleLabels[message?.role] || message?.role || '消息'}\n${String(message?.content || '').trim()}`;
+}
+
+function createCodexCliPrompt(request) {
+  const jsonInstruction = request.response_format?.type === 'json_object'
+    ? '\n\n输出要求：只返回一个合法 JSON 对象，不要添加 Markdown 代码块、解释或前后缀。'
+    : '';
+  const messages = Array.isArray(request.messages)
+    ? request.messages.map(formatCodexCliMessage).join('\n\n')
+    : '';
+
+  return `你是易标投标工具箱的文本生成后端。请严格根据下面的对话内容生成最终回复，不要读取本机文件，不要运行命令，不要修改任何文件。${jsonInstruction}
+
+${messages}`.trim();
+}
+
+function createCodexCliArgs(config, outputFile) {
+  const args = [
+    '--ask-for-approval',
+    'never',
+    'exec',
+    '--sandbox',
+    'read-only',
+    '--skip-git-repo-check',
+    '--ephemeral',
+    '--ignore-user-config',
+    '--ignore-rules',
+    '--color',
+    'never',
+    '--output-last-message',
+    outputFile,
+  ];
+  const modelName = String(config.model_name || '').trim();
+  if (modelName) {
+    args.push('-m', modelName);
+  }
+  args.push('-');
+  return args;
+}
+
+function runCodexCli(app, config, prompt, options = {}) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-codex-'));
+  const outputFile = path.join(tempDir, 'last-message.txt');
+  const cwd = typeof app?.getPath === 'function' ? app.getPath('userData') : os.tmpdir();
+  const args = createCodexCliArgs(config, outputFile);
+
+  return new Promise((resolve, reject) => {
+    const child = spawn('codex', args, {
+      cwd,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      signal: options.signal,
+      env: {
+        ...process.env,
+        NO_COLOR: '1',
+      },
+    });
+    const stdoutParts = [];
+    const stderrParts = [];
+
+    child.stdout.on('data', (chunk) => stdoutParts.push(chunk));
+    child.stderr.on('data', (chunk) => stderrParts.push(chunk));
+    child.on('error', (error) => {
+      cleanupCodexCliTempDir(tempDir);
+      if (error.name === 'AbortError') {
+        reject(createAbortError());
+        return;
+      }
+      if (error.code === 'ENOENT') {
+        reject(new Error('未找到 codex 命令，请先安装并登录 Codex CLI'));
+        return;
+      }
+      reject(error);
+    });
+    child.on('close', (code, signal) => {
+      const stdout = Buffer.concat(stdoutParts).toString('utf-8').trim();
+      const stderr = Buffer.concat(stderrParts).toString('utf-8').trim();
+      try {
+        if (code !== 0) {
+          const suffix = stderr || stdout || (signal ? `进程被终止：${signal}` : '');
+          reject(new Error(`Codex CLI 调用失败${suffix ? `：${suffix}` : ''}`));
+          return;
+        }
+
+        const content = fs.existsSync(outputFile)
+          ? fs.readFileSync(outputFile, 'utf-8').trim()
+          : stdout;
+        if (!content) {
+          reject(new Error('Codex CLI 未返回文本内容'));
+          return;
+        }
+        resolve({
+          content,
+          responseData: {
+            provider: CODEX_CLI_PROVIDER,
+            model: config.model_name || '',
+            stdout,
+            stderr,
+          },
+        });
+      } finally {
+        cleanupCodexCliTempDir(tempDir);
+      }
+    });
+
+    child.stdin.end(prompt);
+  });
+}
+
+function cleanupCodexCliTempDir(tempDir) {
+  try {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  } catch {
+    // 临时目录清理失败不影响主流程。
+  }
+}
+
 async function fetchChatCompletion(app, config, body, options = {}) {
   const controller = options.signal ? null : new AbortController();
   const timer = controller ? setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS) : null;
@@ -1139,7 +1444,11 @@ function getGoogleText(responseData) {
 }
 
 async function chatWithConfig(app, config, request) {
-  if (!config.api_key) {
+  if (isCodexCliTextProvider(config)) {
+    return chatWithCodexCliConfig(app, config, request);
+  }
+
+  if (!isLocalHttpTextProvider(config) && !config.api_key) {
     throw new Error('请先在设置中配置文本模型 API Key');
   }
 
@@ -1218,6 +1527,79 @@ async function chatWithConfig(app, config, request) {
       created_at: new Date().toISOString(),
     });
     throw new Error(errorMessage || 'AI 请求失败');
+  } finally {
+    timeout.clear();
+  }
+}
+
+async function chatWithCodexCliConfig(app, config, request) {
+  if (!config.model_name) {
+    throw new Error('请先在设置中配置 Codex CLI 模型名称');
+  }
+
+  const requestId = createRequestId();
+  const logTitle = resolveAiLogTitle(request, 'Codex CLI 文本请求');
+  const requestBody = {
+    model: config.model_name,
+    messages: request.messages,
+    response_format: request.response_format || null,
+  };
+  const prompt = createCodexCliPrompt(request);
+  let responseData = null;
+  let errorMessage = '';
+  let analyticsTracked = false;
+  const timeoutMs = normalizeRequestTimeoutMs(request);
+  const timeout = createOperationTimeout(timeoutMs);
+
+  try {
+    writeAiLog(app, config, {
+      request_id: requestId,
+      log_title: logTitle,
+      type: 'chat-pending',
+      request_mode: CODEX_CLI_PROVIDER,
+      url: CODEX_CLI_PROVIDER,
+      request: requestBody,
+      status: 'pending',
+      created_at: new Date().toISOString(),
+    });
+
+    const result = await timeout.run(runCodexCli(app, config, prompt, { signal: timeout.signal }));
+    responseData = result.responseData;
+    trackAiRequest(app, config, { ai_request_type: 'text' });
+    analyticsTracked = true;
+    const content = result.content || '';
+    writeAiLog(app, config, {
+      request_id: requestId,
+      log_title: logTitle,
+      type: 'chat',
+      request_mode: CODEX_CLI_PROVIDER,
+      url: CODEX_CLI_PROVIDER,
+      request: requestBody,
+      response: responseData,
+      content,
+      created_at: new Date().toISOString(),
+    });
+    return content;
+  } catch (error) {
+    errorMessage = error.name === 'AbortError'
+      ? request.timeout_message || `Codex CLI 请求超时（${timeoutMs / 1000} 秒）`
+      : error.message;
+    if (!analyticsTracked) {
+      trackAiRequest(app, config, { ai_request_type: 'text' });
+      analyticsTracked = true;
+    }
+    writeAiLog(app, config, {
+      request_id: requestId,
+      log_title: logTitle,
+      type: 'chat-error',
+      request_mode: CODEX_CLI_PROVIDER,
+      url: CODEX_CLI_PROVIDER,
+      request: requestBody,
+      response: responseData,
+      error: errorMessage,
+      created_at: new Date().toISOString(),
+    });
+    throw new Error(errorMessage || 'Codex CLI 请求失败');
   } finally {
     timeout.clear();
   }
@@ -1514,6 +1896,25 @@ function createAiService({ app, configStore }) {
       return collectJsonResponseWithConfig(app, config, request);
     },
 
+    async listJsonFailureSamples() {
+      const samples = readJsonFailureSamples(app);
+      return { success: true, samples, filePath: getJsonFailureSamplesPath(app) };
+    },
+
+    async listJsonReplayLogs() {
+      return listJsonReplayLogs(app);
+    },
+
+    async saveJsonFailureSample(sample) {
+      return saveJsonFailureSample(app, sample);
+    },
+
+    async clearJsonFailureSamples() {
+      const filePath = getJsonFailureSamplesPath(app);
+      if (fs.existsSync(filePath)) fs.rmSync(filePath, { force: true });
+      return { success: true, message: 'JSON 失败样本已清空', samples: [], filePath };
+    },
+
     async collectJsonResponse(request) {
       const config = configStore.load();
       return collectJsonResponseWithConfig(app, config, request);
@@ -1569,12 +1970,38 @@ function createAiService({ app, configStore }) {
     async listModels(configOverride) {
       const config = configOverride || configStore.load();
 
-      if (!config.api_key) {
+      if (isCodexCliTextProvider(config)) {
+        return {
+          success: true,
+          message: '已加载本机 Codex CLI 常用模型；实际可用性以测试结果为准',
+          models: CODEX_CLI_MODELS,
+        };
+      }
+
+      if (!isLocalHttpTextProvider(config) && !config.api_key) {
         return { success: false, message: '请先填写文本模型 API Key', models: [] };
       }
 
       if (!trimBaseUrl(config.base_url)) {
         return { success: false, message: '请先填写文本模型 Base URL', models: [] };
+      }
+
+      if (isOllamaTextProvider(config)) {
+        const response = await fetch(resolveOllamaTagsUrl(config.base_url), {
+          method: 'GET',
+        });
+
+        await ensureOk(response, '获取 Ollama 模型列表失败');
+        const data = await response.json();
+        const models = Array.isArray(data.models)
+          ? data.models.map((item) => item.name || item.model).filter(Boolean)
+          : [];
+
+        return {
+          success: true,
+          message: 'Ollama 模型列表已更新',
+          models,
+        };
       }
 
       const response = await fetch(`${trimBaseUrl(config.base_url)}/models`, {

@@ -8,13 +8,19 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n vite,electron -c blue,magenta \"vite --host 127.0.0.1 --port 5173 --strictPort\" \"wait-on http://127.0.0.1:5173 && cross-env ELECTRON_RENDERER_URL=http://127.0.0.1:5173 electron .\"",
+    "dev:local": "node scripts/dev-local.cjs",
     "build": "tsc --noEmit && vite build",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:e2e": "npm run build && cross-env NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost playwright test",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win",
     "dist:mac": "npm run build && electron-builder --mac",
     "postinstall": "electron-builder install-app-deps",
-    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
     "smoke:electron-native": "electron scripts/electron-native-smoke.cjs",
+    "smoke:release-config": "node scripts/release-config-smoke.cjs",
     "start": "electron ."
   },
   "build": {
@@ -115,6 +121,9 @@
     "unified": "^11.0.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^24.10.0",
     "@types/plist": "^3.0.5",
     "@types/react": "^19.1.11",
@@ -125,8 +134,10 @@
     "electron": "^41.5.0",
     "electron-builder": "^26.8.1",
     "js-yaml": "^4.1.1",
+    "jsdom": "^29.1.1",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
+    "vitest": "^4.1.8",
     "wait-on": "^8.0.4"
   }
 }

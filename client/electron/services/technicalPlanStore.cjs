@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { getBidAnalysisTasks } = require('./bidAnalysisTask.cjs');
+const { splitOriginalPlanSegments, normalizeOriginalMaterial } = require('./contentGenerationTask.cjs');
 const { getTechnicalPlanOriginalPlanMarkdownPath, getTechnicalPlanTenderMarkdownPath } = require('../utils/paths.cjs');
 const { deleteImportedImageBatches } = require('../utils/importedImages.cjs');
 const { detectBidSections } = require('../utils/bidSectionDetector.cjs');
@@ -85,8 +86,11 @@ function normalizeWorkflowKind(value) {
   return value === 'existing-plan-expansion' ? 'existing-plan-expansion' : 'technical-plan';
 }
 
-function isValidStep(value) {
-  return ['document-analysis', 'bid-analysis', 'outline-generation', 'global-facts', 'content-edit', 'expand'].includes(value);
+function normalizeStep(value) {
+  if (value === 'expand') return 'content-edit';
+  return ['document-analysis', 'bid-analysis', 'outline-generation', 'global-facts', 'content-edit'].includes(value)
+    ? value
+    : 'document-analysis';
 }
 
 function normalizeGlobalFactId(value, index) {
@@ -1011,7 +1015,7 @@ function createTechnicalPlanStore({ app, db, fileService }) {
     const metaUpdates = {};
 
     if (hasOwn(partial, 'workflowKind')) metaUpdates.workflow_kind = normalizeWorkflowKind(partial.workflowKind);
-    if (hasOwn(partial, 'step') && isValidStep(partial.step)) metaUpdates.step = partial.step;
+    if (hasOwn(partial, 'step')) metaUpdates.step = normalizeStep(partial.step);
     if (hasOwn(partial, 'bidAnalysisMode') && isValidBidMode(partial.bidAnalysisMode)) metaUpdates.bid_analysis_mode = partial.bidAnalysisMode;
     if (hasOwn(partial, 'bidAnalysisSelectedTaskIds')) metaUpdates.bid_analysis_selected_task_ids_json = jsonOrNull(normalizeBidAnalysisTaskIds(partial.bidAnalysisSelectedTaskIds));
     if (hasOwn(partial, 'outlineMode') && isValidOutlineMode(partial.outlineMode)) metaUpdates.outline_mode = partial.outlineMode;
@@ -1082,7 +1086,7 @@ function createTechnicalPlanStore({ app, db, fileService }) {
     return {
       ...initialState,
       workflowKind: normalizeWorkflowKind(meta.workflow_kind),
-      step: isValidStep(meta.step) ? meta.step : 'document-analysis',
+      step: normalizeStep(meta.step),
       tenderFile,
       originalPlanFile,
       projectOverview: bidAnalysisTasks.projectOverview?.status === 'success' ? bidAnalysisTasks.projectOverview.content : '',
@@ -1202,6 +1206,197 @@ function createTechnicalPlanStore({ app, db, fileService }) {
 
   function saveContentGenerationOptions(contentGenerationOptions) {
     return updateTechnicalPlan({ contentGenerationOptions });
+  }
+
+  function resolveConsistencyAuditItem(payload = {}) {
+    const sectionId = String(payload.sectionId || payload.section_id || '').trim();
+    const index = Number(payload.index);
+    if (!sectionId) {
+      throw new Error('缺少要处理的审计章节编号');
+    }
+
+    const task = taskFromRow(db.prepare("SELECT * FROM technical_plan_tasks WHERE type = 'content-generation'").get());
+    if (!task) {
+      throw new Error('当前没有可处理的正文生成审计报告');
+    }
+    const stats = task?.stats || {};
+    const audit = stats.audit || {};
+    const items = Array.isArray(audit.items) ? audit.items : [];
+    let matched = false;
+    const nextItems = items.map((item, itemIndex) => {
+      const sameIndex = Number.isInteger(index) ? itemIndex === index : true;
+      if (!matched && sameIndex && String(item.section_id || '') === sectionId) {
+        matched = true;
+        return {
+          ...item,
+          status: 'fixed',
+          resolved_at: now(),
+          resolved_by: 'manual',
+          errors: [],
+        };
+      }
+      return item;
+    });
+    if (!matched) {
+      throw new Error('未找到要处理的审计项');
+    }
+
+    const fixedTotal = nextItems.filter((item) => item.status === 'fixed').length;
+    const manualTotal = nextItems.filter((item) => item.status === 'manual').length;
+    const nextAudit = {
+      ...audit,
+      items: nextItems,
+      conflict_total: nextItems.length,
+      fixed_total: fixedTotal,
+      manual_total: manualTotal,
+      status: manualTotal || Number(audit.failed_group_total || 0) ? 'partial' : 'success',
+      updated_at: now(),
+    };
+    saveTask('content-generation', {
+      ...task,
+      stats: {
+        ...stats,
+        audit: nextAudit,
+      },
+    });
+    return loadTechnicalPlan();
+  }
+
+  function updateOriginalCoverageUnassignedStats(task, updater) {
+    const stats = task?.stats || {};
+    const originalCoverage = stats.originalCoverage || {};
+    const unassignedItems = Array.isArray(originalCoverage.unassigned_items) ? originalCoverage.unassigned_items : [];
+    const nextUnassignedItems = updater(unassignedItems);
+    const nextOriginalCoverage = {
+      ...originalCoverage,
+      unassigned_items: nextUnassignedItems,
+      unassigned_total: nextUnassignedItems.length,
+      pending_unassigned_total: nextUnassignedItems.filter((item) => !item.status || item.status === 'pending').length,
+      updated_at: now(),
+    };
+    saveTask('content-generation', {
+      ...task,
+      stats: {
+        ...stats,
+        originalCoverage: nextOriginalCoverage,
+      },
+    });
+  }
+
+  function mergeOriginalMaterialSource(previousOriginalMaterial, segment, allSegments) {
+    const previous = normalizeOriginalMaterial(previousOriginalMaterial);
+    const sourceIds = [...new Set([...previous.source_ids, segment.id])];
+    const segmentById = new Map((allSegments || []).map((item) => [item.id, item]));
+    const sourceSegments = sourceIds.map((sourceId) => segmentById.get(sourceId)).filter(Boolean);
+    const sourceTitles = sourceSegments.map((item) => item.title_path?.length ? item.title_path.join(' > ') : item.id);
+    const sourceHashes = sourceSegments.map((item) => item.hash).filter(Boolean);
+    const restoredChars = sourceSegments.reduce((sum, item) => sum + (item.chars || String(item.content || '').length), 0);
+    return normalizeOriginalMaterial({
+      ...previous,
+      restored: true,
+      optimized: false,
+      source_ids: sourceIds,
+      source_titles: sourceTitles,
+      source_hashes: sourceHashes,
+      restored_chars: restoredChars,
+      restored_at: previous.restored_at || now(),
+    });
+  }
+
+  function handleOriginalCoverageUnassignedSegment(payload = {}) {
+    const sourceId = String(payload.sourceId || payload.source_id || '').trim();
+    const action = String(payload.action || '').trim();
+    const nodeId = String(payload.nodeId || payload.node_id || '').trim();
+    if (!sourceId) {
+      throw new Error('缺少要处理的原方案段落编号');
+    }
+    if (!['ignore', 'bind'].includes(action)) {
+      throw new Error('原方案段落处理动作无效');
+    }
+    if (action === 'bind' && !nodeId) {
+      throw new Error('请选择要绑定的目标章节');
+    }
+
+    const transaction = db.transaction(() => {
+      const task = taskFromRow(db.prepare("SELECT * FROM technical_plan_tasks WHERE type = 'content-generation'").get());
+      if (!task) {
+        throw new Error('当前没有可处理的原方案覆盖报告');
+      }
+      const originalCoverage = task?.stats?.originalCoverage || {};
+      const unassignedItems = Array.isArray(originalCoverage.unassigned_items) ? originalCoverage.unassigned_items : [];
+      const targetIndex = unassignedItems.findIndex((item) => String(item.source_id || '') === sourceId);
+      if (targetIndex < 0) {
+        throw new Error('未找到要处理的原方案段落');
+      }
+
+      const timestamp = now();
+      let boundNode = null;
+      if (action === 'bind') {
+        boundNode = db.prepare('SELECT node_id, title, content FROM technical_plan_outline_nodes WHERE node_id = ?').get(nodeId);
+        if (!boundNode) {
+          throw new Error('当前目录中未找到要绑定的章节');
+        }
+      }
+
+      let originalSegments = [];
+      let segment = null;
+      if (action === 'bind') {
+        const markdown = readOriginalPlanMarkdown();
+        if (!markdown.trim()) {
+          throw new Error('原方案 Markdown 不存在，无法绑定段落');
+        }
+        originalSegments = splitOriginalPlanSegments(markdown);
+        segment = originalSegments.find((item) => item.id === sourceId);
+        if (!segment) {
+          throw new Error('原方案段落已变化，请重新执行原方案还原后再处理');
+        }
+
+        const previousContent = String(boundNode.content || '').trim();
+        const segmentContent = String(segment.content || '').trim();
+        const nextContent = [previousContent, segmentContent].filter(Boolean).join('\n\n');
+        db.prepare('UPDATE technical_plan_outline_nodes SET content = ?, updated_at = ? WHERE node_id = ?').run(nextContent, timestamp, nodeId);
+        db.prepare(`
+          INSERT INTO technical_plan_content_sections (node_id, status, error, updated_at)
+          VALUES (?, 'success', NULL, ?)
+          ON CONFLICT(node_id) DO UPDATE SET status = 'success', error = NULL, updated_at = excluded.updated_at
+        `).run(nodeId, timestamp);
+
+        const plans = loadContentPlans();
+        const storedPlan = plans[nodeId] || { plan: {}, illustration_type: 'none' };
+        plans[nodeId] = {
+          ...storedPlan,
+          plan: {
+            ...(storedPlan.plan || {}),
+            original_material: mergeOriginalMaterialSource(storedPlan.plan?.original_material, segment, originalSegments),
+          },
+          updated_at: timestamp,
+        };
+        saveContentPlans(plans);
+      }
+
+      updateOriginalCoverageUnassignedStats(task, (items) => items.map((item, index) => {
+        if (index !== targetIndex) {
+          return item;
+        }
+        if (action === 'ignore') {
+          return {
+            ...item,
+            status: 'ignored',
+            handled_at: timestamp,
+          };
+        }
+        return {
+          ...item,
+          status: 'bound',
+          bound_node_id: nodeId,
+          bound_node_title: boundNode?.title || '未命名章节',
+          handled_at: timestamp,
+        };
+      }));
+    });
+
+    transaction();
+    return loadTechnicalPlan();
   }
 
   function saveChapterContent({ nodeId, content }) {
@@ -1441,6 +1636,8 @@ function createTechnicalPlanStore({ app, db, fileService }) {
     saveOutline,
     saveGlobalFacts,
     saveContentGenerationOptions,
+    resolveConsistencyAuditItem,
+    handleOriginalCoverageUnassignedSegment,
     saveChapterContent,
   };
 }

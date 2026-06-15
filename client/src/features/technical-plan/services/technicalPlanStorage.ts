@@ -6,11 +6,15 @@ const validSteps: TechnicalPlanStep[] = [
   'outline-generation',
   'global-facts',
   'content-edit',
-  'expand',
 ];
 
+export function normalizeTechnicalPlanStep(step: string): TechnicalPlanStep | null {
+  if (step === 'expand') return 'content-edit';
+  return validSteps.includes(step as TechnicalPlanStep) ? step as TechnicalPlanStep : null;
+}
+
 function isTechnicalPlanState(state: TechnicalPlanState | null): state is TechnicalPlanState {
-  return Boolean(state && validSteps.includes(state.step));
+  return Boolean(state && normalizeTechnicalPlanStep(state.step));
 }
 
 export const technicalPlanStorage = {
@@ -21,6 +25,6 @@ export const technicalPlanStorage = {
       return null;
     }
 
-    return state || null;
+    return state ? { ...state, step: normalizeTechnicalPlanStep(state.step) || 'document-analysis' } : null;
   },
 };

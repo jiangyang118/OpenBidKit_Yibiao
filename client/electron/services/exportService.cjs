@@ -6,14 +6,16 @@ const { app, dialog, nativeImage } = require('electron');
 const cheerio = require('cheerio');
 const { imageSize } = require('image-size');
 const { compactLogError, createDeveloperLogger, textMetrics } = require('../utils/developerLog.cjs');
-const { getGeneratedImagesDir, getImportedImagesDir } = require('../utils/paths.cjs');
+const { getGeneratedImagesDir, getImageKnowledgeBaseImagesDir, getImportedImagesDir } = require('../utils/paths.cjs');
 const {
   AlignmentType,
   BorderStyle,
   Document,
   ExternalHyperlink,
   Footer,
+  Header,
   HeadingLevel,
+  HighlightColor,
   ImageRun,
   LevelFormat,
   Packer,
@@ -35,6 +37,8 @@ const NUMBERING_REFERENCE_PREFIX = 'technical-plan-numbering';
 const DOCX_TABLE_WIDTH_TWIPS = 9000;
 const MERMAID_EXPORT_RETRY_ATTEMPTS = 2;
 const MERMAID_EXPORT_RETRY_DELAY_MS = 3000;
+const INLINE_MARK_START = '[[YIBIAO_MARK_START]]';
+const INLINE_MARK_END = '[[YIBIAO_MARK_END]]';
 
 // 纸张尺寸 mm（portrait 模式 width × height），与 Renderer exportFormat.ts 保持一致
 const PAPER_DIMENSIONS_MM = {
@@ -167,6 +171,119 @@ function countOutlineContentMetrics(items = []) {
   };
 }
 
+function collectMarkdownImageSources(content) {
+  const text = String(content || '');
+  const images = [];
+  const markdownImagePattern = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g;
+  let match;
+
+  while ((match = markdownImagePattern.exec(text)) !== null) {
+    images.push({
+      alt: compactText(match[1] || 'Markdown 图片', 80),
+      source: String(match[2] || '').trim(),
+      syntax: 'markdown',
+    });
+  }
+
+  const htmlImagePattern = /<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
+  while ((match = htmlImagePattern.exec(text)) !== null) {
+    images.push({
+      alt: 'HTML 图片',
+      source: String(match[1] || '').trim(),
+      syntax: 'html',
+    });
+  }
+
+  return images;
+}
+
+function walkOutlineLeaves(items = [], callback, ancestors = []) {
+  for (const item of items || []) {
+    const title = compactText(item.title || item.id || '未命名章节', 80);
+    const nextAncestors = [...ancestors, title];
+    if (item.children?.length) {
+      walkOutlineLeaves(item.children, callback, nextAncestors);
+      continue;
+    }
+    callback(item, nextAncestors);
+  }
+}
+
+function classifyExportImageSource(source, baseDir) {
+  const value = String(source || '').trim();
+  if (!value) return { kind: 'empty', exists: false };
+  if (/^data:/i.test(value)) return { kind: 'data-url', exists: true };
+  if (/^https?:\/\//i.test(value)) return { kind: 'remote', exists: null };
+
+  if (/^yibiao-asset:\/\//i.test(value)) {
+    const assetPath = resolveAssetImagePath(value);
+    return { kind: 'asset', exists: Boolean(assetPath && fs.existsSync(assetPath)) };
+  }
+
+  try {
+    const parsedUrl = new URL(value);
+    if (parsedUrl.protocol === 'file:') {
+      const filePath = fileURLToPath(value);
+      return { kind: 'local-file-url', exists: fs.existsSync(filePath) };
+    }
+    return { kind: 'url', exists: null };
+  } catch {
+    const resolvedPath = path.isAbsolute(value) ? value : path.resolve(baseDir || process.cwd(), value);
+    return { kind: path.isAbsolute(value) ? 'local-path' : 'relative-path', exists: fs.existsSync(resolvedPath) };
+  }
+}
+
+function createExportPreflightReport(payload = {}) {
+  const outline = Array.isArray(payload.outline) ? payload.outline : [];
+  const baseDir = payload.base_dir || payload.baseDir;
+  const stats = countOutlineStats(outline);
+  const report = {
+    leafCount: stats.leafCount,
+    mermaidCount: stats.mermaidCount,
+    imageCount: 0,
+    dataUrlImageCount: 0,
+    localImageCount: 0,
+    remoteImageCount: 0,
+    assetImageCount: 0,
+    missingLocalImageCount: 0,
+    unknownImageCount: 0,
+    warnings: [],
+  };
+
+  walkOutlineLeaves(outline, (item, ancestors) => {
+    const images = collectMarkdownImageSources(item.content);
+    for (const image of images) {
+      const classification = classifyExportImageSource(image.source, baseDir);
+      report.imageCount += 1;
+      if (classification.kind === 'data-url') {
+        report.dataUrlImageCount += 1;
+      } else if (classification.kind === 'remote') {
+        report.remoteImageCount += 1;
+      } else if (classification.kind === 'asset') {
+        report.assetImageCount += 1;
+      } else if (['local-path', 'relative-path', 'local-file-url'].includes(classification.kind)) {
+        report.localImageCount += 1;
+      } else {
+        report.unknownImageCount += 1;
+      }
+
+      if (classification.exists === false) {
+        report.missingLocalImageCount += 1;
+        report.warnings.push(`导出预检：${ancestors.join(' / ')} 的图片“${image.alt}”找不到本地文件，Word 中会保留占位提示。`);
+      }
+    }
+  });
+
+  if (report.remoteImageCount > 0) {
+    report.warnings.push(`导出预检：检测到 ${report.remoteImageCount} 张远程图片，导出结果取决于当前网络。`);
+  }
+  if (report.mermaidCount > 0) {
+    report.warnings.push(`导出预检：检测到 ${report.mermaidCount} 张 Mermaid 图，导出时会联网转换为 Word 图片。`);
+  }
+
+  return report;
+}
+
 function loadDeveloperConfig(configStore) {
   try {
     return configStore?.load?.() || {};
@@ -196,6 +313,7 @@ function textRun(text, options = {}) {
     italics: options.italics,
     strike: options.strike,
     color: options.color,
+    highlight: options.highlight,
     underline: options.underline ? { type: UnderlineType.SINGLE } : undefined,
   });
 }
@@ -212,8 +330,24 @@ function textRunsWithBreaks(value, options = {}) {
     if (index > 0) {
       runs.push(lineBreakRun());
     }
-    if (part) {
-      runs.push(textRun(part, options));
+    if (!part) return;
+
+    const markerRegex = /\[\[YIBIAO_MARK_(START|END)\]\]/g;
+    let lastIndex = 0;
+    let highlighted = false;
+    let match = markerRegex.exec(part);
+    while (match) {
+      const text = part.slice(lastIndex, match.index);
+      if (text) {
+        runs.push(textRun(text, highlighted ? { ...options, highlight: HighlightColor.YELLOW } : options));
+      }
+      highlighted = match[1] === 'START';
+      lastIndex = markerRegex.lastIndex;
+      match = markerRegex.exec(part);
+    }
+    const rest = part.slice(lastIndex);
+    if (rest) {
+      runs.push(textRun(rest, highlighted ? { ...options, highlight: HighlightColor.YELLOW } : options));
     }
   });
 
@@ -396,8 +530,14 @@ function expandInlineMarkdownTableRows(line) {
   return [prefix.trimEnd(), ...tableRows];
 }
 
+function normalizeInlineMarksForDocx(content) {
+  return String(content || '')
+    .replace(/<span\b(?=[^>]*\bclass=(?:"[^"]*\bmark\b[^"]*"|'[^']*\bmark\b[^']*'))[^>]*>([\s\S]*?)<\/span>/gi, `${INLINE_MARK_START}$1${INLINE_MARK_END}`)
+    .replace(/<mark\b[^>]*>([\s\S]*?)<\/mark>/gi, `${INLINE_MARK_START}$1${INLINE_MARK_END}`);
+}
+
 function normalizeMarkdownTablesForDocx(content) {
-  const expandedLines = String(content || '')
+  const expandedLines = normalizeInlineMarksForDocx(content)
     .replace(/\r\n?/g, '\n')
     .split('\n')
     .flatMap(expandInlineMarkdownTableRows);
@@ -525,6 +665,19 @@ function getHeadingStyle(exportFormat, level) {
   return headings[idx] || null;
 }
 
+function buildHeader(text, font, size, alignment) {
+  const headerText = String(text || '').trim();
+  if (!headerText) return null;
+  return new Header({
+    children: [
+      new Paragraph({
+        alignment,
+        children: [new TextRun({ text: headerText, font, size })],
+      }),
+    ],
+  });
+}
+
 function getHeadingNumberingFormat(exportFormat, level) {
   const style = getHeadingStyle(exportFormat, level);
   return (style && style.numbering_format) ? style.numbering_format : 'none';
@@ -591,6 +744,7 @@ function resolveAssetImagePath(url) {
   const assetRoots = {
     'generated-images': getGeneratedImagesDir(app),
     'imported-images': getImportedImagesDir(app),
+    'image-knowledge-base': getImageKnowledgeBaseImagesDir(app),
   };
   const rootDir = assetRoots[assetUrl.hostname];
   if (!rootDir) return null;
@@ -872,6 +1026,8 @@ async function htmlInlineRuns($, nodes = [], context = {}, marks = {}) {
       runs.push(...await htmlInlineRuns($, $(node).contents().toArray(), context, { ...marks, bold: true }));
     } else if (tag === 'em' || tag === 'i') {
       runs.push(...await htmlInlineRuns($, $(node).contents().toArray(), context, { ...marks, italics: true }));
+    } else if (tag === 'mark' || (tag === 'span' && /\bmark\b/.test($(node).attr('class') || ''))) {
+      runs.push(...await htmlInlineRuns($, $(node).contents().toArray(), context, { ...marks, highlight: HighlightColor.YELLOW }));
     } else if (tag === 'code') {
       runs.push(new TextRun({ text: cleanText($(node).text()), font: 'Consolas', size: 22, color: '155BD7' }));
     } else if (tag === 'a') {
@@ -885,7 +1041,7 @@ async function htmlInlineRuns($, nodes = [], context = {}, marks = {}) {
     } else if (tag === 'img') {
       runs.push(await imageRunFromNode({ url: $(node).attr('src'), alt: $(node).attr('alt') || 'HTML 图片' }, context));
     } else {
-      if (!['span', 'small', 'sub', 'sup'].includes(tag)) {
+      if (!['span', 'small', 'sub', 'sup', 'mark'].includes(tag)) {
         addUnsupportedHtmlWarning(context, tag);
       }
       runs.push(...await htmlInlineRuns($, $(node).contents().toArray(), context, marks));
@@ -1013,7 +1169,7 @@ async function htmlNodeToDocxBlocks($, node, context, options = {}) {
   if (tag === 'p' && hasBlockHtmlChildren($, node)) {
     return htmlNodesToDocxBlocks($, $(node).contents().toArray(), context, options);
   }
-  if (['p', 'div', 'section', 'article', 'span', 'strong', 'b', 'em', 'i', 'a', 'code'].includes(tag)) {
+  if (['p', 'div', 'section', 'article', 'span', 'strong', 'b', 'em', 'i', 'a', 'code', 'mark'].includes(tag)) {
     const isFigureCaption = /^图[:：]/.test($(node).text().trim());
     const htmlParaOpts = buildHtmlBodyParaOpts(context);
     if (isFigureCaption) {
@@ -1335,11 +1491,19 @@ function buildHeadingParagraphStyles(exportFormat) {
 async function buildDocxResult(payload, options = {}) {
   const exportFormat = (payload && payload.export_format) || null;
   const stats = countOutlineStats(payload.outline || []);
+  const preflight = createExportPreflightReport(payload);
+  const warnings = options.warnings || [];
+  for (const warning of preflight.warnings) {
+    if (!warnings.includes(warning)) {
+      warnings.push(warning);
+    }
+  }
   const context = {
     baseDir: payload.base_dir || payload.baseDir,
     onProgress: options.onProgress,
-    warnings: options.warnings || [],
+    warnings,
     stats,
+    preflight,
     convertedLeafCount: 0,
     convertedMermaidCount: 0,
     imageCount: 0,
@@ -1352,6 +1516,7 @@ async function buildDocxResult(payload, options = {}) {
   };
   writeExportLog(context, 'export.docx.build.started', {
     stats,
+    preflight,
     content_metrics: countOutlineContentMetrics(payload.outline || []),
   });
 
@@ -1395,8 +1560,9 @@ async function buildDocxResult(payload, options = {}) {
     bottom: cmToTwips(pageSetup.margin_bottom_cm ?? 2),
     left: cmToTwips(pageSetup.margin_left_cm ?? 2),
     right: cmToTwips(pageSetup.margin_right_cm ?? 2),
+    header: cmToTwips(1.2),
     footer: cmToTwips(pageSetup.footer_distance_cm ?? 1.75),
-  } : { top: 1440, right: 1440, bottom: 1440, left: 1440, footer: cmToTwips(1.75) };
+  } : { top: 1440, right: 1440, bottom: 1440, left: 1440, header: cmToTwips(1.2), footer: cmToTwips(1.75) };
 
   // 纸张尺寸与方向
   const pageSizeConfig = {};
@@ -1412,8 +1578,30 @@ async function buildDocxResult(payload, options = {}) {
     }
   }
 
-  // 页脚 — 页码
+  // 页眉
   const sectionChildren = [...children];
+  const headerEnabled = pageSetup ? pageSetup.header_enabled === true : false;
+  const headerText = pageSetup ? String(pageSetup.header_text || payload.project_name || '投标技术文件').trim() : '';
+  const headerFont = pageSetup ? (pageSetup.header_font || '宋体') : '宋体';
+  const headerSize = chineseSizeToHalfPt(pageSetup ? (pageSetup.header_size || '小五') : '小五');
+  const headerAlignment = alignmentToWordType(pageSetup ? (pageSetup.header_alignment || '居中对齐') : '居中对齐');
+  const firstPageHeaderEnabled = pageSetup ? pageSetup.header_first_page_different === true : false;
+  const evenOddHeaderEnabled = pageSetup ? pageSetup.header_even_odd_different === true : false;
+  const firstPageHeaderText = pageSetup ? String(pageSetup.header_first_page_text || '').trim() : '';
+  const evenPageHeaderText = pageSetup ? String(pageSetup.header_even_text || '').trim() : '';
+  let headers = undefined;
+  if (headerEnabled && headerText) {
+    const defaultHeader = buildHeader(headerText, headerFont, headerSize, headerAlignment);
+    const firstHeader = firstPageHeaderEnabled ? buildHeader(firstPageHeaderText, headerFont, headerSize, headerAlignment) : null;
+    const evenHeader = evenOddHeaderEnabled ? buildHeader(evenPageHeaderText || headerText, headerFont, headerSize, headerAlignment) : null;
+    headers = {
+      ...(defaultHeader ? { default: defaultHeader } : {}),
+      ...(firstHeader ? { first: firstHeader } : {}),
+      ...(evenHeader ? { even: evenHeader } : {}),
+    };
+  }
+
+  // 页脚 — 页码
   const footerEnabled = pageSetup ? pageSetup.footer_enabled !== false : true;
   const pageNumberEnabled = pageSetup ? pageSetup.page_number_enabled !== false : true;
   const footerFont = pageSetup ? (pageSetup.footer_font || '宋体') : '宋体';
@@ -1447,6 +1635,7 @@ async function buildDocxResult(payload, options = {}) {
   const numbering = createNumberingConfig(context);
   const headingStyles = buildHeadingParagraphStyles(exportFormat);
   const doc = new Document({
+    ...(headerEnabled && evenOddHeaderEnabled ? { evenAndOddHeaderAndFooters: true } : {}),
     ...(numbering ? { numbering } : {}),
     styles: {
       default: {
@@ -1463,7 +1652,9 @@ async function buildDocxResult(payload, options = {}) {
           margin: pageMargin,
           ...pageSizeConfig,
         },
+        ...(headerEnabled && firstPageHeaderEnabled ? { titlePage: true } : {}),
       },
+      headers,
       footers,
       children: sectionChildren,
     }],
@@ -1478,9 +1669,10 @@ async function buildDocxResult(payload, options = {}) {
     image_count: context.imageCount,
     image_success_count: context.imageSuccessCount,
     image_failure_count: Math.max(0, context.imageCount - context.imageSuccessCount),
+    preflight,
     buffer_bytes: buffer.length,
   });
-  return { buffer, warnings: context.warnings, stats };
+  return { buffer, warnings: context.warnings, stats, preflight };
 }
 
 async function buildDocxBuffer(payload, options = {}) {
@@ -1490,6 +1682,58 @@ async function buildDocxBuffer(payload, options = {}) {
 
 function createExportService({ configStore } = {}) {
   return {
+    async previewWordExport(payload = {}, onProgress) {
+      const startedAt = Date.now();
+      const outline = Array.isArray(payload.outline) ? payload.outline : [];
+      const stats = countOutlineStats(outline);
+      const preflight = createExportPreflightReport(payload);
+      const warnings = [...preflight.warnings];
+
+      if (!outline.length) {
+        return {
+          success: false,
+          message: '没有可预演的目录内容',
+          warnings,
+          stats,
+          preflight,
+          duration_ms: Date.now() - startedAt,
+          error_stage: 'outline',
+        };
+      }
+
+      try {
+        reportProgress({ onProgress, warnings, stats }, 5, preflight.mermaidCount
+          ? `导出预演检测到 ${preflight.mermaidCount} 张 Mermaid 图，dry-run 会尝试走真实 Word 转换链路。`
+          : '正在执行 Word 导出 dry-run。');
+        const buildResult = await buildDocxResult(payload, { onProgress, warnings });
+        reportProgress({ onProgress, warnings: buildResult.warnings, stats: buildResult.stats }, 100, 'Word 导出 dry-run 已完成。', { phase: 'success' });
+        return {
+          success: true,
+          message: buildResult.warnings.length
+            ? `Word dry-run 已完成，有 ${buildResult.warnings.length} 条提示。`
+            : 'Word dry-run 已完成，未发现阻断性导出问题。',
+          warnings: buildResult.warnings,
+          stats: buildResult.stats,
+          preflight: buildResult.preflight,
+          duration_ms: Date.now() - startedAt,
+          docx_bytes: buildResult.buffer.length,
+        };
+      } catch (error) {
+        const message = error?.message || String(error);
+        reportProgress({ onProgress, warnings, stats }, 100, `Word 导出 dry-run 失败：${message}`, { phase: 'error' });
+        return {
+          success: false,
+          message: `Word 导出 dry-run 失败：${message}`,
+          warnings,
+          stats,
+          preflight,
+          duration_ms: Date.now() - startedAt,
+          error_stage: 'docx-build',
+          error_message: message,
+        };
+      }
+    },
+
     async exportWord(payload = {}, onProgress) {
       const stats = countOutlineStats(Array.isArray(payload.outline) ? payload.outline : []);
       const developerLogger = createDeveloperLogger({
@@ -1514,8 +1758,12 @@ function createExportService({ configStore } = {}) {
       }
 
       const progressContext = { onProgress, warnings: [], stats };
-      reportProgress(progressContext, 2, stats.mermaidCount
-        ? `检测到 ${stats.mermaidCount} 张 Mermaid 图，导出时会转换为 Word 图片。`
+      const preflight = createExportPreflightReport(payload);
+      for (const warning of preflight.warnings) {
+        progressContext.warnings.push(warning);
+      }
+      reportProgress(progressContext, 2, preflight.mermaidCount
+        ? `检测到 ${preflight.mermaidCount} 张 Mermaid 图，导出时会转换为 Word 图片。`
         : '正在准备 Word 导出。');
       const defaultFilename = `${sanitizeFilename(payload.project_name || '标书文档')}.docx`;
       const defaultDir = app?.getPath ? app.getPath('documents') : process.env.USERPROFILE || process.cwd();
@@ -1542,7 +1790,7 @@ function createExportService({ configStore } = {}) {
         });
         fs.writeFileSync(result.filePath, buildResult.buffer);
         const message = buildResult.warnings.length
-          ? `Word 已导出，但有 ${buildResult.warnings.length} 处图片未能插入，请打开文档核对。`
+          ? `Word 已导出，但有 ${buildResult.warnings.length} 条导出提示，请打开文档核对图片、表格和版式。`
           : 'Word 已导出，请打开文档核对图片、表格和版式。';
         reportProgress({ onProgress, warnings: buildResult.warnings, stats: buildResult.stats }, 100, message, { phase: 'success' });
         developerLogger.write('export.word.completed', {
@@ -1551,8 +1799,9 @@ function createExportService({ configStore } = {}) {
           buffer_bytes: buildResult.buffer.length,
           warning_count: buildResult.warnings.length,
           stats: buildResult.stats,
+          preflight: buildResult.preflight,
         });
-        return { success: true, path: result.filePath, message, warnings: buildResult.warnings };
+        return { success: true, path: result.filePath, message, warnings: buildResult.warnings, preflight: buildResult.preflight };
       } catch (error) {
         developerLogger.write('export.word.error', {
           output_file_name: path.basename(result.filePath),
@@ -1568,5 +1817,6 @@ function createExportService({ configStore } = {}) {
 module.exports = {
   buildDocxBuffer,
   buildDocxResult,
+  createExportPreflightReport,
   createExportService,
 };

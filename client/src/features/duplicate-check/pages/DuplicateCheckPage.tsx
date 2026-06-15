@@ -2,19 +2,19 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { trackPageView } from '../../../shared/analytics/analytics';
 import { FloatingToolbar, isLibreOfficeRequiredMessage, ToolbarArrowLeftIcon, ToolbarArrowRightIcon, useDocumentParseNotice, useToast } from '../../../shared/ui';
 import type { FloatingToolbarGroup } from '../../../shared/ui';
-import type { DuplicateAnalysisStatus, DuplicateAnalysisTabId, DuplicateCheckStep, DuplicateCheckTaskState, DuplicateCheckWorkspaceState, DuplicateContentAnalysisState, DuplicateImageAnalysisState, DuplicateMetadataAnalysisState, DuplicateOutlineAnalysisState, LocalFileSelection } from '../../../shared/types';
+import type { DuplicateAnalysisStatus, DuplicateAnalysisTabId, DuplicateCheckStep, DuplicateCheckTaskState, DuplicateCheckWorkspaceState, DuplicateContentAnalysisState, DuplicateContentIgnoreRule, DuplicateImageAnalysisState, DuplicateMetadataAnalysisState, DuplicateOutlineAnalysisState, DuplicateResolutionStatus, LocalFileSelection } from '../../../shared/types';
 
 const guideItems = [
   '同设备、同用户、同一个 WPS 账号、时间相近等问题，一秒锁定。',
   '可选上传招标文件，多份投标文件都引用了招标文件中的内容，不算重复。',
-  '图片基于哈希校验，只能识别同一张图片，截图、压缩等相似图片筛不出来。',
+  '图片同时做文件哈希和感知哈希比对，可提示完全重复以及压缩、缩放后的相似图片。',
 ];
 
 const dimensions = [
   { title: '元数据', text: '检查设备、账号、编辑时间、作者等隐藏信息。' },
   { title: '目录', text: '比对章节结构和标题顺序，识别模板化复制。' },
   { title: '正文', text: '筛查段落、表格和关键描述的重复内容。' },
-  { title: '图片', text: '对原图做哈希校验，定位完全一致的图片。' },
+  { title: '图片', text: '对原图做哈希和感知哈希校验，定位完全一致或疑似相似的图片。' },
 ];
 
 const analysisTabs: Array<{
@@ -33,6 +33,13 @@ const stepLabels: Record<DuplicateCheckStep, string> = {
   upload: '选择标书',
   analysis: '查重结果',
 };
+const contentIgnoreRuleCategories = [
+  { id: 'manual', label: '手动忽略' },
+  { id: 'tender-reference', label: '招标引用' },
+  { id: 'boilerplate', label: '固定模板' },
+  { id: 'batch', label: '批量规则' },
+];
+const contentIgnoreRuleCategoryLabels = Object.fromEntries(contentIgnoreRuleCategories.map((item) => [item.id, item.label]));
 
 function formatFileSize(size: number) {
   if (size < 1024) return `${size} B`;
@@ -64,6 +71,22 @@ function statusLabel(status: DuplicateAnalysisStatus) {
   if (status === 'success') return '已完成';
   if (status === 'error') return '有错误';
   return '待分析';
+}
+
+function resolutionStatusLabel(status?: DuplicateResolutionStatus) {
+  if (status === 'confirmed') return '已确认';
+  if (status === 'ignored') return '已忽略';
+  return '未处理';
+}
+
+function imageMatchTypeLabel(type?: 'exact' | 'similar') {
+  return type === 'similar' ? '相似图片' : '完全重复';
+}
+
+function imageSimilarityLabel(score?: number) {
+  const value = Number(score);
+  if (!Number.isFinite(value) || value <= 0) return '';
+  return `${Math.round(Math.min(value, 1) * 100)}%`;
 }
 
 function progressText(progress?: { completed: number; total: number }) {
@@ -346,17 +369,21 @@ function DuplicateOutlinePane({ analysis, bidFiles }: { analysis?: DuplicateOutl
   );
 }
 
-function DuplicateContentPane({ analysis, bidFiles }: { analysis?: DuplicateContentAnalysisState; bidFiles: LocalFileSelection[] }) {
+function DuplicateContentPane({ analysis, bidFiles, ignoreRules, onResolveItem, onSaveIgnoreRule, onDeleteIgnoreRule, onExportIgnoreRules, onImportIgnoreRules }: { analysis?: DuplicateContentAnalysisState; bidFiles: LocalFileSelection[]; ignoreRules: DuplicateContentIgnoreRule[]; onResolveItem: (section: 'content', itemId: string, status: DuplicateResolutionStatus) => Promise<void>; onSaveIgnoreRule: (pattern: string, normalized: string, category: string) => Promise<void>; onDeleteIgnoreRule: (ruleId: string) => Promise<void>; onExportIgnoreRules: () => Promise<void>; onImportIgnoreRules: () => Promise<void> }) {
   const { showToast } = useToast();
   const [page, setPage] = useState(1);
+  const [ignoreRuleCategory, setIgnoreRuleCategory] = useState('manual');
   const pageSize = 50;
   const labelMap = useMemo(() => buildFileLabelMap(bidFiles), [bidFiles]);
   const duplicateSentences = analysis?.duplicateSentences || [];
-  const totalPages = Math.max(1, Math.ceil(duplicateSentences.length / pageSize));
+  const visibleDuplicateSentences = duplicateSentences.filter((item) => item.resolution_status !== 'ignored');
+  const ignoredCount = duplicateSentences.length - visibleDuplicateSentences.length;
+  const totalPages = Math.max(1, Math.ceil(visibleDuplicateSentences.length / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const pageItems = duplicateSentences.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageItems = visibleDuplicateSentences.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const ruleNormalizedSet = useMemo(() => new Set(ignoreRules.map((rule) => rule.normalized)), [ignoreRules]);
 
-  useEffect(() => setPage(1), [duplicateSentences.length]);
+  useEffect(() => setPage(1), [duplicateSentences.length, ignoredCount]);
 
   async function handleCopySentence(text: string) {
     try {
@@ -374,11 +401,42 @@ function DuplicateContentPane({ analysis, bidFiles }: { analysis?: DuplicateCont
   return (
     <div className="duplicate-match-panel">
       <DuplicateFileCodeBar files={bidFiles} />
+      <section className="duplicate-ignore-rule-panel" aria-label="正文忽略规则">
+        <div>
+          <strong>常用忽略规则</strong>
+          <span>已保存 {ignoreRules.length} 条；重新查重时相同正文会自动标为已忽略。</span>
+        </div>
+        <div className="duplicate-ignore-rule-tools">
+          <label>
+            规则分类
+            <select value={ignoreRuleCategory} onChange={(event) => setIgnoreRuleCategory(event.target.value)} aria-label="正文忽略规则分类">
+              {contentIgnoreRuleCategories.map((item) => (
+                <option key={item.id} value={item.id}>{item.label}</option>
+              ))}
+            </select>
+          </label>
+          <div>
+            <button type="button" onClick={() => void onExportIgnoreRules()} disabled={!ignoreRules.length}>导出规则</button>
+            <button type="button" onClick={() => void onImportIgnoreRules()}>导入规则</button>
+          </div>
+        </div>
+        {ignoreRules.length > 0 && (
+          <div className="duplicate-ignore-rule-list">
+            {ignoreRules.map((rule) => (
+              <span key={rule.rule_id} title={rule.pattern}>
+                <em>{contentIgnoreRuleCategoryLabels[rule.category || 'manual'] || '手动忽略'}</em>
+                {formatDuplicateSentenceText(rule.normalized, rule.pattern)}
+                <button type="button" onClick={() => void onDeleteIgnoreRule(rule.rule_id)} aria-label={`删除忽略规则 ${rule.pattern}`}>删除</button>
+              </span>
+            ))}
+          </div>
+        )}
+      </section>
       {duplicateSentences.length ? (
         <section className="duplicate-match-card">
           <div className="duplicate-match-card-head">
             <strong>重复句子</strong>
-            <span>{analysis.message} · 已排除招标引用 {analysis.tenderMatchedSentenceCount} 句</span>
+            <span>{analysis.message} · 已排除招标引用 {analysis.tenderMatchedSentenceCount} 句 · 已忽略 {ignoredCount} 条</span>
           </div>
           <div className="duplicate-sentence-list">
             {pageItems.map((item) => (
@@ -395,6 +453,7 @@ function DuplicateContentPane({ analysis, bidFiles }: { analysis?: DuplicateCont
                       复制
                     </button>
                   </p>
+                  <span className={`duplicate-resolution-badge is-${item.resolution_status || 'pending'}`}>{resolutionStatusLabel(item.resolution_status)}</span>
                 </div>
                 <div className="duplicate-file-badges">
                   {item.file_ids.map((fileId) => (
@@ -403,10 +462,18 @@ function DuplicateContentPane({ analysis, bidFiles }: { analysis?: DuplicateCont
                     </span>
                   ))}
                 </div>
+                <div className="duplicate-resolution-actions">
+                  <button type="button" onClick={() => void onResolveItem('content', item.id, 'confirmed')} disabled={item.resolution_status === 'confirmed'}>确认重复</button>
+                  <button type="button" onClick={() => void onResolveItem('content', item.id, 'ignored')}>忽略</button>
+                  <button type="button" onClick={() => void onSaveIgnoreRule(item.sentence || item.normalized, item.normalized, ignoreRuleCategory)} disabled={ruleNormalizedSet.has(item.normalized)}>加入忽略规则</button>
+                  {item.resolution_status && item.resolution_status !== 'pending' && (
+                    <button type="button" onClick={() => void onResolveItem('content', item.id, 'pending')}>恢复待处理</button>
+                  )}
+                </div>
               </article>
             ))}
           </div>
-          <PaginationControls page={currentPage} pageSize={pageSize} total={duplicateSentences.length} onPageChange={setPage} />
+          <PaginationControls page={currentPage} pageSize={pageSize} total={visibleDuplicateSentences.length} onPageChange={setPage} />
         </section>
       ) : (
         <div className="duplicate-analysis-empty">
@@ -418,17 +485,19 @@ function DuplicateContentPane({ analysis, bidFiles }: { analysis?: DuplicateCont
   );
 }
 
-function DuplicateImagePane({ analysis, bidFiles }: { analysis?: DuplicateImageAnalysisState; bidFiles: LocalFileSelection[] }) {
+function DuplicateImagePane({ analysis, bidFiles, onResolveItem }: { analysis?: DuplicateImageAnalysisState; bidFiles: LocalFileSelection[]; onResolveItem: (section: 'image', itemId: string, status: DuplicateResolutionStatus) => Promise<void> }) {
   const { showToast } = useToast();
   const [page, setPage] = useState(1);
   const pageSize = 24;
   const labelMap = useMemo(() => buildFileLabelMap(bidFiles), [bidFiles]);
   const duplicateImages = analysis?.duplicateImages || [];
-  const totalPages = Math.max(1, Math.ceil(duplicateImages.length / pageSize));
+  const visibleDuplicateImages = duplicateImages.filter((item) => item.resolution_status !== 'ignored');
+  const ignoredCount = duplicateImages.length - visibleDuplicateImages.length;
+  const totalPages = Math.max(1, Math.ceil(visibleDuplicateImages.length / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const pageItems = duplicateImages.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageItems = visibleDuplicateImages.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  useEffect(() => setPage(1), [duplicateImages.length]);
+  useEffect(() => setPage(1), [duplicateImages.length, ignoredCount]);
 
   async function handleCopyImageLocation(text: string) {
     try {
@@ -440,7 +509,7 @@ function DuplicateImagePane({ analysis, bidFiles }: { analysis?: DuplicateImageA
   }
 
   if (!analysis) {
-    return <div className="duplicate-analysis-empty"><strong>等待图片比对</strong><p>正文内容提取完成后会自动按图片 hash 比对。</p></div>;
+    return <div className="duplicate-analysis-empty"><strong>等待图片比对</strong><p>正文内容提取完成后会自动按图片 hash 和感知 hash 比对。</p></div>;
   }
 
   return (
@@ -450,7 +519,7 @@ function DuplicateImagePane({ analysis, bidFiles }: { analysis?: DuplicateImageA
         <section className="duplicate-match-card">
           <div className="duplicate-match-card-head">
             <strong>重复图片</strong>
-            <span>{analysis.message} · 共识别 {analysis.totalImageCount} 张图片</span>
+            <span>{analysis.message} · 共识别 {analysis.totalImageCount} 张图片 · 已忽略 {ignoredCount} 组</span>
           </div>
           <div className="duplicate-image-grid">
             {pageItems.map((item) => {
@@ -463,7 +532,12 @@ function DuplicateImagePane({ analysis, bidFiles }: { analysis?: DuplicateImageA
                   <div className="duplicate-image-preview">
                     <img src={item.preview_url} alt={`重复图片 ${item.hash.slice(0, 10)}`} loading="lazy" />
                   </div>
-                  <strong>Hash {item.hash.slice(0, 12)}</strong>
+                  <strong>{imageMatchTypeLabel(item.match_type)} {item.hash.slice(0, 12)}</strong>
+                  <span className={`duplicate-resolution-badge is-${item.resolution_status || 'pending'}`}>{resolutionStatusLabel(item.resolution_status)}</span>
+                  <span className="duplicate-image-match-meta">
+                    {item.match_type === 'similar' ? `相似度 ${imageSimilarityLabel(item.similarity_score) || '-'}` : 'Hash 完全一致'}
+                  </span>
+                  {item.similarity_reason && <p className="duplicate-image-reason">{item.similarity_reason}</p>}
                   <div className="duplicate-file-badges">
                     {item.file_ids.map((fileId) => (
                       <span key={fileId} title={bidFiles.find((file) => file.id === fileId)?.file_name || fileId}>
@@ -482,23 +556,30 @@ function DuplicateImagePane({ analysis, bidFiles }: { analysis?: DuplicateImageA
                       ))}
                     </div>
                   )}
+                  <div className="duplicate-resolution-actions">
+                    <button type="button" onClick={() => void onResolveItem('image', item.id, 'confirmed')} disabled={item.resolution_status === 'confirmed'}>确认重复</button>
+                    <button type="button" onClick={() => void onResolveItem('image', item.id, 'ignored')}>忽略</button>
+                    {item.resolution_status && item.resolution_status !== 'pending' && (
+                      <button type="button" onClick={() => void onResolveItem('image', item.id, 'pending')}>恢复待处理</button>
+                    )}
+                  </div>
                 </article>
               );
             })}
           </div>
-          <PaginationControls page={currentPage} pageSize={pageSize} total={duplicateImages.length} onPageChange={setPage} />
+          <PaginationControls page={currentPage} pageSize={pageSize} total={visibleDuplicateImages.length} onPageChange={setPage} />
         </section>
       ) : (
         <div className="duplicate-analysis-empty">
           <strong>{analysis.status === 'running' ? '正在比对图片' : '未发现重复图片'}</strong>
-          <p>{analysis.status === 'running' ? analysis.message : '未发现投标文件之间完全相同的图片。'}</p>
+          <p>{analysis.status === 'running' ? analysis.message : '未发现投标文件之间完全相同或疑似相似的图片。'}</p>
         </div>
       )}
     </div>
   );
 }
 
-function DuplicateAnalysisPane({ activeTab, onTabChange, metadataAnalysis, outlineAnalysis, contentAnalysis, imageAnalysis, bidFiles, startingAnalysis, onRerun }: { activeTab: DuplicateAnalysisTabId; onTabChange: (tab: DuplicateAnalysisTabId) => void; metadataAnalysis?: DuplicateMetadataAnalysisState; outlineAnalysis?: DuplicateOutlineAnalysisState; contentAnalysis?: DuplicateContentAnalysisState; imageAnalysis?: DuplicateImageAnalysisState; bidFiles: LocalFileSelection[]; startingAnalysis: boolean; onRerun: () => void }) {
+function DuplicateAnalysisPane({ activeTab, onTabChange, metadataAnalysis, outlineAnalysis, contentAnalysis, imageAnalysis, contentIgnoreRules, bidFiles, startingAnalysis, onRerun, onExportReport, onResolveItem, onBatchHandleItems, onSaveContentIgnoreRule, onDeleteContentIgnoreRule, onExportContentIgnoreRules, onImportContentIgnoreRules }: { activeTab: DuplicateAnalysisTabId; onTabChange: (tab: DuplicateAnalysisTabId) => void; metadataAnalysis?: DuplicateMetadataAnalysisState; outlineAnalysis?: DuplicateOutlineAnalysisState; contentAnalysis?: DuplicateContentAnalysisState; imageAnalysis?: DuplicateImageAnalysisState; contentIgnoreRules: DuplicateContentIgnoreRule[]; bidFiles: LocalFileSelection[]; startingAnalysis: boolean; onRerun: () => void; onExportReport: (format?: 'md' | 'docx' | 'pdf') => void; onResolveItem: (section: 'content' | 'image', itemId: string, status: DuplicateResolutionStatus) => Promise<void>; onBatchHandleItems: (section: 'content' | 'image', itemIds: string[], action: 'resolve' | 'delete', status?: DuplicateResolutionStatus) => Promise<void>; onSaveContentIgnoreRule: (pattern: string, normalized: string, category: string) => Promise<void>; onDeleteContentIgnoreRule: (ruleId: string) => Promise<void>; onExportContentIgnoreRules: () => Promise<void>; onImportContentIgnoreRules: () => Promise<void> }) {
   const activeItem = analysisTabs.find((item) => item.id === activeTab) || analysisTabs[0];
   const metadataStatus = metadataAnalysis?.status || 'pending';
   const metadataProgress = metadataAnalysis?.status === 'success' || metadataAnalysis?.status === 'error'
@@ -507,6 +588,15 @@ function DuplicateAnalysisPane({ activeTab, onTabChange, metadataAnalysis, outli
       ? Math.round((metadataAnalysis.metadataExtraction.completed / metadataAnalysis.metadataExtraction.total) * 100)
       : 0;
   const analysisRunning = startingAnalysis || metadataStatus === 'running' || outlineAnalysis?.status === 'running' || contentAnalysis?.status === 'running' || imageAnalysis?.status === 'running';
+  const batchSection = activeTab === 'content' || activeTab === 'image' ? activeTab : null;
+  const batchItems = activeTab === 'content'
+    ? contentAnalysis?.duplicateSentences || []
+    : activeTab === 'image'
+      ? imageAnalysis?.duplicateImages || []
+      : [];
+  const pendingBatchItems = batchItems.filter((item) => !item.resolution_status || item.resolution_status === 'pending');
+  const nonIgnoredBatchItems = batchItems.filter((item) => item.resolution_status !== 'ignored');
+  const ignoredBatchItems = batchItems.filter((item) => item.resolution_status === 'ignored');
 
   return (
     <section className="duplicate-analysis-panel">
@@ -515,9 +605,50 @@ function DuplicateAnalysisPane({ activeTab, onTabChange, metadataAnalysis, outli
           <span className="section-kicker">STEP 02</span>
           <h2>查重结果</h2>
         </div>
-        <button type="button" className="secondary-action" onClick={onRerun} disabled={!bidFiles.length || analysisRunning}>
-          {analysisRunning ? '分析中...' : '重新查重'}
-        </button>
+        <div className="duplicate-analysis-title-actions">
+          <button type="button" className="secondary-action" onClick={() => onExportReport('md')} disabled={!bidFiles.length || analysisRunning}>导出 Markdown</button>
+          <button type="button" className="secondary-action" onClick={() => onExportReport('docx')} disabled={!bidFiles.length || analysisRunning}>导出 Word</button>
+          <button type="button" className="secondary-action" onClick={() => onExportReport('pdf')} disabled={!bidFiles.length || analysisRunning}>导出 PDF</button>
+          {batchSection && (
+            <>
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => void onBatchHandleItems(batchSection, pendingBatchItems.map((item) => item.id), 'resolve', 'confirmed')}
+                disabled={!pendingBatchItems.length || analysisRunning}
+              >
+                批量确认当前结果 {pendingBatchItems.length}
+              </button>
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => void onBatchHandleItems(batchSection, nonIgnoredBatchItems.map((item) => item.id), 'resolve', 'ignored')}
+                disabled={!nonIgnoredBatchItems.length || analysisRunning}
+              >
+                批量忽略当前结果 {nonIgnoredBatchItems.length}
+              </button>
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => void onBatchHandleItems(batchSection, ignoredBatchItems.map((item) => item.id), 'resolve', 'pending')}
+                disabled={!ignoredBatchItems.length || analysisRunning}
+              >
+                恢复当前已忽略 {ignoredBatchItems.length}
+              </button>
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => void onBatchHandleItems(batchSection, nonIgnoredBatchItems.map((item) => item.id), 'delete')}
+                disabled={!nonIgnoredBatchItems.length || analysisRunning}
+              >
+                删除当前显示 {nonIgnoredBatchItems.length}
+              </button>
+            </>
+          )}
+          <button type="button" className="secondary-action" onClick={onRerun} disabled={!bidFiles.length || analysisRunning}>
+            {analysisRunning ? '分析中...' : '重新查重'}
+          </button>
+        </div>
       </div>
 
       <div className="duplicate-analysis-tabs" role="tablist" aria-label="标书查重维度">
@@ -579,9 +710,9 @@ function DuplicateAnalysisPane({ activeTab, onTabChange, metadataAnalysis, outli
         ) : activeItem.id === 'outline' ? (
           <DuplicateOutlinePane analysis={outlineAnalysis} bidFiles={bidFiles} />
         ) : activeItem.id === 'content' ? (
-          <DuplicateContentPane analysis={contentAnalysis} bidFiles={bidFiles} />
+          <DuplicateContentPane analysis={contentAnalysis} bidFiles={bidFiles} ignoreRules={contentIgnoreRules} onResolveItem={onResolveItem} onSaveIgnoreRule={onSaveContentIgnoreRule} onDeleteIgnoreRule={onDeleteContentIgnoreRule} onExportIgnoreRules={onExportContentIgnoreRules} onImportIgnoreRules={onImportContentIgnoreRules} />
         ) : activeItem.id === 'image' ? (
-          <DuplicateImagePane analysis={imageAnalysis} bidFiles={bidFiles} />
+          <DuplicateImagePane analysis={imageAnalysis} bidFiles={bidFiles} onResolveItem={onResolveItem} />
         ) : (
           <>
             <span className="section-kicker">{activeItem.label}</span>
@@ -603,6 +734,7 @@ function DuplicateCheckPage() {
   const [outlineAnalysis, setOutlineAnalysis] = useState<DuplicateOutlineAnalysisState | undefined>();
   const [contentAnalysis, setContentAnalysis] = useState<DuplicateContentAnalysisState | undefined>();
   const [imageAnalysis, setImageAnalysis] = useState<DuplicateImageAnalysisState | undefined>();
+  const [contentIgnoreRules, setContentIgnoreRules] = useState<DuplicateContentIgnoreRule[]>([]);
   const [analysisTask, setAnalysisTask] = useState<DuplicateCheckTaskState | undefined>();
   const [startingAnalysis, setStartingAnalysis] = useState(false);
   const [busy, setBusy] = useState<'tender' | 'bid' | null>(null);
@@ -623,7 +755,107 @@ function DuplicateCheckPage() {
     setOutlineAnalysis(state.outlineAnalysis);
     setContentAnalysis(state.contentAnalysis);
     setImageAnalysis(state.imageAnalysis);
+    setContentIgnoreRules(Array.isArray(state.contentIgnoreRules) ? state.contentIgnoreRules : []);
     setAnalysisTask(state.analysisTask);
+  }
+
+  async function resolveDuplicateItem(section: 'content' | 'image', itemId: string, status: DuplicateResolutionStatus) {
+    try {
+      const nextState = await window.yibiao?.duplicateCheck.resolveItem({ section, itemId, status });
+      if (nextState) {
+        applyDuplicateCheckState(nextState);
+      }
+      showToast(status === 'confirmed' ? '已确认重复项' : status === 'ignored' ? '已忽略重复项' : '已恢复为待处理', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '处理查重结果失败', 'error');
+    }
+  }
+
+  async function batchHandleDuplicateItems(section: 'content' | 'image', itemIds: string[], action: 'resolve' | 'delete', status?: DuplicateResolutionStatus) {
+    if (!itemIds.length) return;
+    try {
+      const nextState = await window.yibiao?.duplicateCheck.batchHandleItems({ section, itemIds, action, status });
+      if (nextState) {
+        applyDuplicateCheckState(nextState);
+      }
+      if (action === 'delete') {
+        showToast(`已删除 ${itemIds.length} 条查重结果`, 'success');
+      } else {
+        const actionText = status === 'confirmed' ? '确认' : status === 'ignored' ? '忽略' : '恢复';
+        showToast(`已批量${actionText} ${itemIds.length} 条查重结果`, 'success');
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '批量处理查重结果失败', 'error');
+    }
+  }
+
+  async function saveContentIgnoreRule(pattern: string, normalized: string, category: string) {
+    try {
+      const nextState = await window.yibiao?.duplicateCheck.saveContentIgnoreRule({ pattern, normalized, category });
+      if (nextState) {
+        applyDuplicateCheckState(nextState);
+      }
+      showToast('已加入正文忽略规则', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '保存正文忽略规则失败', 'error');
+    }
+  }
+
+  async function exportContentIgnoreRules() {
+    try {
+      const result = await window.yibiao?.duplicateCheck.exportContentIgnoreRules();
+      if (!result?.success) {
+        showToast(result?.message || '已取消导出正文忽略规则', 'info');
+        return;
+      }
+      showToast(result.message || '正文忽略规则已导出', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '导出正文忽略规则失败', 'error');
+    }
+  }
+
+  async function importContentIgnoreRules() {
+    try {
+      const result = await window.yibiao?.duplicateCheck.importContentIgnoreRules();
+      if (!result?.success) {
+        showToast(result?.message || '已取消导入正文忽略规则', 'info');
+        return;
+      }
+      applyDuplicateCheckState(result.state);
+      showToast(result.message || '正文忽略规则已导入', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '导入正文忽略规则失败', 'error');
+    }
+  }
+
+  async function deleteContentIgnoreRule(ruleId: string) {
+    try {
+      const nextState = await window.yibiao?.duplicateCheck.deleteContentIgnoreRule(ruleId);
+      if (nextState) {
+        applyDuplicateCheckState(nextState);
+      }
+      showToast('已删除正文忽略规则', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '删除正文忽略规则失败', 'error');
+    }
+  }
+
+  async function exportDuplicateReport(format: 'md' | 'docx' | 'pdf' = 'md') {
+    try {
+      const result = await window.yibiao?.duplicateCheck.exportReport({ format });
+      if (!result?.success) {
+        showToast(result?.message || '已取消导出', 'info');
+        return;
+      }
+      const fallbackMessage = format === 'docx'
+        ? '标书查重 Word 报告已导出'
+        : format === 'pdf'
+          ? '标书查重 PDF 报告已导出'
+          : '标书查重报告已导出';
+      showToast(result.message || fallbackMessage, 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '导出标书查重报告失败', 'error');
+    }
   }
 
   const totalSize = useMemo(() => bidFiles.reduce((sum, file) => sum + file.size, tenderFile?.size || 0), [bidFiles, tenderFile]);
@@ -1008,7 +1240,7 @@ function DuplicateCheckPage() {
           </section>
         </>
       ) : (
-        <DuplicateAnalysisPane activeTab={activeAnalysisTab} onTabChange={setActiveAnalysisTab} metadataAnalysis={metadataAnalysis} outlineAnalysis={outlineAnalysis} contentAnalysis={contentAnalysis} imageAnalysis={imageAnalysis} bidFiles={bidFiles} startingAnalysis={startingAnalysis || analysisTask?.status === 'running'} onRerun={() => startDuplicateAnalysis(true)} />
+        <DuplicateAnalysisPane activeTab={activeAnalysisTab} onTabChange={setActiveAnalysisTab} metadataAnalysis={metadataAnalysis} outlineAnalysis={outlineAnalysis} contentAnalysis={contentAnalysis} imageAnalysis={imageAnalysis} contentIgnoreRules={contentIgnoreRules} bidFiles={bidFiles} startingAnalysis={startingAnalysis || analysisTask?.status === 'running'} onRerun={() => startDuplicateAnalysis(true)} onExportReport={(format) => void exportDuplicateReport(format)} onResolveItem={resolveDuplicateItem} onBatchHandleItems={batchHandleDuplicateItems} onSaveContentIgnoreRule={saveContentIgnoreRule} onDeleteContentIgnoreRule={deleteContentIgnoreRule} onExportContentIgnoreRules={exportContentIgnoreRules} onImportContentIgnoreRules={importContentIgnoreRules} />
       )}
 
       <FloatingToolbar groups={toolbarGroups} label="标书查重工具条" />

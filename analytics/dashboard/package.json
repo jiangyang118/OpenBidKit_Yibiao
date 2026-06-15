@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "check": "node ../scripts/check-js-syntax.mjs public/src",
+    "test": "npm run check && node --test",
     "dev": "wrangler dev",
-    "deploy": "node ../scripts/deploy-if-changed.mjs analytics/dashboard"
+    "deploy": "npm run check && node ../scripts/deploy-if-changed.mjs analytics/dashboard"
   },
   "devDependencies": {
     "wrangler": "^4.13.2"

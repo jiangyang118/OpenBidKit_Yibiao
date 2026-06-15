@@ -33,6 +33,18 @@ function registerTaskIpc({ taskService }) {
     taskService.subscribe(event.sender);
     return taskService.startDuplicateAnalysis(payload);
   });
+  ipcMain.handle('tasks:start-business-bid-ai-extraction', (event, payload) => {
+    taskService.subscribe(event.sender);
+    return taskService.startBusinessBidAiExtraction(payload);
+  });
+  ipcMain.handle('tasks:start-ai-evaluation-extraction', (event, payload) => {
+    taskService.subscribe(event.sender);
+    return taskService.startAiEvaluationExtraction(payload);
+  });
+  ipcMain.handle('tasks:start-ai-evaluation-batch-scoring', (event, payload) => {
+    taskService.subscribe(event.sender);
+    return taskService.startAiEvaluationBatchScoring(payload);
+  });
   ipcMain.handle('tasks:get-active', (event) => {
     taskService.subscribe(event.sender);
     return taskService.getActiveTasks();

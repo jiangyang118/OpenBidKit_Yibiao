@@ -1,5 +1,7 @@
 const crypto = require('node:crypto');
+const { runAiEvaluationBatchScoringTask, runAiEvaluationExtractionTask } = require('./aiEvaluationTask.cjs');
 const { runBidAnalysisTask } = require('./bidAnalysisTask.cjs');
+const { runBusinessBidAiExtractionTask } = require('./businessBidTask.cjs');
 const { runContentGenerationTask } = require('./contentGenerationTask.cjs');
 const { runGlobalFactsTask } = require('./globalFactsTask.cjs');
 const { runOutlineGenerationTask } = require('./outlineGenerationTask.cjs');
@@ -68,6 +70,49 @@ const taskDefinitions = {
     lockPolicy: 'group-exclusive',
     stateKey: 'duplicateCheck',
     field: 'analysisTask',
+  },
+  'knowledge-base-preparation': {
+    label: '知识库文档解析',
+    group: 'knowledge-base',
+    groupLabel: '知识库',
+    step: 1,
+    lockPolicy: 'scope-exclusive',
+    stateKey: 'knowledgeBase',
+  },
+  'knowledge-base-matching': {
+    label: '知识库段落匹配',
+    group: 'knowledge-base',
+    groupLabel: '知识库',
+    step: 2,
+    lockPolicy: 'scope-exclusive',
+    stateKey: 'knowledgeBase',
+  },
+  'business-bid-ai-extraction': {
+    label: '商务标 AI 结构化提取',
+    group: 'business-bid',
+    groupLabel: '商务标',
+    step: 1,
+    lockPolicy: 'group-exclusive',
+    stateKey: 'businessBid',
+    field: 'aiExtractionTask',
+  },
+  'ai-evaluation-extraction': {
+    label: 'AI 评标结构化抽取',
+    group: 'ai-evaluation',
+    groupLabel: 'AI 评标',
+    step: 1,
+    lockPolicy: 'group-exclusive',
+    stateKey: 'aiEvaluation',
+    field: 'aiExtractionTask',
+  },
+  'ai-evaluation-batch-scoring': {
+    label: 'AI 评标批量评分',
+    group: 'ai-evaluation',
+    groupLabel: 'AI 评标',
+    step: 2,
+    lockPolicy: 'group-exclusive',
+    stateKey: 'aiEvaluation',
+    field: 'batchScoringTask',
   },
 };
 
@@ -214,7 +259,65 @@ function createTask(type, payload) {
   };
 }
 
-function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore, duplicateCheckStore, knowledgeBaseService, duplicateCheckService }) {
+function getTaskStorageKey(type, payloadOrTask = {}) {
+  const definition = getTaskDefinition(type);
+  const scopeId = getScopeId(payloadOrTask);
+  if (definition.lockPolicy === 'scope-exclusive' && scopeId) {
+    return `${type}:${scopeId}`;
+  }
+  return type;
+}
+
+function knowledgeTaskTypeForPhase(phase) {
+  return phase === 'matching' ? 'knowledge-base-matching' : 'knowledge-base-preparation';
+}
+
+function serializeTaskDefinition(type) {
+  const definition = getTaskDefinition(type);
+  return {
+    type,
+    label: definition.label || type,
+    group: definition.group || '',
+    groupLabel: definition.groupLabel || '',
+    step: definition.step,
+    lockPolicy: definition.lockPolicy || 'none',
+    stateKey: definition.stateKey || '',
+    field: definition.field || '',
+  };
+}
+
+function listTaskDefinitions() {
+  return Object.keys(taskDefinitions)
+    .sort()
+    .map(serializeTaskDefinition);
+}
+
+function createHeadlessTaskStartPlan(type, payload = {}) {
+  const normalizedType = String(type || '').trim();
+  if (!Object.prototype.hasOwnProperty.call(taskDefinitions, normalizedType)) {
+    return {
+      ok: false,
+      error: 'unknown_task_type',
+      type: normalizedType,
+      available_types: Object.keys(taskDefinitions).sort(),
+    };
+  }
+  const definition = serializeTaskDefinition(normalizedType);
+  return {
+    ok: true,
+    dry_run: true,
+    type: normalizedType,
+    definition,
+    storage_key: getTaskStorageKey(normalizedType, payload || {}),
+    scope_id: getScopeId(payload || {}) || '',
+    payload_signature: getPayloadSignature(normalizedType, payload || {}) || '',
+    requires_desktop_main: true,
+    side_effect_free: true,
+    message: 'Dry-run only. Use the Electron Main task service in a desktop session to execute the task runner.',
+  };
+}
+
+function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore, duplicateCheckStore, knowledgeBaseService, imageKnowledgeBaseStore, duplicateCheckService, businessBidStore, aiEvaluationStore }) {
   const subscribers = new Set();
   const activeTasks = new Map();
   const activeTaskControls = new Map();
@@ -226,6 +329,41 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
         webContents.send('tasks:event', event);
       }
     }
+  }
+
+  function getKnowledgeBaseActiveTasks() {
+    const snapshot = knowledgeBaseService?.getActiveTasks?.();
+    const tasks = Array.isArray(snapshot?.tasks) ? snapshot.tasks : [];
+    return tasks.map((item) => {
+      const document = item.document || {};
+      const type = knowledgeTaskTypeForPhase(item.phase);
+      const definition = getTaskDefinition(type);
+      const scopeId = String(item.document_id || document.id || '');
+      return {
+        task_id: `knowledge-base:${item.phase || 'preparing'}:${scopeId || 'unknown'}`,
+        type,
+        group: definition.group,
+        step: definition.step,
+        lock_policy: definition.lockPolicy,
+        scope_id: scopeId || undefined,
+        status: 'running',
+        progress: Number(document.progress || 0),
+        logs: document.message ? [document.message] : [],
+        started_at: document.created_at || now(),
+        updated_at: document.updated_at || now(),
+        label: definition.label,
+        document_id: scopeId || undefined,
+        document,
+      };
+    });
+  }
+
+  function getUnifiedActiveTasks() {
+    const managedTasks = Array.from(activeTasks.values());
+    const managedKeys = new Set(managedTasks.map((task) => getTaskStorageKey(task.type, task)));
+    const knowledgeTasks = getKnowledgeBaseActiveTasks()
+      .filter((task) => !managedKeys.has(getTaskStorageKey(task.type, task)));
+    return [...managedTasks, ...knowledgeTasks];
   }
 
   function buildTechnicalPlanSnapshot(task, state = {}, eventPatch = {}) {
@@ -317,6 +455,15 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
     if (definition.stateKey === 'duplicateCheck') {
       return { duplicateCheck: state };
     }
+    if (definition.stateKey === 'knowledgeBase') {
+      return { knowledgeBaseActiveTasks: state };
+    }
+    if (definition.stateKey === 'businessBid') {
+      return { businessBid: state };
+    }
+    if (definition.stateKey === 'aiEvaluation') {
+      return { aiEvaluation: state };
+    }
     return {};
   }
 
@@ -331,12 +478,21 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
     if (definition.stateKey === 'duplicateCheck') {
       return { duplicateCheck: duplicateCheckStore.loadDuplicateCheck() };
     }
+    if (definition.stateKey === 'knowledgeBase') {
+      return { knowledgeBaseActiveTasks: knowledgeBaseService?.getActiveTasks?.() || { tasks: [], documents: [] } };
+    }
+    if (definition.stateKey === 'businessBid') {
+      return { businessBid: businessBidStore.loadState() };
+    }
+    if (definition.stateKey === 'aiEvaluation') {
+      return { aiEvaluation: aiEvaluationStore.loadState() };
+    }
     return {};
   }
 
   function subscribe(webContents) {
     subscribers.add(webContents);
-    for (const task of activeTasks.values()) {
+    for (const task of getUnifiedActiveTasks()) {
       if (!webContents.isDestroyed()) {
         webContents.send('tasks:event', { task, ...getSnapshotForTask(task) });
       }
@@ -355,8 +511,8 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
     }
 
     const nextScopeId = getScopeId(payload);
-    for (const task of activeTasks.values()) {
-      if (!isActiveTaskStatus(task.status) || task.type === type) {
+    for (const task of getUnifiedActiveTasks()) {
+      if (!isActiveTaskStatus(task.status)) {
         continue;
       }
 
@@ -408,6 +564,15 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
     if (definition.stateKey === 'duplicateCheck') {
       return duplicateCheckStore.updateDuplicateCheck(partial);
     }
+    if (definition.stateKey === 'knowledgeBase') {
+      return knowledgeBaseService?.getActiveTasks?.() || { tasks: [], documents: [] };
+    }
+    if (definition.stateKey === 'businessBid') {
+      return businessBidStore.updateBusinessBid(partial);
+    }
+    if (definition.stateKey === 'aiEvaluation') {
+      return aiEvaluationStore.updateAiEvaluation(partial);
+    }
     return technicalPlanStore.updateTechnicalPlan(partial);
   }
 
@@ -421,11 +586,21 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
     if (definition.stateKey === 'duplicateCheck') {
       return duplicateCheckStore.loadDuplicateCheck();
     }
+    if (definition.stateKey === 'knowledgeBase') {
+      return knowledgeBaseService?.getActiveTasks?.() || { tasks: [], documents: [] };
+    }
+    if (definition.stateKey === 'businessBid') {
+      return businessBidStore.loadState();
+    }
+    if (definition.stateKey === 'aiEvaluation') {
+      return aiEvaluationStore.loadState();
+    }
     return technicalPlanStore.loadTechnicalPlan();
   }
 
   function startManagedTask(type, payload, runner, initialPartial = {}) {
-    const existingTask = activeTasks.get(type);
+    const taskKey = getTaskStorageKey(type, payload);
+    const existingTask = activeTasks.get(taskKey);
     if (existingTask && isActiveTaskStatus(existingTask.status)) {
       const nextPayloadSignature = getPayloadSignature(type, payload);
       if (existingTask.payload_signature && nextPayloadSignature && existingTask.payload_signature !== nextPayloadSignature) {
@@ -440,7 +615,7 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
 
     const definition = getTaskDefinition(type);
     const task = createTask(type, payload);
-    activeTasks.set(type, task);
+    activeTasks.set(taskKey, task);
     const taskField = getTaskField(type);
     let currentTask = task;
     const taskControl = {
@@ -454,12 +629,14 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
           ? currentTask.logs
           : ['已请求暂停，正在等待当前 AI 请求完成。'];
         const pausingTask = updateTask({ status: 'pausing', pause_requested: true, logs: pausedLogs });
-        const state = updateWorkspaceState(definition, { [taskField]: pausingTask });
+        const state = taskField
+          ? updateWorkspaceState(definition, { [taskField]: pausingTask })
+          : loadWorkspaceState(definition);
         emit(pausingTask, buildSnapshot(definition, state, pausingTask));
         return pausingTask;
       },
     };
-    activeTaskControls.set(type, taskControl);
+    activeTaskControls.set(taskKey, taskControl);
 
     const updateTask = (partial, workspaceState, eventPatch) => {
       const nextStatus = currentTask.status === 'pausing' && partial.status === 'running'
@@ -473,30 +650,41 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
         logs: partial.logs ? partial.logs : currentTask.logs,
         updated_at: now(),
       };
-      activeTasks.set(type, currentTask);
+      activeTasks.set(taskKey, currentTask);
       if (workspaceState) {
-        const persistedState = taskField ? updateWorkspaceState(definition, { [taskField]: currentTask }) : workspaceState;
+        const persistedState = taskField
+          ? updateWorkspaceState(definition, { [taskField]: currentTask })
+          : workspaceState;
         emit(currentTask, buildSnapshot(definition, persistedState, currentTask, eventPatch));
       }
       return currentTask;
     };
 
     const previousState = loadWorkspaceState(definition) || {};
-    const state = updateWorkspaceState(definition, { ...initialPartial, [taskField]: currentTask });
+    const initialStatePatch = taskField ? { ...initialPartial, [taskField]: currentTask } : initialPartial;
+    const state = updateWorkspaceState(definition, initialStatePatch);
     emit(currentTask, buildSnapshot(definition, state, currentTask));
 
     const runnerWorkspaceStore = definition.stateKey === 'technicalPlan'
       ? technicalPlanStore
       : definition.stateKey === 'rejectionCheck'
         ? rejectionCheckStore
-        : duplicateCheckStore;
-    runner({ aiService, workspaceStore: runnerWorkspaceStore, knowledgeBaseService, updateTask, payload, taskControl, previousState }).catch((error) => {
+        : definition.stateKey === 'duplicateCheck'
+          ? duplicateCheckStore
+          : definition.stateKey === 'businessBid'
+            ? businessBidStore
+            : definition.stateKey === 'aiEvaluation'
+              ? aiEvaluationStore
+              : knowledgeBaseService;
+    runner({ aiService, workspaceStore: runnerWorkspaceStore, knowledgeBaseService, imageKnowledgeBaseStore, updateTask, payload, taskControl, previousState }).catch((error) => {
       const failedTask = updateTask({ status: 'error', error: error.message || '任务执行失败' });
-      const nextState = updateWorkspaceState(definition, { [taskField]: failedTask });
+      const nextState = taskField
+        ? updateWorkspaceState(definition, { [taskField]: failedTask })
+        : loadWorkspaceState(definition);
       emit(failedTask, buildSnapshot(definition, nextState, failedTask));
     }).finally(() => {
-      activeTasks.delete(type);
-      activeTaskControls.delete(type);
+      activeTasks.delete(taskKey);
+      activeTaskControls.delete(taskKey);
     });
 
     return currentTask;
@@ -646,6 +834,54 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
     emit(nextState.analysisTask || recoveredTask, { duplicateCheck: nextState });
   }
 
+  function recoverInterruptedBusinessBidTask() {
+    if (activeTasks.has('business-bid-ai-extraction')) {
+      return;
+    }
+    const state = businessBidStore?.loadState?.() || {};
+    if (state.aiExtractionTask?.status !== 'running' && state.aiExtractionTask?.status !== 'pausing') {
+      return;
+    }
+    const message = '上次商务标 AI 结构化提取未完成，请重新提取';
+    const recoveredTask = {
+      ...state.aiExtractionTask,
+      status: 'error',
+      progress: 100,
+      logs: [message],
+      error: message,
+      updated_at: now(),
+    };
+    const nextState = businessBidStore.updateBusinessBid({ aiExtractionTask: recoveredTask });
+    emit(recoveredTask, { businessBid: nextState });
+  }
+
+  function recoverInterruptedAiEvaluationTask() {
+    const state = aiEvaluationStore?.loadState?.() || {};
+    const recover = (type, taskState, field, message) => {
+      if (activeTasks.has(type)) return null;
+      if (taskState?.status !== 'running' && taskState?.status !== 'pausing') return null;
+      const recoveredTask = {
+        ...taskState,
+        status: 'error',
+        progress: 100,
+        logs: [message],
+        error: message,
+        updated_at: now(),
+      };
+      return { [field]: recoveredTask, recoveredTask };
+    };
+    const extraction = recover('ai-evaluation-extraction', state.aiExtractionTask, 'aiExtractionTask', '上次 AI 评标结构化抽取未完成，请重新提取');
+    if (extraction) {
+      const nextState = aiEvaluationStore.updateAiEvaluation({ aiExtractionTask: extraction.aiExtractionTask });
+      emit(extraction.recoveredTask, { aiEvaluation: nextState });
+    }
+    const batchScoring = recover('ai-evaluation-batch-scoring', state.batchScoringTask, 'batchScoringTask', '上次 AI 评标批量评分未完成，请重新评分');
+    if (batchScoring) {
+      const nextState = aiEvaluationStore.updateAiEvaluation({ batchScoringTask: batchScoring.batchScoringTask });
+      emit(batchScoring.recoveredTask, { aiEvaluation: nextState });
+    }
+  }
+
   return {
     subscribe,
     startBidAnalysis(payload) {
@@ -667,7 +903,7 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
       });
     },
     startContentGeneration(payload) {
-      return startManagedTask('content-generation', payload, runContentGenerationTask);
+      return startManagedTask('content-generation', payload, runContentGenerationTask, { imageKnowledgeBaseStore });
     },
     pauseContentGeneration() {
       const task = activeTasks.get('content-generation');
@@ -696,14 +932,39 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
       }
       return startManagedTask('duplicate-analysis', payload, duplicateCheckService.runAnalysisTask);
     },
+    startBusinessBidAiExtraction(payload = {}) {
+      if (!businessBidStore?.enhanceWithAi) {
+        throw new Error('商务标任务服务尚未初始化');
+      }
+      return startManagedTask('business-bid-ai-extraction', payload, runBusinessBidAiExtractionTask);
+    },
+    startAiEvaluationExtraction(payload = {}) {
+      if (!aiEvaluationStore?.enhanceWithAi) {
+        throw new Error('AI 评标任务服务尚未初始化');
+      }
+      return startManagedTask('ai-evaluation-extraction', payload, runAiEvaluationExtractionTask);
+    },
+    startAiEvaluationBatchScoring(payload = {}) {
+      if (!aiEvaluationStore?.scoreImportedBidDocuments) {
+        throw new Error('AI 评标批量评分服务尚未初始化');
+      }
+      return startManagedTask('ai-evaluation-batch-scoring', payload, runAiEvaluationBatchScoringTask);
+    },
     getActiveTasks() {
       recoverInterruptedContentGenerationTask();
       recoverInterruptedGlobalFactsTask();
       recoverInterruptedRejectionCheckTasks();
       recoverInterruptedDuplicateCheckTask();
-      return Array.from(activeTasks.values());
+      recoverInterruptedBusinessBidTask();
+      recoverInterruptedAiEvaluationTask();
+      return getUnifiedActiveTasks();
     },
   };
 }
 
-module.exports = { createTaskService };
+module.exports = {
+  createTaskService,
+  createHeadlessTaskStartPlan,
+  getTaskDefinition,
+  listTaskDefinitions,
+};

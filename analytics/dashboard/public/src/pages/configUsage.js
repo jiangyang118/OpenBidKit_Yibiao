@@ -2,7 +2,7 @@ import { assertReady, buildRangeQuery, getEncodedProjectAndDays, loadProjectOpti
 import { escapeHtml, formatNumber } from '../render.js';
 import { state } from '../state.js';
 
-function labelConfigValue(groupKey, value) {
+export function labelConfigValue(groupKey, value) {
   const labels = {
     fileParserProviders: {
       local: '本地解析',
@@ -32,6 +32,15 @@ function labelConfigValue(groupKey, value) {
       retry_minimum_words: '继续补足字数',
       regenerate_section: '小节重新生成',
     },
+    businessBidActions: {
+      import_tender_document: '导入商务标招标文件',
+      generate_matrix_from_technical_plan: '从技术方案生成矩阵',
+      start_ai_extraction: '启动 AI 结构化提取',
+      confirm_clause: '确认商务条款',
+      export_markdown: '导出 Markdown 材料包',
+      export_word: '导出 Word 材料包',
+      export_excel: '导出 Excel 材料包',
+    },
   };
 
   return labels[groupKey]?.[value] || value || '-';
@@ -41,7 +50,7 @@ function labelModelProvider(groupKey, value) {
   return labelConfigValue(groupKey === 'textModelUsage' ? 'textModelProviders' : 'imageProviders', value);
 }
 
-const configUsageGroups = [
+export const configUsageGroups = [
   ['fileParserProviders', '文件解析方式'],
   ['imageProviders', '生图服务商'],
   ['imageModelStatuses', '生图模型状态'],
@@ -51,6 +60,7 @@ const configUsageGroups = [
   ['minimumWords', '最低字数'],
   ['contentConcurrencies', '正文生成并发速度'],
     ['contentGenerationActions', '正文生成动作'],
+    ['businessBidActions', '商务标关键动作'],
     ['enableConsistencyAudit', '全文一致性审计'],
     ['enableOriginalPlanCoverageAudit', '原方案覆盖审计'],
     ['useMermaidImages', 'Mermaid 图片'],

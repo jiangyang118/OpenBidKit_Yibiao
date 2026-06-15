@@ -128,6 +128,17 @@ export interface KnowledgeBaseIndex {
   documents: KnowledgeDocument[];
 }
 
+export interface KnowledgeBaseActiveTask {
+  document_id: string;
+  phase: 'preparing' | 'matching';
+  document: KnowledgeDocument;
+}
+
+export interface KnowledgeBaseActiveTasksSnapshot {
+  tasks: KnowledgeBaseActiveTask[];
+  documents: KnowledgeDocument[];
+}
+
 export interface KnowledgeBaseUploadResult {
   success: boolean;
   message: string;

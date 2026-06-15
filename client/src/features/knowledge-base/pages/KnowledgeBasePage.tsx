@@ -326,6 +326,7 @@ function KnowledgeBasePage() {
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [retryingDocumentIds, setRetryingDocumentIds] = useState<Set<string>>(() => new Set());
   const [visibleDocumentCount, setVisibleDocumentCount] = useState(documentRenderBatchSize);
+  const [activeTaskDocuments, setActiveTaskDocuments] = useState<KnowledgeDocument[]>([]);
   const [dragPayload, setDragPayload] = useState<KnowledgeDragPayload | null>(null);
   const [folderDropTargetId, setFolderDropTargetId] = useState<string | null>(null);
   const [documentDropTarget, setDocumentDropTarget] = useState<KnowledgeDocumentDropTarget | null>(null);
@@ -377,6 +378,11 @@ function KnowledgeBasePage() {
       }));
       setViewer((prev) => (prev?.document.id === document.id ? { ...prev, document } : prev));
       setAnalysisSnapshot((prev) => (prev?.document.id === document.id ? { ...prev, document } : prev));
+      setActiveTaskDocuments((prev) => (
+        isProcessingKnowledgeDocument(document)
+          ? mergeDocuments(prev, [document])
+          : prev.filter((item) => item.id !== document.id)
+      ));
     });
     return () => {
       window.removeEventListener('focus', loadDeveloperMode);
@@ -446,10 +452,21 @@ function KnowledgeBasePage() {
           showToast(migrationStatus.message || '旧知识库 JSON 清理未完成，将在下次进入时继续处理', 'info');
         }
       }
+      let activeTasks = null;
+      try {
+        activeTasks = await window.yibiao?.knowledgeBase.getActiveTasks();
+      } catch {
+        activeTasks = null;
+      }
       if (data) {
-        setIndex(data);
+        const activeDocuments = activeTasks?.documents || [];
+        const nextIndex = activeDocuments.length
+          ? { ...data, documents: mergeDocuments(data.documents, activeDocuments) }
+          : data;
+        setIndex(nextIndex);
+        setActiveTaskDocuments(activeDocuments.filter(isProcessingKnowledgeDocument));
         setActiveFolderId((currentId) => (
-          data.folders.some((folder) => folder.id === currentId) ? currentId : data.folders[0]?.id || ''
+          nextIndex.folders.some((folder) => folder.id === currentId) ? currentId : nextIndex.folders[0]?.id || ''
         ));
       }
     } catch (error) {
@@ -1009,6 +1026,16 @@ function KnowledgeBasePage() {
             取消
           </button>
         </form>
+      )}
+
+      {activeTaskDocuments.length > 0 && (
+        <section className="knowledge-active-task-bar" aria-label="知识库处理任务">
+          <div>
+            <strong>正在处理 {activeTaskDocuments.length} 个文档</strong>
+            <p>{activeTaskDocuments.map((document) => `${document.file_name}（${statusLabels[document.status]} ${document.progress || 0}%）`).join('、')}</p>
+          </div>
+          <button type="button" className="secondary-action" onClick={() => void loadInitialData()} disabled={listLoading}>刷新状态</button>
+        </section>
       )}
 
       <section className="knowledge-layout">
@@ -1646,6 +1673,10 @@ function canOpenMarkdown(document: KnowledgeDocument) {
 
 function canMoveKnowledgeDocument(document: KnowledgeDocument) {
   return ['ready_for_matching', 'success', 'error'].includes(document.status);
+}
+
+function isProcessingKnowledgeDocument(document: KnowledgeDocument) {
+  return ['pending', 'copying', 'converting', 'extracting', 'matching', 'recovering', 'analyzing', 'saving'].includes(document.status);
 }
 
 function getMigrationCounts(status: KnowledgeBaseMigrationStatus) {

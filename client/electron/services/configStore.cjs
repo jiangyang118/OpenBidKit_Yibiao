@@ -3,16 +3,27 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { getConfigFilePath } = require('../utils/paths.cjs');
 
-const textModelProviders = ['jinlong', 'volcengine', 'deepseek', 'longcat', 'custom'];
+const textModelProviders = ['jinlong', 'volcengine', 'deepseek', 'longcat', 'codex-cli', 'local-gemma', 'local-qwen', 'lm-studio', 'vllm', 'llama-cpp', 'jan', 'custom'];
 const imageModelProviders = ['jinlong', 'volcengine', 'google-ai-studio', 'custom'];
 const aiRequestModes = ['normal', 'stream'];
 const updateChannels = ['github', 'cloudflare'];
+const displayLanguages = ['zh-CN'];
+const appThemes = ['system', 'light', 'dark'];
+const sidebarLayouts = ['classic', 'compact'];
+const localHttpTextModelProviders = new Set(['local-gemma', 'local-qwen', 'lm-studio', 'vllm', 'llama-cpp', 'jan']);
 
 const textProviderBaseUrls = {
   jinlong: 'https://jlaudeapi.com/v1',
   volcengine: 'https://ark.cn-beijing.volces.com/api/v3',
   deepseek: 'https://api.deepseek.com',
   longcat: 'https://api.longcat.chat/openai/v1',
+  'codex-cli': 'local-codex-cli',
+  'local-gemma': 'http://127.0.0.1:11434/v1',
+  'local-qwen': 'http://127.0.0.1:11434/v1',
+  'lm-studio': 'http://127.0.0.1:1234/v1',
+  vllm: 'http://127.0.0.1:8000/v1',
+  'llama-cpp': 'http://127.0.0.1:8080/v1',
+  jan: 'http://127.0.0.1:1337/v1',
   custom: '',
 };
 
@@ -40,6 +51,48 @@ const defaultTextModelProfiles = {
     base_url: textProviderBaseUrls.longcat,
     model_name: '',
     request_mode: 'stream',
+  },
+  'codex-cli': {
+    api_key: '',
+    base_url: textProviderBaseUrls['codex-cli'],
+    model_name: 'gpt-5.5',
+    request_mode: 'normal',
+  },
+  'local-gemma': {
+    api_key: '',
+    base_url: textProviderBaseUrls['local-gemma'],
+    model_name: 'gemma4:31b',
+    request_mode: 'normal',
+  },
+  'local-qwen': {
+    api_key: '',
+    base_url: textProviderBaseUrls['local-qwen'],
+    model_name: 'qwen3.6:27b',
+    request_mode: 'normal',
+  },
+  'lm-studio': {
+    api_key: '',
+    base_url: textProviderBaseUrls['lm-studio'],
+    model_name: '',
+    request_mode: 'normal',
+  },
+  vllm: {
+    api_key: '',
+    base_url: textProviderBaseUrls.vllm,
+    model_name: '',
+    request_mode: 'normal',
+  },
+  'llama-cpp': {
+    api_key: '',
+    base_url: textProviderBaseUrls['llama-cpp'],
+    model_name: '',
+    request_mode: 'normal',
+  },
+  jan: {
+    api_key: '',
+    base_url: textProviderBaseUrls.jan,
+    model_name: '',
+    request_mode: 'normal',
   },
   custom: {
     api_key: '',
@@ -107,6 +160,14 @@ const defaultExportFormat = {
     page_number_enabled: true,
     page_number_format: '第{page}页',
     header_enabled: false,
+    header_text: '投标技术文件',
+    header_first_page_different: false,
+    header_first_page_text: '',
+    header_even_odd_different: false,
+    header_even_text: '',
+    header_font: '宋体',
+    header_size: '小五',
+    header_alignment: '居中对齐',
   },
   headings: [
     { font: '黑体', size: '小二', alignment: '居中对齐', spacing_before_pt: 10, spacing_after_pt: 10, first_line_indent_chars: 0, line_spacing: 1, numbering_format: 'chinese-chapter' },
@@ -128,6 +189,9 @@ const defaultExportFormat = {
 };
 
 const defaultConfig = {
+  language: 'zh-CN',
+  theme: 'system',
+  sidebar_layout: 'classic',
   text_model_provider: 'jinlong',
   text_model_profiles: defaultTextModelProfiles,
   api_key: '',
@@ -182,17 +246,32 @@ function normalizeUpdateChannel(value, fallback = defaultConfig.update_channel) 
   return updateChannels.includes(value) ? value : fallback;
 }
 
+function normalizeDisplayLanguage(value, fallback = defaultConfig.language) {
+  return displayLanguages.includes(value) ? value : fallback;
+}
+
+function normalizeAppTheme(value, fallback = defaultConfig.theme) {
+  return appThemes.includes(value) ? value : fallback;
+}
+
+function normalizeSidebarLayout(value, fallback = defaultConfig.sidebar_layout) {
+  return sidebarLayouts.includes(value) ? value : fallback;
+}
+
 function normalizeTextModelProfile(provider, profile) {
   const defaults = defaultTextModelProfiles[provider];
   const source = profile || {};
   const sourceBaseUrl = provider === 'custom'
     ? source.base_url !== undefined ? source.base_url : defaults.base_url
     : defaults.base_url;
+  const requestMode = localHttpTextModelProviders.has(provider) || provider === 'codex-cli'
+    ? 'normal'
+    : normalizeAiRequestMode(source.request_mode, defaults.request_mode);
   return {
     api_key: source.api_key !== undefined ? source.api_key : defaults.api_key,
     base_url: sourceBaseUrl,
     model_name: source.model_name !== undefined ? source.model_name : defaults.model_name,
-    request_mode: normalizeAiRequestMode(source.request_mode, defaults.request_mode),
+    request_mode: requestMode,
   };
 }
 
@@ -297,6 +376,14 @@ function normalizeExportFormat(source) {
     page_number_enabled: typeof srcPage.page_number_enabled === 'boolean' ? srcPage.page_number_enabled : def.page.page_number_enabled,
     page_number_format: typeof srcPage.page_number_format === 'string' && srcPage.page_number_format ? srcPage.page_number_format : def.page.page_number_format,
     header_enabled: typeof srcPage.header_enabled === 'boolean' ? srcPage.header_enabled : def.page.header_enabled,
+    header_text: typeof srcPage.header_text === 'string' && srcPage.header_text ? srcPage.header_text : def.page.header_text,
+    header_first_page_different: typeof srcPage.header_first_page_different === 'boolean' ? srcPage.header_first_page_different : def.page.header_first_page_different,
+    header_first_page_text: typeof srcPage.header_first_page_text === 'string' ? srcPage.header_first_page_text : def.page.header_first_page_text,
+    header_even_odd_different: typeof srcPage.header_even_odd_different === 'boolean' ? srcPage.header_even_odd_different : def.page.header_even_odd_different,
+    header_even_text: typeof srcPage.header_even_text === 'string' ? srcPage.header_even_text : def.page.header_even_text,
+    header_font: typeof srcPage.header_font === 'string' && srcPage.header_font ? srcPage.header_font : def.page.header_font,
+    header_size: typeof srcPage.header_size === 'string' && srcPage.header_size ? srcPage.header_size : def.page.header_size,
+    header_alignment: typeof srcPage.header_alignment === 'string' && srcPage.header_alignment ? srcPage.header_alignment : def.page.header_alignment,
   };
 
   const srcHeadings = Array.isArray(source.headings) ? source.headings : [];
@@ -361,6 +448,9 @@ function normalizeConfig(config) {
 
   return {
     ...defaultConfig,
+    language: normalizeDisplayLanguage(source.language),
+    theme: normalizeAppTheme(source.theme),
+    sidebar_layout: normalizeSidebarLayout(source.sidebar_layout),
     text_model_provider: textModelProvider,
     text_model_profiles: textModelProfiles,
     api_key: activeTextProfile.api_key,

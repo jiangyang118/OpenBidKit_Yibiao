@@ -5,6 +5,14 @@ const PROJECT_NAME = 'yibiao-client';
 const LEGACY_CLIENT_ID_KEY = 'analytics_client_id';
 
 type AnalyticsEvent = 'app_open' | 'page_view' | 'config_usage' | 'resource_click';
+export type BusinessBidAnalyticsAction =
+  | 'import_tender_document'
+  | 'generate_matrix_from_technical_plan'
+  | 'start_ai_extraction'
+  | 'confirm_clause'
+  | 'export_markdown'
+  | 'export_word'
+  | 'export_excel';
 
 interface AnalyticsIdentity {
   clientId: string;
@@ -22,6 +30,7 @@ interface ConfigUsagePayload {
   use_ai_images?: boolean;
   content_concurrency?: number;
   content_generation_action?: string;
+  business_bid_action?: BusinessBidAnalyticsAction;
   minimum_words?: number;
   enable_consistency_audit?: boolean;
   enable_original_plan_coverage_audit?: boolean;
@@ -38,10 +47,23 @@ const configUsageFields: Array<[keyof ConfigUsagePayload, string]> = [
   ['use_ai_images', 'useAiImages'],
   ['content_concurrency', 'contentConcurrencies'],
   ['content_generation_action', 'contentGenerationActions'],
+  ['business_bid_action', 'businessBidActions'],
   ['minimum_words', 'minimumWords'],
   ['enable_consistency_audit', 'enableConsistencyAudit'],
   ['enable_original_plan_coverage_audit', 'enableOriginalPlanCoverageAudit'],
 ];
+
+const PAGE_ID_PATTERN = /^[a-zA-Z0-9/_-]{1,120}$/;
+const RESOURCE_KEY_PATTERN = /^[a-zA-Z0-9._:-]{1,80}$/;
+const BUSINESS_BID_ACTIONS = new Set<BusinessBidAnalyticsAction>([
+  'import_tender_document',
+  'generate_matrix_from_technical_plan',
+  'start_ai_extraction',
+  'confirm_clause',
+  'export_markdown',
+  'export_word',
+  'export_excel',
+]);
 
 let appOpenTracked = false;
 let lastTrackedPage = '';
@@ -124,6 +146,11 @@ function booleanText(value: boolean | undefined) {
   return value ? 'true' : 'false';
 }
 
+function normalizeBusinessBidAction(value: unknown) {
+  const action = String(value || '').trim() as BusinessBidAnalyticsAction;
+  return BUSINESS_BID_ACTIONS.has(action) ? action : undefined;
+}
+
 function buildBaseConfigUsage(config?: ClientConfig | null): ConfigUsagePayload {
   return {
     file_parser_provider: config?.file_parser?.provider,
@@ -139,11 +166,17 @@ function normalizeUsagePayload(payload: ConfigUsagePayload) {
     use_ai_images: booleanText(payload.use_ai_images),
     enable_consistency_audit: booleanText(payload.enable_consistency_audit),
     enable_original_plan_coverage_audit: booleanText(payload.enable_original_plan_coverage_audit),
+    business_bid_action: normalizeBusinessBidAction(payload.business_bid_action),
   };
 }
 
 function configUsageValueText(value: unknown) {
   return String(value ?? '').trim();
+}
+
+function normalizePageId(page: string) {
+  const normalizedPage = String(page || '').trim();
+  return PAGE_ID_PATTERN.test(normalizedPage) ? normalizedPage : '';
 }
 
 function sendAnalytics(event: AnalyticsEvent, page = '', payload: Record<string, unknown> = {}) {
@@ -175,7 +208,7 @@ export function trackAppOpen() {
 }
 
 export function trackPageView(page: string) {
-  const normalizedPage = page.trim();
+  const normalizedPage = normalizePageId(page);
   if (!normalizedPage || normalizedPage === lastTrackedPage) return;
 
   lastTrackedPage = normalizedPage;
@@ -209,9 +242,14 @@ export function trackConfigUsage(payload: ConfigUsagePayload = {}, config?: Clie
     .catch(() => send(null));
 }
 
+export function trackBusinessBidAction(action: BusinessBidAnalyticsAction) {
+  if (!BUSINESS_BID_ACTIONS.has(action)) return;
+  trackConfigUsage({ business_bid_action: action });
+}
+
 export function trackResourceClick(resourceKey: string) {
   const key = resourceKey.trim();
-  if (!/^[a-zA-Z0-9._:-]{1,80}$/.test(key)) return;
+  if (!RESOURCE_KEY_PATTERN.test(key)) return;
 
   sendAnalytics('resource_click', 'resources', { resource_key: key });
 }

@@ -1,6 +1,7 @@
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { useState, type ComponentType, type ReactElement, type SVGProps } from 'react';
+import { useEffect, useState, type ComponentType, type ReactElement, type SVGProps } from 'react';
 import { getAppMenuItems, getParentMenuItemBySection } from '../app/menuConfig';
+import type { SidebarLayout } from '../shared/types';
 import type { AppMenuItem, SectionId } from '../shared/types/navigation';
 import { useToast } from '../shared/ui';
 import logoUrl from '../../assets/icon_256.png';
@@ -8,6 +9,7 @@ import logoUrl from '../../assets/icon_256.png';
 interface SidebarProps {
   activeSection: SectionId;
   developerMode: boolean;
+  sidebarLayout: SidebarLayout;
   onSectionChange: (section: SectionId) => void;
 }
 
@@ -34,11 +36,15 @@ const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>>
   settings: GearIcon,
 };
 
-function Sidebar({ activeSection, developerMode, onSectionChange }: SidebarProps) {
-  const [collapsed, setCollapsed] = useState(false);
+function Sidebar({ activeSection, developerMode, sidebarLayout, onSectionChange }: SidebarProps) {
+  const [collapsed, setCollapsed] = useState(sidebarLayout === 'compact');
   const { showToast } = useToast();
   const menuItems = getAppMenuItems(developerMode);
   const activeParent = getParentMenuItemBySection(activeSection, developerMode);
+
+  useEffect(() => {
+    setCollapsed(sidebarLayout === 'compact');
+  }, [sidebarLayout]);
 
   const handleMenuItemClick = (item: AppMenuItem) => {
     if (!item.notice) {

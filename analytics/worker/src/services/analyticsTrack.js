@@ -1,9 +1,22 @@
-import { ALLOWED_EVENTS } from '../constants.js';
+import { ALLOWED_EVENTS, CONFIG_USAGE_VALUE_ALLOWLISTS } from '../constants.js';
 import { isValidProjectName, normalizeMetricValue, normalizeText } from '../utils.js';
+
+const PAGE_ID_PATTERN = /^[a-zA-Z0-9/_-]{1,120}$/;
+const RESOURCE_KEY_PATTERN = /^[a-zA-Z0-9._:-]{1,80}$/;
 
 function normalizeTokenNumber(value) {
   const number = Number(value || 0);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+function normalizePageId(value) {
+  const text = normalizeText(value, 120);
+  return PAGE_ID_PATTERN.test(text) ? text : '';
+}
+
+function normalizeResourceKey(value) {
+  const text = normalizeText(value, 80);
+  return RESOURCE_KEY_PATTERN.test(text) ? text : '';
 }
 
 function normalizeBaseUrlHost(value) {
@@ -15,6 +28,12 @@ function normalizeBaseUrlHost(value) {
   } catch {
     return normalizeText(text.replace(/^https?:\/\//i, '').split('/')[0].toLowerCase(), 120);
   }
+}
+
+function normalizeConfigValue(configKey, configValue) {
+  const allowlist = CONFIG_USAGE_VALUE_ALLOWLISTS[configKey];
+  if (!allowlist) return configValue;
+  return allowlist.has(configValue) ? configValue : '';
 }
 
 function normalizeClientIp(request) {
@@ -72,7 +91,7 @@ export function normalizeTrackBody(body, request) {
   const event = {
     projectName: normalizeText(body.projectName || body.project_name, 80),
     event: normalizeText(body.event, 50),
-    page: normalizeText(body.page, 120),
+    page: normalizePageId(body.page),
     version: normalizeText(body.version, 50),
     platform: normalizeText(body.platform, 50),
     arch: normalizeText(body.arch, 50),
@@ -85,11 +104,12 @@ export function normalizeTrackBody(body, request) {
     aiModelProvider: normalizeText(body.ai_model_provider || body.aiModelProvider, 80),
     aiModelEndpointHost: normalizeBaseUrlHost(body.ai_model_base_url || body.aiModelBaseUrl),
     aiModelName,
-    resourceKey: normalizeText(body.resource_key || body.resourceKey, 80),
+    resourceKey: normalizeResourceKey(body.resource_key || body.resourceKey),
     promptTokens,
     completionTokens,
     totalTokens,
   };
+  event.configValue = normalizeConfigValue(event.configKey, event.configValue);
   event.blobs = createMetricBlobs(event);
   event.doubles = [1, promptTokens, completionTokens, totalTokens];
   return event;
