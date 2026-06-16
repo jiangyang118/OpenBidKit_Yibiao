@@ -12,6 +12,7 @@ describe('app menu configuration', () => {
     expect(order).toContain('rejection-check');
     expect(order).toContain('export-format');
     expect(order).toContain('bid-opportunity');
+    expect(order).toContain('bid-market-analysis');
     expect(order).toContain('resources');
   });
 
@@ -33,6 +34,7 @@ describe('app menu configuration', () => {
     expect(children.find((child) => child.id === 'image-knowledge-base')?.notice).toBeUndefined();
     expect(children.find((child) => child.id === 'ai-evaluation')?.notice).toBeUndefined();
     expect(getAppMenuItemById('bid-opportunity', false)?.notice).toBeUndefined();
+    expect(getAppMenuItemById('bid-market-analysis', false)?.notice).toBeUndefined();
   });
 
   it('adds developer menu without mutating the base menu list', () => {

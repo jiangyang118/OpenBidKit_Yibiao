@@ -13,6 +13,7 @@ export type SectionId =
   | 'ai-evaluation'
   | 'export-format'
   | 'bid-opportunity'
+  | 'bid-market-analysis'
   | 'developer-test'
   | 'developer-json-test'
   | 'developer-prompt-lab'

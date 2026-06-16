@@ -41,6 +41,7 @@ export const pageLabels = {
   'ai-evaluation': 'AI评标',
   'export-format': '导出格式',
   'bid-opportunity': '投标机会',
+  'bid-market-analysis': '招投标分析',
   'developer-test': '测试页',
   'developer-json-test': '测试页 - Json请求测试',
   'developer-prompt-lab': '测试页 - Prompt调试台',

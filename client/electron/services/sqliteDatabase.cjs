@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 35;
+const schemaVersion = 37;
 
 function createInitialSchema(db) {
   db.exec(`
@@ -76,6 +76,14 @@ function createInitialSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_technical_plan_reference_docs_order
     ON technical_plan_reference_docs(sort_order);
+
+    CREATE TABLE IF NOT EXISTS technical_plan_reference_images (
+      image_id TEXT PRIMARY KEY,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_technical_plan_reference_images_order
+    ON technical_plan_reference_images(sort_order);
 
     CREATE TABLE IF NOT EXISTS technical_plan_outline_nodes (
       node_id TEXT PRIMARY KEY,
@@ -209,6 +217,18 @@ function addTechnicalPlanBidAnalysisSelection(db) {
   if (!cols.includes('bid_analysis_selected_task_ids_json')) {
     db.exec('ALTER TABLE technical_plan_meta ADD COLUMN bid_analysis_selected_task_ids_json TEXT');
   }
+}
+
+function createTechnicalPlanReferenceImagesSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS technical_plan_reference_images (
+      image_id TEXT PRIMARY KEY,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_technical_plan_reference_images_order
+    ON technical_plan_reference_images(sort_order);
+  `);
 }
 
 function addKnowledgeDocumentSortOrder(db) {
@@ -1434,6 +1454,132 @@ function createKnowledgeBaseSchema(db) {
   `);
 }
 
+function createBidMarketAnalysisSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bid_market_sources (
+      source_id TEXT PRIMARY KEY,
+      source_type TEXT NOT NULL DEFAULT 'web',
+      source_name TEXT NOT NULL,
+      source_url TEXT NOT NULL DEFAULT '',
+      local_path TEXT NOT NULL DEFAULT '',
+      reference_project TEXT NOT NULL DEFAULT '',
+      imported_at TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bid_market_sources_type
+    ON bid_market_sources(source_type, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS bid_market_records (
+      record_id TEXT PRIMARY KEY,
+      source_id TEXT,
+      project_name TEXT NOT NULL,
+      publish_date TEXT NOT NULL DEFAULT '',
+      province TEXT NOT NULL DEFAULT '',
+      city TEXT NOT NULL DEFAULT '',
+      district TEXT NOT NULL DEFAULT '',
+      stage TEXT NOT NULL DEFAULT '',
+      amount REAL,
+      buyer_name TEXT NOT NULL DEFAULT '',
+      supplier_name TEXT NOT NULL DEFAULT '',
+      demand_type TEXT NOT NULL DEFAULT '',
+      customer_type TEXT NOT NULL DEFAULT '',
+      product_summary TEXT NOT NULL DEFAULT '',
+      raw_json TEXT NOT NULL DEFAULT '{}',
+      source_url TEXT NOT NULL DEFAULT '',
+      linked_opportunity_id TEXT,
+      linked_knowledge_document_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (source_id) REFERENCES bid_market_sources(source_id) ON DELETE SET NULL,
+      FOREIGN KEY (linked_opportunity_id) REFERENCES bid_opportunity_opportunities(opportunity_id) ON DELETE SET NULL,
+      FOREIGN KEY (linked_knowledge_document_id) REFERENCES knowledge_documents(document_id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bid_market_records_date_area
+    ON bid_market_records(publish_date, province, city);
+
+    CREATE INDEX IF NOT EXISTS idx_bid_market_records_buyer
+    ON bid_market_records(buyer_name);
+
+    CREATE INDEX IF NOT EXISTS idx_bid_market_records_supplier
+    ON bid_market_records(supplier_name);
+
+    CREATE INDEX IF NOT EXISTS idx_bid_market_records_links
+    ON bid_market_records(linked_opportunity_id, linked_knowledge_document_id);
+
+    CREATE TABLE IF NOT EXISTS bid_market_products (
+      product_id TEXT PRIMARY KEY,
+      record_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT '',
+      software_features_json TEXT NOT NULL DEFAULT '[]',
+      hardware_specs_json TEXT NOT NULL DEFAULT '[]',
+      model_specs_json TEXT NOT NULL DEFAULT '[]',
+      supporting_items_json TEXT NOT NULL DEFAULT '[]',
+      evidence TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (record_id) REFERENCES bid_market_records(record_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bid_market_products_record
+    ON bid_market_products(record_id, category);
+
+    CREATE TABLE IF NOT EXISTS bid_market_company_qualifications (
+      qualification_id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      company_role TEXT NOT NULL DEFAULT '',
+      qualification_name TEXT NOT NULL,
+      evidence TEXT NOT NULL DEFAULT '',
+      valid_until TEXT NOT NULL DEFAULT '',
+      source_id TEXT,
+      linked_knowledge_item_id INTEGER,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (source_id) REFERENCES bid_market_sources(source_id) ON DELETE SET NULL,
+      FOREIGN KEY (linked_knowledge_item_id) REFERENCES knowledge_items(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bid_market_qualifications_company
+    ON bid_market_company_qualifications(company_name, company_role);
+
+    CREATE TABLE IF NOT EXISTS bid_market_risk_flags (
+      flag_id TEXT PRIMARY KEY,
+      record_id TEXT NOT NULL,
+      level TEXT NOT NULL,
+      rule TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT '',
+      review_status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (record_id) REFERENCES bid_market_records(record_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bid_market_risk_flags_level
+    ON bid_market_risk_flags(level, review_status);
+
+    CREATE TABLE IF NOT EXISTS bid_market_opportunity_scores (
+      score_id TEXT PRIMARY KEY,
+      record_id TEXT NOT NULL,
+      total_score REAL NOT NULL DEFAULT 0,
+      market_heat REAL NOT NULL DEFAULT 0,
+      amount_attractiveness REAL NOT NULL DEFAULT 0,
+      customer_value REAL NOT NULL DEFAULT 0,
+      competition_accessibility REAL NOT NULL DEFAULT 0,
+      actionability REAL NOT NULL DEFAULT 0,
+      scoring_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (record_id) REFERENCES bid_market_records(record_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bid_market_opportunity_scores_total
+    ON bid_market_opportunity_scores(total_score DESC);
+  `);
+}
+
 const schemaHealthTableGroups = [
   {
     version: 1,
@@ -1442,6 +1588,7 @@ const schemaHealthTableGroups = [
       'technical_plan_tasks',
       'technical_plan_bid_items',
       'technical_plan_reference_docs',
+      'technical_plan_reference_images',
       'technical_plan_outline_nodes',
       'technical_plan_content_sections',
       'technical_plan_content_plans',
@@ -1593,6 +1740,18 @@ const schemaHealthTableGroups = [
     version: 32,
     tables: ['ai_evaluation_expert_scores'],
     repair: addAiEvaluationExpertFormalReviewColumns,
+  },
+  {
+    version: 37,
+    tables: [
+      'bid_market_sources',
+      'bid_market_records',
+      'bid_market_products',
+      'bid_market_company_qualifications',
+      'bid_market_risk_flags',
+      'bid_market_opportunity_scores',
+    ],
+    repair: createBidMarketAnalysisSchema,
   },
 ];
 
@@ -2088,6 +2247,16 @@ const migrations = [
     version: 35,
     description: '标书查重相似图片新增内容裁剪框字段',
     up: addDuplicateCheckImageCropColumn,
+  },
+  {
+    version: 36,
+    description: '技术方案参考知识库新增图片素材选择',
+    up: createTechnicalPlanReferenceImagesSchema,
+  },
+  {
+    version: 37,
+    description: '新增招投标市场分析实体和关联表',
+    up: createBidMarketAnalysisSchema,
   },
 ];
 

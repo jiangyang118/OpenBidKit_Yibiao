@@ -19,6 +19,7 @@ const requiredSections: SectionId[] = [
   'ai-evaluation',
   'export-format',
   'bid-opportunity',
+  'bid-market-analysis',
   'resources',
   'developer-json-test',
   'developer-prompt-lab',

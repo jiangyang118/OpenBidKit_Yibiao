@@ -62,6 +62,7 @@ const resetState = {
   bidAnalysisProgress: 0,
   outlineMode: 'aligned' as const,
   referenceKnowledgeDocumentIds: [] as string[],
+  referenceImageKnowledgeAssetIds: [] as string[],
   bidAnalysisTask: undefined,
   outlineGenerationTask: undefined,
   globalFactsTask: undefined,
@@ -480,6 +481,9 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
             referenceKnowledgeDocumentIds: Array.isArray(technicalPlan.referenceKnowledgeDocumentIds)
               ? technicalPlan.referenceKnowledgeDocumentIds
               : prev.referenceKnowledgeDocumentIds,
+            referenceImageKnowledgeAssetIds: Array.isArray(technicalPlan.referenceImageKnowledgeAssetIds)
+              ? technicalPlan.referenceImageKnowledgeAssetIds
+              : prev.referenceImageKnowledgeAssetIds,
             outlineData: nextOutlineData,
             globalFactsTask: hasOwnField(technicalPlan, 'globalFactsTask') ? trimTaskLogs(technicalPlan.globalFactsTask) : prev.globalFactsTask,
             globalFacts: hasOwnField(technicalPlan, 'globalFacts') ? (technicalPlan.globalFacts || []) : prev.globalFacts,
@@ -525,6 +529,9 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
             referenceKnowledgeDocumentIds: Array.isArray(technicalPlan.referenceKnowledgeDocumentIds)
               ? technicalPlan.referenceKnowledgeDocumentIds
               : prev.referenceKnowledgeDocumentIds,
+            referenceImageKnowledgeAssetIds: Array.isArray(technicalPlan.referenceImageKnowledgeAssetIds)
+              ? technicalPlan.referenceImageKnowledgeAssetIds
+              : prev.referenceImageKnowledgeAssetIds,
             contentGenerationSections: nextSections,
             contentGenerationPlans: hasOwnField(technicalPlan, 'contentGenerationPlans') ? (technicalPlan.contentGenerationPlans || {}) : prev.contentGenerationPlans,
             contentGenerationRuntime: hasOwnField(technicalPlan, 'contentGenerationRuntime') ? technicalPlan.contentGenerationRuntime : prev.contentGenerationRuntime,
@@ -837,12 +844,13 @@ function TechnicalPlanHome({ workflowKind, registerLeaveGuard, onSectionChange }
           techRequirements={state.techRequirements}
           outlineMode={state.outlineMode}
           referenceKnowledgeDocumentIds={state.referenceKnowledgeDocumentIds}
+          referenceImageKnowledgeAssetIds={state.referenceImageKnowledgeAssetIds}
           outlineData={state.outlineData}
           task={state.outlineGenerationTask}
           contentTaskStatus={state.contentGenerationTask?.status}
-          onOutlineConfigChange={(outlineMode, referenceKnowledgeDocumentIds) => {
-            setState((prev) => ({ ...prev, outlineMode, referenceKnowledgeDocumentIds }));
-            window.yibiao?.technicalPlan.saveOutlineConfig({ outlineMode, referenceKnowledgeDocumentIds }).then((saved) => {
+          onOutlineConfigChange={(outlineMode, referenceKnowledgeDocumentIds, referenceImageKnowledgeAssetIds) => {
+            setState((prev) => ({ ...prev, outlineMode, referenceKnowledgeDocumentIds, referenceImageKnowledgeAssetIds }));
+            window.yibiao?.technicalPlan.saveOutlineConfig({ outlineMode, referenceKnowledgeDocumentIds, referenceImageKnowledgeAssetIds }).then((saved) => {
               setState((prev) => ({ ...prev, ...saved }));
             }).catch((error) => {
               showToast(error instanceof Error ? error.message : '保存目录配置失败', 'error');

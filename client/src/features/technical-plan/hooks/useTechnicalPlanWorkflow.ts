@@ -15,6 +15,7 @@ const initialState: TechnicalPlanState = {
   bidAnalysisProgress: 0,
   outlineMode: 'aligned',
   referenceKnowledgeDocumentIds: [],
+  referenceImageKnowledgeAssetIds: [],
   bidAnalysisTask: undefined,
   outlineGenerationTask: undefined,
   globalFactsTask: undefined,

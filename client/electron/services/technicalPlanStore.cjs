@@ -23,6 +23,7 @@ const initialState = {
   bidAnalysisProgress: 0,
   outlineMode: 'aligned',
   referenceKnowledgeDocumentIds: [],
+  referenceImageKnowledgeAssetIds: [],
   bidAnalysisTask: undefined,
   outlineGenerationTask: undefined,
   globalFactsTask: undefined,
@@ -443,6 +444,18 @@ function createTechnicalPlanStore({ app, db, fileService }) {
       .forEach((documentId, index) => insert.run({ document_id: documentId, sort_order: index }));
   }
 
+  function loadReferenceImageKnowledgeAssetIds() {
+    return db.prepare('SELECT image_id FROM technical_plan_reference_images ORDER BY sort_order ASC').all()
+      .map((row) => row.image_id);
+  }
+
+  function replaceReferenceImageKnowledgeAssetIds(imageIds) {
+    db.prepare('DELETE FROM technical_plan_reference_images').run();
+    const insert = db.prepare('INSERT INTO technical_plan_reference_images (image_id, sort_order) VALUES (@image_id, @sort_order)');
+    [...new Set((Array.isArray(imageIds) ? imageIds : []).map((id) => String(id || '').trim()).filter(Boolean))]
+      .forEach((imageId, index) => insert.run({ image_id: imageId, sort_order: index }));
+  }
+
   function taskFromRow(row) {
     if (!row) return undefined;
     return {
@@ -851,6 +864,7 @@ function createTechnicalPlanStore({ app, db, fileService }) {
     db.prepare('DELETE FROM technical_plan_tasks').run();
     db.prepare('DELETE FROM technical_plan_bid_items').run();
     db.prepare('DELETE FROM technical_plan_reference_docs').run();
+    db.prepare('DELETE FROM technical_plan_reference_images').run();
     db.prepare('DELETE FROM technical_plan_outline_nodes').run();
     db.prepare('DELETE FROM technical_plan_global_fact_groups').run();
     updateMeta({
@@ -1026,6 +1040,7 @@ function createTechnicalPlanStore({ app, db, fileService }) {
 
     const nextBidMode = isValidBidMode(partial.bidAnalysisMode) ? partial.bidAnalysisMode : meta.bid_analysis_mode;
     if (hasOwn(partial, 'referenceKnowledgeDocumentIds')) replaceReferenceDocumentIds(partial.referenceKnowledgeDocumentIds);
+    if (hasOwn(partial, 'referenceImageKnowledgeAssetIds')) replaceReferenceImageKnowledgeAssetIds(partial.referenceImageKnowledgeAssetIds);
     if (hasOwn(partial, 'bidAnalysisTasks')) saveBidItems(partial.bidAnalysisTasks, nextBidMode);
     if (hasOwn(partial, 'projectOverview')) upsertDerivedBidItem('projectOverview', partial.projectOverview, nextBidMode);
     if (hasOwn(partial, 'techRequirements')) upsertDerivedBidItem('techRequirements', partial.techRequirements, nextBidMode);
@@ -1097,6 +1112,7 @@ function createTechnicalPlanStore({ app, db, fileService }) {
       bidAnalysisProgress: calculateBidProgress(bidAnalysisMode, bidAnalysisTasks, bidAnalysisSelectedTaskIds),
       outlineMode: isValidOutlineMode(meta.outline_mode) ? meta.outline_mode : 'aligned',
       referenceKnowledgeDocumentIds: loadReferenceDocumentIds(),
+      referenceImageKnowledgeAssetIds: loadReferenceImageKnowledgeAssetIds(),
       ...tasks,
       globalFacts: loadGlobalFacts(),
       contentGenerationOptions: safeJsonParse(meta.content_generation_options_json, undefined),
@@ -1146,8 +1162,8 @@ function createTechnicalPlanStore({ app, db, fileService }) {
     return loadTechnicalPlan();
   }
 
-  function saveOutlineConfig({ outlineMode, referenceKnowledgeDocumentIds } = {}) {
-    return updateTechnicalPlan({ outlineMode, referenceKnowledgeDocumentIds });
+  function saveOutlineConfig({ outlineMode, referenceKnowledgeDocumentIds, referenceImageKnowledgeAssetIds } = {}) {
+    return updateTechnicalPlan({ outlineMode, referenceKnowledgeDocumentIds, referenceImageKnowledgeAssetIds });
   }
 
   function saveBidAnalysisConfig({ mode, selectedTaskIds } = {}) {
@@ -1601,6 +1617,7 @@ function createTechnicalPlanStore({ app, db, fileService }) {
       db.prepare('DELETE FROM technical_plan_tasks').run();
       db.prepare('DELETE FROM technical_plan_bid_items').run();
       db.prepare('DELETE FROM technical_plan_reference_docs').run();
+      db.prepare('DELETE FROM technical_plan_reference_images').run();
       db.prepare('DELETE FROM technical_plan_outline_nodes').run();
       db.prepare('DELETE FROM technical_plan_global_fact_groups').run();
       db.prepare('DELETE FROM technical_plan_meta').run();

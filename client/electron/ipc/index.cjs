@@ -1,6 +1,7 @@
 const { ipcMain, shell } = require('electron');
 const { registerAiIpc } = require('./aiIpc.cjs');
 const { registerAiEvaluationIpc } = require('./aiEvaluationIpc.cjs');
+const { registerBidMarketAnalysisIpc } = require('./bidMarketAnalysisIpc.cjs');
 const { registerBidOpportunityIpc } = require('./bidOpportunityIpc.cjs');
 const { registerBusinessBidIpc } = require('./businessBidIpc.cjs');
 const { registerConfigIpc } = require('./configIpc.cjs');
@@ -15,6 +16,7 @@ const { registerTaskIpc } = require('./taskIpc.cjs');
 const { registerTechnicalPlanIpc } = require('./technicalPlanIpc.cjs');
 const { createAiService } = require('../services/aiService.cjs');
 const { createAiEvaluationStore } = require('../services/aiEvaluationStore.cjs');
+const { createBidMarketAnalysisStore } = require('../services/bidMarketAnalysisStore.cjs');
 const { createBidOpportunityStore } = require('../services/bidOpportunityStore.cjs');
 const { createBusinessBidStore } = require('../services/businessBidStore.cjs');
 const { createConfigStore } = require('../services/configStore.cjs');
@@ -123,6 +125,7 @@ const workspaceDatabaseChannels = [
   'bid-opportunity:export-report',
   'bid-opportunity:export-calendar',
   'bid-opportunity:clear',
+  'bid-market-analysis:load-state',
   'knowledge-base:get-migration-status',
   'knowledge-base:migrate-legacy',
   'knowledge-base:list',
@@ -230,6 +233,7 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, fileSe
   const aiEvaluationStore = createAiEvaluationStore({ app, db: sqliteDatabase.db, technicalPlanStore, fileService, aiService });
   const businessBidStore = createBusinessBidStore({ db: sqliteDatabase.db, technicalPlanStore, fileService, aiService, app });
   const bidOpportunityStore = createBidOpportunityStore({ db: sqliteDatabase.db, fileService, aiService, app });
+  const bidMarketAnalysisStore = createBidMarketAnalysisStore({ db: sqliteDatabase.db });
   const duplicateCheckService = createDuplicateCheckService({ app, configStore, workspaceStore: duplicateCheckStore });
   const taskService = createTaskService({ aiService, technicalPlanStore, rejectionCheckStore, duplicateCheckStore, knowledgeBaseService, imageKnowledgeBaseStore, duplicateCheckService, businessBidStore, aiEvaluationStore });
 
@@ -242,6 +246,7 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, fileSe
   registerAiEvaluationIpc({ aiEvaluationStore });
   registerBusinessBidIpc({ businessBidStore });
   registerBidOpportunityIpc({ bidOpportunityStore });
+  registerBidMarketAnalysisIpc({ bidMarketAnalysisStore });
   registerTaskIpc({ taskService });
   updateStatus({ phase: 'ready', ready: true, message: '本地数据库已就绪' });
   return { sqliteDatabase };

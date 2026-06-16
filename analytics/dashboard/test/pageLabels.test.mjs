@@ -9,6 +9,7 @@ test('dashboard labels cover new product and developer pages', () => {
     'image-knowledge-base': '图片知识库',
     'ai-evaluation': 'AI评标',
     'bid-opportunity': '投标机会',
+    'bid-market-analysis': '招投标分析',
     'developer-prompt-lab': '测试页 - Prompt调试台',
     'developer-parser-sandbox': '测试页 - 文件解析沙盘',
     'developer-export-preview': '测试页 - 导出链路预演',

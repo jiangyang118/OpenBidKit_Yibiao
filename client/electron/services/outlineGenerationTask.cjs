@@ -140,6 +140,12 @@ function normalizeReferenceDocumentIds(payload) {
     : [];
 }
 
+function normalizeReferenceImageAssetIds(payload) {
+  return Array.isArray(payload?.reference_image_knowledge_asset_ids)
+    ? [...new Set(payload.reference_image_knowledge_asset_ids.map((id) => String(id || '').trim()).filter(Boolean))]
+    : [];
+}
+
 function loadOutlineKnowledgeItems(knowledgeBaseService, documentIds, log) {
   if (!documentIds.length) return [];
   if (!knowledgeBaseService?.getOutlineReferences) {
@@ -155,6 +161,25 @@ function loadOutlineKnowledgeItems(knowledgeBaseService, documentIds, log) {
     return items;
   } catch (error) {
     log(`读取参考知识库失败，将按普通目录生成：${error.message || String(error)}`, 7);
+    return [];
+  }
+}
+
+function loadOutlineImageKnowledgeItems(imageKnowledgeBaseStore, imageAssetIds, log) {
+  if (!imageAssetIds.length) return [];
+  if (!imageKnowledgeBaseStore?.getOutlineReferences) {
+    log('未找到图片知识库读取服务，跳过图片素材参考。', 6);
+    return [];
+  }
+
+  try {
+    log(`正在读取 ${imageAssetIds.length} 张图片知识库素材。`, 6);
+    const result = imageKnowledgeBaseStore.getOutlineReferences(imageAssetIds);
+    const items = Array.isArray(result?.items) ? result.items : [];
+    log(items.length ? `已读取 ${items.length} 条图片素材轻量参考。` : '未读取到可用图片素材参考。', 7);
+    return items;
+  } catch (error) {
+    log(`读取图片知识库失败，将跳过图片素材参考：${error.message || String(error)}`, 7);
     return [];
   }
 }
@@ -1260,7 +1285,7 @@ async function enhanceOutlineWithKnowledgeAdditions(aiService, payload, outline,
   return enhanced;
 }
 
-async function runOutlineGenerationTask({ aiService, workspaceStore, knowledgeBaseService, updateTask, payload }) {
+async function runOutlineGenerationTask({ aiService, workspaceStore, knowledgeBaseService, imageKnowledgeBaseStore, updateTask, payload }) {
   let logs = ['开始生成目录。'];
   let currentProgress = 5;
   function log(message, progress = currentProgress) {
@@ -1271,6 +1296,7 @@ async function runOutlineGenerationTask({ aiService, workspaceStore, knowledgeBa
   }
 
   const referenceKnowledgeDocumentIds = normalizeReferenceDocumentIds(payload);
+  const referenceImageKnowledgeAssetIds = normalizeReferenceImageAssetIds(payload);
   const storedPlan = workspaceStore.loadTechnicalPlan() || {};
   const overview = storedPlan.projectOverview || '';
   const requirements = storedPlan.techRequirements || '';
@@ -1282,6 +1308,7 @@ async function runOutlineGenerationTask({ aiService, workspaceStore, knowledgeBa
   let technicalPlan = workspaceStore.updateTechnicalPlan({
     outlineMode: payload.mode,
     referenceKnowledgeDocumentIds,
+    referenceImageKnowledgeAssetIds,
     outlineGenerationTask: updateTask({ status: 'running', progress: 5, logs }),
   });
   updateTask({ status: 'running', progress: 5, logs }, technicalPlan);
@@ -1317,9 +1344,13 @@ async function runOutlineGenerationTask({ aiService, workspaceStore, knowledgeBa
     requirements,
     oldOutline: formatOldOutlineForPrompt(oldOutline),
     reference_knowledge_document_ids: referenceKnowledgeDocumentIds,
+    reference_image_knowledge_asset_ids: referenceImageKnowledgeAssetIds,
   };
   let outline = taskPayload.mode === 'aligned' ? await alignedWorkflow(aiService, taskPayload, log) : await freeWorkflow(aiService, taskPayload, log);
-  const knowledgeItems = loadOutlineKnowledgeItems(knowledgeBaseService, referenceKnowledgeDocumentIds, log);
+  const knowledgeItems = [
+    ...loadOutlineKnowledgeItems(knowledgeBaseService, referenceKnowledgeDocumentIds, log),
+    ...loadOutlineImageKnowledgeItems(imageKnowledgeBaseStore, referenceImageKnowledgeAssetIds, log),
+  ];
   try {
     outline = await enhanceOutlineWithKnowledgeAdditions(aiService, taskPayload, outline, knowledgeItems, log);
   } catch (error) {

@@ -4,7 +4,7 @@
 -- 1. 本文件用于开源开发者阅读、评审和排查问题，展示 workspace/yibiao.sqlite 的目标完整表结构。
 -- 2. 用户运行客户端时不需要手动执行本文件。
 -- 3. 客户端运行时建表和升级以 Electron Main 侧 migration 代码为准。
--- 4. 当前运行代码已落地 technical_plan_* v1、duplicate_check_* / rejection_check_* v2、knowledge_* v3、technical_plan_global_fact_groups v4、标段兼容 v5/v6、标段选择 v7、待选择标段恢复状态 v8、工作流类型和原方案文件状态 v9、招标解析项选择配置 v10、知识库排序 v11、废标项检查多投标文件 v12、投标机会工作台 v13、商务标工作台 v14、图片知识库 v15、AI 评标工作台 v16、标书查重人工处理状态 v17、废标项检查人工处理状态 v18、标书查重正文忽略规则 v19、投标机会跟进字段 v20、商务标责任人字段 v21、图片知识库文件夹字段 v22、商务标后台任务状态表 v23、AI 评标后台任务状态表 v24、AI 评标多投标文件评分结果表 v25、AI 评标审计意见和报告快照表 v26、AI 评标专家打分表 v27、投标机会知识库匹配结果 v28、商务标独立附件管理表 v29、标书查重相似图片字段和正文忽略规则分类 v30、投标机会多轮跟进和附件表 v31、AI 评标专家角色/评审会议/签名确认字段 v32、标书查重相似图片旋转检测字段 v33、标书查重相似图片水印提示字段 v34、标书查重相似图片内容裁剪框字段 v35 目标结构。
+-- 4. 当前运行代码已落地 technical_plan_* v1、duplicate_check_* / rejection_check_* v2、knowledge_* v3、technical_plan_global_fact_groups v4、标段兼容 v5/v6、标段选择 v7、待选择标段恢复状态 v8、工作流类型和原方案文件状态 v9、招标解析项选择配置 v10、知识库排序 v11、废标项检查多投标文件 v12、投标机会工作台 v13、商务标工作台 v14、图片知识库 v15、AI 评标工作台 v16、标书查重人工处理状态 v17、废标项检查人工处理状态 v18、标书查重正文忽略规则 v19、投标机会跟进字段 v20、商务标责任人字段 v21、图片知识库文件夹字段 v22、商务标后台任务状态表 v23、AI 评标后台任务状态表 v24、AI 评标多投标文件评分结果表 v25、AI 评标审计意见和报告快照表 v26、AI 评标专家打分表 v27、投标机会知识库匹配结果 v28、商务标独立附件管理表 v29、标书查重相似图片字段和正文忽略规则分类 v30、投标机会多轮跟进和附件表 v31、AI 评标专家角色/评审会议/签名确认字段 v32、标书查重相似图片旋转检测字段 v33、标书查重相似图片水印提示字段 v34、标书查重相似图片内容裁剪框字段 v35、技术方案参考图片素材选择 v36、招投标市场分析实体和关联表 v37 目标结构。
 -- 5. 每次表结构调整后，需要同步更新本文件和 runtime migration 版本。
 -- 6. 本文件不保存历史版本，每次更新都写入最新目标完整结构。
 
@@ -14,7 +14,7 @@ PRAGMA busy_timeout = 5000;
 
 -- 目标完整结构版本。
 -- 运行时代码应通过 PRAGMA user_version 判断是否需要自动升级。
-PRAGMA user_version = 35;
+PRAGMA user_version = 37;
 
 -- ============================================================================
 -- 技术方案 technical_plan_*（v1 已落地）
@@ -105,6 +105,15 @@ CREATE TABLE IF NOT EXISTS technical_plan_reference_docs (
 
 CREATE INDEX IF NOT EXISTS idx_technical_plan_reference_docs_order
 ON technical_plan_reference_docs(sort_order);
+
+-- 技术方案选中的参考图片素材（v36 已落地）。
+CREATE TABLE IF NOT EXISTS technical_plan_reference_images (
+  image_id TEXT PRIMARY KEY,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_technical_plan_reference_images_order
+ON technical_plan_reference_images(sort_order);
 
 -- 技术方案目录树节点。
 -- 目录结构和正文内容的权威来源。
@@ -1110,3 +1119,135 @@ CREATE TABLE IF NOT EXISTS ai_evaluation_tasks (
   started_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+-- ============================================================================
+-- 招投标市场分析 bid_market_*（v37 已落地）
+-- ============================================================================
+
+-- 外部数据来源，包括网页抓取、Excel/CSV 导入、参考项目输出等。
+CREATE TABLE IF NOT EXISTS bid_market_sources (
+  source_id TEXT PRIMARY KEY,
+  source_type TEXT NOT NULL DEFAULT 'web',
+  source_name TEXT NOT NULL,
+  source_url TEXT NOT NULL DEFAULT '',
+  local_path TEXT NOT NULL DEFAULT '',
+  reference_project TEXT NOT NULL DEFAULT '',
+  imported_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_bid_market_sources_type
+ON bid_market_sources(source_type, updated_at DESC);
+
+-- 市场项目记录。可关联到投标机会和知识库文档，不直接污染单个技术方案工作区。
+CREATE TABLE IF NOT EXISTS bid_market_records (
+  record_id TEXT PRIMARY KEY,
+  source_id TEXT,
+  project_name TEXT NOT NULL,
+  publish_date TEXT NOT NULL DEFAULT '',
+  province TEXT NOT NULL DEFAULT '',
+  city TEXT NOT NULL DEFAULT '',
+  district TEXT NOT NULL DEFAULT '',
+  stage TEXT NOT NULL DEFAULT '',
+  amount REAL,
+  buyer_name TEXT NOT NULL DEFAULT '',
+  supplier_name TEXT NOT NULL DEFAULT '',
+  demand_type TEXT NOT NULL DEFAULT '',
+  customer_type TEXT NOT NULL DEFAULT '',
+  product_summary TEXT NOT NULL DEFAULT '',
+  raw_json TEXT NOT NULL DEFAULT '{}',
+  source_url TEXT NOT NULL DEFAULT '',
+  linked_opportunity_id TEXT,
+  linked_knowledge_document_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (source_id) REFERENCES bid_market_sources(source_id) ON DELETE SET NULL,
+  FOREIGN KEY (linked_opportunity_id) REFERENCES bid_opportunity_opportunities(opportunity_id) ON DELETE SET NULL,
+  FOREIGN KEY (linked_knowledge_document_id) REFERENCES knowledge_documents(document_id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_bid_market_records_date_area
+ON bid_market_records(publish_date, province, city);
+
+CREATE INDEX IF NOT EXISTS idx_bid_market_records_buyer
+ON bid_market_records(buyer_name);
+
+CREATE INDEX IF NOT EXISTS idx_bid_market_records_supplier
+ON bid_market_records(supplier_name);
+
+CREATE INDEX IF NOT EXISTS idx_bid_market_records_links
+ON bid_market_records(linked_opportunity_id, linked_knowledge_document_id);
+
+-- 招标/中标产品、软件功能、硬件参数、型号规格和配套项。
+CREATE TABLE IF NOT EXISTS bid_market_products (
+  product_id TEXT PRIMARY KEY,
+  record_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT '',
+  software_features_json TEXT NOT NULL DEFAULT '[]',
+  hardware_specs_json TEXT NOT NULL DEFAULT '[]',
+  model_specs_json TEXT NOT NULL DEFAULT '[]',
+  supporting_items_json TEXT NOT NULL DEFAULT '[]',
+  evidence TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (record_id) REFERENCES bid_market_records(record_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_bid_market_products_record
+ON bid_market_products(record_id, category);
+
+-- 招标公司、投标公司、供应商等主体的资质证据。
+CREATE TABLE IF NOT EXISTS bid_market_company_qualifications (
+  qualification_id TEXT PRIMARY KEY,
+  company_name TEXT NOT NULL,
+  company_role TEXT NOT NULL DEFAULT '',
+  qualification_name TEXT NOT NULL,
+  evidence TEXT NOT NULL DEFAULT '',
+  valid_until TEXT NOT NULL DEFAULT '',
+  source_id TEXT,
+  linked_knowledge_item_id INTEGER,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (source_id) REFERENCES bid_market_sources(source_id) ON DELETE SET NULL,
+  FOREIGN KEY (linked_knowledge_item_id) REFERENCES knowledge_items(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_bid_market_qualifications_company
+ON bid_market_company_qualifications(company_name, company_role);
+
+-- 风险红旗。用于保存异常大额、供应商集中、信息缺失等规则触发结果。
+CREATE TABLE IF NOT EXISTS bid_market_risk_flags (
+  flag_id TEXT PRIMARY KEY,
+  record_id TEXT NOT NULL,
+  level TEXT NOT NULL,
+  rule TEXT NOT NULL,
+  reason TEXT NOT NULL DEFAULT '',
+  review_status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (record_id) REFERENCES bid_market_records(record_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_bid_market_risk_flags_level
+ON bid_market_risk_flags(level, review_status);
+
+-- 商机评分。口径对齐示例工作簿的市场热度、金额吸引力、客户价值、竞争可进入性和可行动性。
+CREATE TABLE IF NOT EXISTS bid_market_opportunity_scores (
+  score_id TEXT PRIMARY KEY,
+  record_id TEXT NOT NULL,
+  total_score REAL NOT NULL DEFAULT 0,
+  market_heat REAL NOT NULL DEFAULT 0,
+  amount_attractiveness REAL NOT NULL DEFAULT 0,
+  customer_value REAL NOT NULL DEFAULT 0,
+  competition_accessibility REAL NOT NULL DEFAULT 0,
+  actionability REAL NOT NULL DEFAULT 0,
+  scoring_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (record_id) REFERENCES bid_market_records(record_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_bid_market_opportunity_scores_total
+ON bid_market_opportunity_scores(total_score DESC);

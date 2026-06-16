@@ -2,6 +2,7 @@ import type { SectionId } from '../shared/types/navigation';
 import type { AppTheme, SidebarLayout } from '../shared/types';
 import { getAppMenuItemById } from './menuConfig';
 import AiEvaluationPage from '../features/ai-evaluation/pages/AiEvaluationPage';
+import BidMarketAnalysisPage from '../features/bid-market-analysis/pages/BidMarketAnalysisPage';
 import BidOpportunityPage from '../features/bid-opportunity/pages/BidOpportunityPage';
 import BusinessBidPage from '../features/business-bid/pages/BusinessBidPage';
 import DeveloperToolsPage, { isDeveloperToolsSection } from '../features/developer/pages/DeveloperToolsPage';
@@ -59,6 +60,8 @@ function AppRouter({ activeSection, developerMode, onDeveloperModeChange, onAppe
       return <ExportFormatPage />;
     case 'bid-opportunity':
       return <BidOpportunityPage />;
+    case 'bid-market-analysis':
+      return <BidMarketAnalysisPage />;
     case 'developer-test':
       return null;
     case 'developer-json-test':

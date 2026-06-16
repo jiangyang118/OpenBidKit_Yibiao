@@ -2122,6 +2122,13 @@ function normalizeReferenceDocumentIds(storedPlan) {
     : [];
 }
 
+function normalizeReferenceImageKnowledgeAssetIds(storedPlan) {
+  const raw = storedPlan?.referenceImageKnowledgeAssetIds ?? [];
+  return Array.isArray(raw)
+    ? [...new Set(raw.map((id) => String(id || '').trim()).filter(Boolean))]
+    : [];
+}
+
 function loadContentKnowledgeItems(knowledgeBaseService, documentIds, log) {
   if (!documentIds.length) {
     log('本次正文编排未选择参考知识库。');
@@ -2143,6 +2150,30 @@ function loadContentKnowledgeItems(knowledgeBaseService, documentIds, log) {
     return items;
   } catch (error) {
     log(`读取正文编排参考知识库失败，已跳过：${error.message || String(error)}`);
+    return [];
+  }
+}
+
+function loadContentImageKnowledgeItems(imageKnowledgeBaseStore, imageAssetIds, log) {
+  if (!imageAssetIds.length) {
+    return [];
+  }
+  if (!imageKnowledgeBaseStore?.getOutlineReferences) {
+    log('未找到图片知识库读取服务，正文编排不使用图片素材参考。');
+    return [];
+  }
+
+  try {
+    const result = imageKnowledgeBaseStore.getOutlineReferences(imageAssetIds);
+    const items = Array.isArray(result?.items) ? result.items.map((item) => ({
+      id: String(item?.id || '').trim(),
+      title: String(item?.title || '').trim(),
+      resume: String(item?.resume || '').trim(),
+    })).filter((item) => item.id && item.title && item.resume) : [];
+    log(items.length ? `正文编排已读取 ${items.length} 条图片知识库轻量参考。` : '未读取到可用图片素材参考。');
+    return items;
+  } catch (error) {
+    log(`读取正文编排图片知识库失败，已跳过：${error.message || String(error)}`);
     return [];
   }
 }
@@ -2934,6 +2965,7 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
   let maxTables = maxTablesForRequirement(tableRequirement, leaves.length);
   const minimumWords = targetItemId ? 0 : normalizeMinimumWords(generationOptions.minimumWords ?? generationOptions.minimum_words);
   const referenceKnowledgeDocumentIds = normalizeReferenceDocumentIds(storedPlan);
+  const referenceImageKnowledgeAssetIds = normalizeReferenceImageKnowledgeAssetIds(storedPlan);
   const imageAvailability = aiService.getImageModelAvailability
     ? aiService.getImageModelAvailability()
     : { available: false, message: '生图模型不可用' };
@@ -3148,9 +3180,14 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
     updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, workspaceStore.loadTechnicalPlan());
   }
 
-  knowledgeItems = loadContentKnowledgeItems(knowledgeBaseService, referenceKnowledgeDocumentIds, (message) => {
-    logs = [...logs, message];
-  });
+  knowledgeItems = [
+    ...loadContentKnowledgeItems(knowledgeBaseService, referenceKnowledgeDocumentIds, (message) => {
+      logs = [...logs, message];
+    }),
+    ...loadContentImageKnowledgeItems(imageKnowledgeBaseStore, referenceImageKnowledgeAssetIds, (message) => {
+      logs = [...logs, message];
+    }),
+  ];
   allowedKnowledgeItemIds = new Set(knowledgeItems.map((item) => item.id));
   knowledgeContentMap = loadContentKnowledgeContentMap(knowledgeBaseService, referenceKnowledgeDocumentIds, (message) => {
     logs = [...logs, message];
@@ -5117,6 +5154,7 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
     return {
       targetType: 'technical-plan-content',
       targetId: item.id,
+      imageIds: referenceImageKnowledgeAssetIds,
       title: contentPlan.image.title || item.title || '技术方案配图',
       prompt: contentPlan.image.prompt,
       content: [

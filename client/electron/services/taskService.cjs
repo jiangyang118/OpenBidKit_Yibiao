@@ -915,6 +915,7 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
       return startManagedTask('outline-generation', payload, runOutlineGenerationTask, {
         outlineMode: payload?.mode,
         referenceKnowledgeDocumentIds: Array.isArray(payload?.reference_knowledge_document_ids) ? payload.reference_knowledge_document_ids : [],
+        referenceImageKnowledgeAssetIds: Array.isArray(payload?.reference_image_knowledge_asset_ids) ? payload.reference_image_knowledge_asset_ids : [],
       });
     },
     startGlobalFactsGeneration(payload) {

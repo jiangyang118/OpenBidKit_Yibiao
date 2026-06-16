@@ -470,6 +470,35 @@ function createImageKnowledgeBaseStore({ app, db }) {
     return [...new Set((Array.isArray(ids) ? ids : []).map((id) => normalizeText(id)).filter(Boolean))];
   }
 
+  function getOutlineReferences(imageIdsInput = []) {
+    const imageIds = normalizeAssetIds(imageIdsInput);
+    if (!imageIds.length) return { items: [] };
+    const seen = new Set();
+    const items = [];
+    for (const imageId of imageIds) {
+      if (seen.has(imageId)) continue;
+      seen.add(imageId);
+      const row = db.prepare('SELECT * FROM image_knowledge_assets WHERE image_id = ?').get(imageId);
+      if (!row) continue;
+      const tags = safeJsonParse(row.tags_json, []);
+      const title = normalizeText(row.title || row.file_name, '图片素材');
+      const resume = [
+        row.category ? `分类：${row.category}` : '',
+        row.folder ? `文件夹：${row.folder}` : '',
+        row.description ? `说明：${row.description}` : '',
+        row.scenario ? `适用场景：${row.scenario}` : '',
+        row.source ? `来源：${row.source}` : '',
+        tags.length ? `标签：${tags.join('、')}` : '',
+      ].filter(Boolean).join('；');
+      items.push({
+        id: `image::${imageId}`,
+        title: `图片素材：${title}`,
+        resume: resume || `图片文件：${row.file_name || imageId}`,
+      });
+    }
+    return { items };
+  }
+
   function batchUpdateAssets(payload = {}) {
     const ids = normalizeAssetIds(payload.ids);
     if (!ids.length) throw new Error('请先选择图片素材');
@@ -669,7 +698,10 @@ function createImageKnowledgeBaseStore({ app, db }) {
     const targetId = normalizeText(payload.targetId);
     if (!targetId) throw new Error('引用目标不能为空');
 
-    const rows = db.prepare('SELECT * FROM image_knowledge_assets ORDER BY updated_at DESC, created_at DESC').all();
+    const requestedIds = normalizeAssetIds(payload.imageIds || payload.image_ids || payload.assetIds || payload.asset_ids);
+    const requestedIdSet = new Set(requestedIds);
+    const rows = db.prepare('SELECT * FROM image_knowledge_assets ORDER BY updated_at DESC, created_at DESC').all()
+      .filter((row) => !requestedIdSet.size || requestedIdSet.has(row.image_id));
     const minScore = Math.max(1, Math.round(Number(payload.minScore ?? payload.min_score) || 4));
     const candidates = rows
       .map((row) => ({ row, score: scoreAutoReferenceAsset(row, payload) }))
@@ -722,6 +754,7 @@ function createImageKnowledgeBaseStore({ app, db }) {
     batchDeleteAssets,
     createMarkdownReference,
     createAutoMarkdownReference,
+    getOutlineReferences,
     listReferences,
   };
 }

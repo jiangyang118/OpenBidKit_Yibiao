@@ -5,6 +5,7 @@ import { trackConfigUsage } from '../../../shared/analytics/analytics';
 import { useToast } from '../../../shared/ui';
 import type { BackgroundTaskState, SaveOutlineRequest } from '../types';
 import type { KnowledgeBaseIndex, KnowledgeDocument } from '../../knowledge-base/types';
+import type { ImageKnowledgeAsset, ImageKnowledgeState } from '../../image-knowledge-base/types';
 import type { OutlineData, OutlineItem, OutlineMode } from '../../../shared/types';
 import type { ExportFormatConfig } from '../../../shared/types/exportFormat';
 import { DEFAULT_EXPORT_FORMAT } from '../../../shared/types/exportFormat';
@@ -15,10 +16,11 @@ interface OutlineEditPageProps {
   techRequirements: string;
   outlineMode: OutlineMode;
   referenceKnowledgeDocumentIds: string[];
+  referenceImageKnowledgeAssetIds: string[];
   outlineData: OutlineData | null;
   task?: BackgroundTaskState;
   contentTaskStatus?: BackgroundTaskState['status'];
-  onOutlineConfigChange: (mode: OutlineMode, documentIds: string[]) => void;
+  onOutlineConfigChange: (mode: OutlineMode, documentIds: string[], imageAssetIds: string[]) => void;
   onOutlineSaved: (request: SaveOutlineRequest) => Promise<void>;
   onSortGuardChange?: (guard: OutlineSortGuard | null) => void;
 }
@@ -47,6 +49,7 @@ interface DropTargetState {
 }
 
 const emptyKnowledgeIndex: KnowledgeBaseIndex = { folders: [], documents: [] };
+const emptyImageKnowledgeState: ImageKnowledgeState = { assets: [], categories: [], folders: [], tags: [] };
 
 const outlineModeLabels: Record<OutlineMode, string> = {
   free: '自由生成',
@@ -209,6 +212,7 @@ function OutlineEditPage({
   techRequirements,
   outlineMode,
   referenceKnowledgeDocumentIds,
+  referenceImageKnowledgeAssetIds,
   outlineData,
   task,
   contentTaskStatus,
@@ -226,9 +230,11 @@ function OutlineEditPage({
   const [generationDialogOpen, setGenerationDialogOpen] = useState(false);
   const [draftOutlineMode, setDraftOutlineMode] = useState<OutlineMode>(outlineMode);
   const [draftKnowledgeDocumentIds, setDraftKnowledgeDocumentIds] = useState<string[]>(referenceKnowledgeDocumentIds);
+  const [draftImageKnowledgeAssetIds, setDraftImageKnowledgeAssetIds] = useState<string[]>(referenceImageKnowledgeAssetIds);
   const [knowledgeSearch, setKnowledgeSearch] = useState('');
   const [expandedKnowledgeFolderIds, setExpandedKnowledgeFolderIds] = useState<Set<string>>(new Set());
   const [knowledgeIndex, setKnowledgeIndex] = useState<KnowledgeBaseIndex>(emptyKnowledgeIndex);
+  const [imageKnowledgeState, setImageKnowledgeState] = useState<ImageKnowledgeState>(emptyImageKnowledgeState);
   const [loadingKnowledge, setLoadingKnowledge] = useState(false);
   const [localStartAt, setLocalStartAt] = useState<number | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -323,19 +329,25 @@ function OutlineEditPage({
 
     setDraftOutlineMode(outlineMode);
     setDraftKnowledgeDocumentIds(referenceKnowledgeDocumentIds);
+    setDraftImageKnowledgeAssetIds(referenceImageKnowledgeAssetIds);
     setKnowledgeSearch('');
     void loadKnowledgeIndex();
-  }, [generationDialogOpen, outlineMode, referenceKnowledgeDocumentIds]);
+  }, [generationDialogOpen, outlineMode, referenceKnowledgeDocumentIds, referenceImageKnowledgeAssetIds]);
 
   const loadKnowledgeIndex = async () => {
     try {
       setLoadingKnowledge(true);
-      const data = await window.yibiao?.knowledgeBase.list();
-      setKnowledgeIndex(data || emptyKnowledgeIndex);
-      setExpandedKnowledgeFolderIds(getInitialExpandedKnowledgeFolders(data || emptyKnowledgeIndex));
+      const [knowledgeData, imageData] = await Promise.all([
+        window.yibiao?.knowledgeBase.list(),
+        window.yibiao?.imageKnowledgeBase?.list(),
+      ]);
+      setKnowledgeIndex(knowledgeData || emptyKnowledgeIndex);
+      setImageKnowledgeState(imageData || emptyImageKnowledgeState);
+      setExpandedKnowledgeFolderIds(getInitialExpandedKnowledgeFolders(knowledgeData || emptyKnowledgeIndex));
     } catch (error) {
       showToast(error instanceof Error ? error.message : '读取知识库失败', 'error');
       setKnowledgeIndex(emptyKnowledgeIndex);
+      setImageKnowledgeState(emptyImageKnowledgeState);
       setExpandedKnowledgeFolderIds(new Set());
     } finally {
       setLoadingKnowledge(false);
@@ -359,12 +371,13 @@ function OutlineEditPage({
 
     setDraftOutlineMode(outlineMode);
     setDraftKnowledgeDocumentIds(referenceKnowledgeDocumentIds);
+    setDraftImageKnowledgeAssetIds(referenceImageKnowledgeAssetIds);
     setKnowledgeSearch('');
     setGenerationDialogOpen(true);
   };
 
   const saveOutlineConfig = () => {
-    onOutlineConfigChange(draftOutlineMode, draftKnowledgeDocumentIds);
+    onOutlineConfigChange(draftOutlineMode, draftKnowledgeDocumentIds, draftImageKnowledgeAssetIds);
     setGenerationDialogOpen(false);
     showToast('目录生成配置已保存', 'success');
   };
@@ -384,11 +397,12 @@ function OutlineEditPage({
       setStartingOutline(true);
       setLocalStartAt(startedNow);
       setNowTick(startedNow);
-      onOutlineConfigChange(draftOutlineMode, draftKnowledgeDocumentIds);
+      onOutlineConfigChange(draftOutlineMode, draftKnowledgeDocumentIds, draftImageKnowledgeAssetIds);
       setGenerationDialogOpen(false);
       await window.yibiao?.tasks.startOutlineGeneration({
         mode: draftOutlineMode,
         reference_knowledge_document_ids: draftKnowledgeDocumentIds,
+        reference_image_knowledge_asset_ids: draftImageKnowledgeAssetIds,
       });
       trackConfigUsage({ outline_mode: draftOutlineMode });
       showToast('目录生成任务已在后台启动', 'success');
@@ -431,6 +445,36 @@ function OutlineEditPage({
 
   const clearDraftKnowledgeDocuments = () => {
     setDraftKnowledgeDocumentIds([]);
+  };
+
+  const toggleDraftImageKnowledgeAsset = (asset: ImageKnowledgeAsset) => {
+    if (generating) {
+      return;
+    }
+
+    setDraftImageKnowledgeAssetIds((prev) => (
+      prev.includes(asset.id)
+        ? prev.filter((id) => id !== asset.id)
+        : [...prev, asset.id]
+    ));
+  };
+
+  const selectImageKnowledgeAssets = (assets: ImageKnowledgeAsset[]) => {
+    const ids = assets.map((asset) => asset.id).filter(Boolean);
+    setDraftImageKnowledgeAssetIds((prev) => [...prev, ...ids.filter((id) => !prev.includes(id))]);
+  };
+
+  const clearImageKnowledgeAssets = (assets: ImageKnowledgeAsset[]) => {
+    const ids = new Set(assets.map((asset) => asset.id));
+    setDraftImageKnowledgeAssetIds((prev) => prev.filter((id) => !ids.has(id)));
+  };
+
+  const removeDraftImageKnowledgeAsset = (assetId: string) => {
+    setDraftImageKnowledgeAssetIds((prev) => prev.filter((id) => id !== assetId));
+  };
+
+  const clearDraftImageKnowledgeAssets = () => {
+    setDraftImageKnowledgeAssetIds([]);
   };
 
   const getMutationLockMessage = () => {
@@ -773,6 +817,10 @@ function OutlineEditPage({
     const selectedDocuments = draftKnowledgeDocumentIds
       .map((documentId) => knowledgeIndex.documents.find((document) => document.id === documentId))
       .filter((document): document is KnowledgeDocument => Boolean(document));
+    const availableImageAssets = imageKnowledgeState.assets;
+    const selectedImageAssets = draftImageKnowledgeAssetIds
+      .map((assetId) => imageKnowledgeState.assets.find((asset) => asset.id === assetId))
+      .filter((asset): asset is ImageKnowledgeAsset => Boolean(asset));
     const visibleFolders = knowledgeIndex.folders.flatMap((folder) => {
       const folderDocuments = availableDocuments.filter((document) => document.folder_id === folder.id);
       const folderMatched = keyword ? includesKeyword(folder.name, keyword) : false;
@@ -783,9 +831,29 @@ function OutlineEditPage({
       return documents.length ? [{ folder, documents }] : [];
     });
     const visibleDocumentCount = visibleFolders.reduce((total, group) => total + group.documents.length, 0);
+    const visibleImageAssets = keyword
+      ? availableImageAssets.filter((asset) => [
+        asset.fileName,
+        asset.title,
+        asset.category,
+        asset.folder,
+        asset.description,
+        asset.source,
+        asset.scenario,
+        asset.tags.join(' '),
+      ].some((value) => includesKeyword(value || '', keyword)))
+      : availableImageAssets;
+    const imageGroups = Array.from(
+      visibleImageAssets.reduce((groups, asset) => {
+        const groupName = asset.folder || asset.category || '未分类图片';
+        groups.set(groupName, [...(groups.get(groupName) || []), asset]);
+        return groups;
+      }, new Map<string, ImageKnowledgeAsset[]>()),
+    ).sort(([left], [right]) => left.localeCompare(right, 'zh-CN'));
+    const selectedReferenceCount = draftKnowledgeDocumentIds.length + draftImageKnowledgeAssetIds.length;
 
-    if (!availableDocuments.length) {
-      return <div className="outline-knowledge-empty">暂无已完成的知识库文档，可先到知识库上传并处理完成后再选择。</div>;
+    if (!availableDocuments.length && !availableImageAssets.length) {
+      return <div className="outline-knowledge-empty">暂无已完成的知识库文档或图片素材，可先到知识库上传并处理完成后再选择。</div>;
     }
 
     return (
@@ -795,15 +863,15 @@ function OutlineEditPage({
             className="outline-knowledge-search"
             value={knowledgeSearch}
             onChange={(event) => setKnowledgeSearch(event.target.value)}
-            placeholder="搜索文件夹或文档"
+            placeholder="搜索文件夹、文档或图片素材"
           />
-          <span>{keyword ? `匹配 ${visibleDocumentCount} 个文档` : `共 ${availableDocuments.length} 个可用文档`}</span>
+          <span>{keyword ? `匹配 ${visibleDocumentCount} 个文档 / ${visibleImageAssets.length} 张图片` : `共 ${availableDocuments.length} 个文档 / ${availableImageAssets.length} 张图片`}</span>
         </div>
         <div className="outline-knowledge-grid">
           <div className="outline-knowledge-browser">
             <div className="outline-knowledge-pane-head">
               <strong>知识库</strong>
-              <span>{visibleFolders.length} 个文件夹</span>
+              <span>{visibleFolders.length} 个文档文件夹 / {imageGroups.length} 个图片分组</span>
             </div>
             <div className="outline-knowledge-folder-list compact">
               {visibleFolders.length ? visibleFolders.map(({ folder, documents }) => {
@@ -846,24 +914,81 @@ function OutlineEditPage({
                   </section>
                 );
               }) : <div className="outline-knowledge-empty compact">没有匹配的知识库文档</div>}
+              {imageGroups.length ? imageGroups.map(([groupName, assets]) => {
+                const selectedCount = assets.filter((asset) => draftImageKnowledgeAssetIds.includes(asset.id)).length;
+
+                return (
+                  <section className="outline-knowledge-folder compact" key={`image-${groupName}`}>
+                    <div className="outline-knowledge-folder-head compact">
+                      <button type="button" disabled aria-expanded>
+                        <span>▾</span>
+                        <strong>{groupName}</strong>
+                      </button>
+                      <small>{assets.length} 张 / 已选 {selectedCount}</small>
+                      <div className="outline-knowledge-folder-actions">
+                        <button type="button" onClick={() => selectImageKnowledgeAssets(assets)} disabled={generating}>全选</button>
+                        <button type="button" onClick={() => clearImageKnowledgeAssets(assets)} disabled={generating || !selectedCount}>取消</button>
+                      </div>
+                    </div>
+                    <div className="outline-knowledge-document-list compact">
+                      {assets.map((asset) => {
+                        const selected = draftImageKnowledgeAssetIds.includes(asset.id);
+                        const title = asset.title || asset.fileName;
+
+                        return (
+                          <label className={`outline-knowledge-document compact outline-knowledge-image${selected ? ' is-selected' : ''}`} key={asset.id}>
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              disabled={generating}
+                              onChange={() => toggleDraftImageKnowledgeAsset(asset)}
+                            />
+                            {asset.thumbnailDataUrl && <img src={asset.thumbnailDataUrl} alt={title} />}
+                            <strong title={title}>{title}</strong>
+                            <small>{asset.category || asset.folder || '图片素材'}</small>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              }) : <div className="outline-knowledge-empty compact">没有匹配的图片素材</div>}
             </div>
           </div>
           <aside className="outline-knowledge-selected-pane">
             <div className="outline-knowledge-pane-head">
               <strong>本次已选</strong>
-              <button type="button" onClick={clearDraftKnowledgeDocuments} disabled={generating || !draftKnowledgeDocumentIds.length}>清空</button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearDraftKnowledgeDocuments();
+                  clearDraftImageKnowledgeAssets();
+                }}
+                disabled={generating || !selectedReferenceCount}
+              >
+                清空
+              </button>
             </div>
-            {selectedDocuments.length ? (
+            {selectedDocuments.length || selectedImageAssets.length ? (
               <div className="outline-knowledge-selected-list">
                 {selectedDocuments.map((document) => (
                   <div className="outline-knowledge-selected-item" key={document.id}>
-                    <strong title={document.file_name}>{document.file_name}</strong>
+                    <strong title={document.file_name}>文档：{document.file_name}</strong>
                     <button type="button" onClick={() => removeDraftKnowledgeDocument(document.id)} disabled={generating}>移除</button>
                   </div>
                 ))}
+                {selectedImageAssets.map((asset) => {
+                  const title = asset.title || asset.fileName;
+                  return (
+                    <div className="outline-knowledge-selected-item" key={asset.id}>
+                      <strong title={title}>图片：{title}</strong>
+                      <button type="button" onClick={() => removeDraftImageKnowledgeAsset(asset.id)} disabled={generating}>移除</button>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
-              <div className="outline-knowledge-empty compact">未选择知识库文档</div>
+              <div className="outline-knowledge-empty compact">未选择知识库文档或图片素材</div>
             )}
           </aside>
         </div>
@@ -877,7 +1002,7 @@ function OutlineEditPage({
         <div>
           <span className="section-kicker">STEP 03</span>
           <strong>目录生成</strong>
-          <p>生成前选择目录方式和参考知识库；当前参考知识库：{referenceKnowledgeDocumentIds.length ? `已选择 ${referenceKnowledgeDocumentIds.length} 个文档` : '未选择'}。</p>
+          <p>生成前选择目录方式和参考知识库；当前参考知识库：{referenceKnowledgeDocumentIds.length || referenceImageKnowledgeAssetIds.length ? `已选择 ${referenceKnowledgeDocumentIds.length} 个文档、${referenceImageKnowledgeAssetIds.length} 张图片` : '未选择'}。</p>
         </div>
         <div className="outline-command-actions">
           <button
@@ -1069,7 +1194,7 @@ function OutlineEditPage({
             <section className="outline-generation-config-section outline-knowledge-picker">
               <div className="outline-generation-config-head">
                 <strong>参考知识库</strong>
-                <span>已选择 {draftKnowledgeDocumentIds.length} 个文档</span>
+                <span>已选择 {draftKnowledgeDocumentIds.length} 个文档 / {draftImageKnowledgeAssetIds.length} 张图片</span>
               </div>
               {renderKnowledgePicker()}
             </section>

@@ -5786,6 +5786,19 @@ button {
   cursor: pointer;
 }
 
+.outline-knowledge-document.compact.outline-knowledge-image {
+  grid-template-columns: auto 36px minmax(0, 1fr) auto;
+}
+
+.outline-knowledge-document.compact.outline-knowledge-image img {
+  width: 36px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid rgba(213, 219, 231, 0.9);
+  background: #f8fafc;
+}
+
 .outline-knowledge-document.compact:hover {
   background: rgba(33, 116, 253, 0.06);
 }
@@ -13543,5 +13556,146 @@ button {
 
   .export-format-header-preview-list {
     grid-template-columns: 1fr;
+  }
+}
+
+.bid-market-page {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+}
+
+.bid-market-hero,
+.bid-market-panel,
+.bid-market-metric {
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 8px;
+  background: var(--yb-surface);
+  box-shadow: var(--yb-shadow);
+}
+
+.bid-market-hero {
+  padding: 24px;
+}
+
+.bid-market-hero span,
+.bid-market-metric span,
+.bid-market-reference span {
+  color: var(--yb-text-muted);
+  font-size: 12px;
+}
+
+.bid-market-hero h2 {
+  margin: 8px 0;
+  font-size: 24px;
+}
+
+.bid-market-hero p,
+.bid-market-panel-head p,
+.bid-market-reference p,
+.bid-market-link-grid p {
+  margin: 0;
+  color: var(--yb-text-muted);
+  line-height: 1.6;
+}
+
+.bid-market-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.bid-market-metric {
+  padding: 14px;
+}
+
+.bid-market-metric strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 24px;
+}
+
+.bid-market-panel {
+  padding: 18px;
+}
+
+.bid-market-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.bid-market-panel-head h3,
+.bid-market-reference h4,
+.bid-market-link-grid h4 {
+  margin: 0 0 6px;
+}
+
+.bid-market-reference-list {
+  display: grid;
+  gap: 12px;
+}
+
+.bid-market-reference {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 8px;
+}
+
+.bid-market-reference small {
+  display: block;
+  margin-top: 8px;
+  color: var(--yb-text-muted);
+  word-break: break-all;
+}
+
+.bid-market-reference .is-ready {
+  color: #2f9e44;
+}
+
+.bid-market-reference .is-missing,
+.bid-market-error {
+  color: #c0392b;
+}
+
+.bid-market-reference-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.bid-market-link-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.bid-market-link-grid > div {
+  padding: 14px;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 8px;
+}
+
+.bid-market-link-grid ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--yb-text-muted);
+  line-height: 1.8;
+}
+
+@media (max-width: 820px) {
+  .bid-market-reference,
+  .bid-market-link-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bid-market-reference-actions {
+    flex-wrap: wrap;
   }
 }

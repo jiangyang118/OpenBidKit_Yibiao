@@ -168,6 +168,11 @@ function normalizeReferenceDocumentIds(storedPlan) {
   return Array.isArray(raw) ? [...new Set(raw.map((id) => String(id || '').trim()).filter(Boolean))] : [];
 }
 
+function normalizeReferenceImageKnowledgeAssetIds(storedPlan) {
+  const raw = storedPlan?.referenceImageKnowledgeAssetIds || [];
+  return Array.isArray(raw) ? [...new Set(raw.map((id) => String(id || '').trim()).filter(Boolean))] : [];
+}
+
 function loadKnowledgeItems(knowledgeBaseService, documentIds, log) {
   if (!documentIds.length) {
     log('未选择参考知识库，本次只基于招标文件、Step02 解析结果和目录预设关键信息。', 12);
@@ -199,6 +204,29 @@ function loadKnowledgeItems(knowledgeBaseService, documentIds, log) {
   }
   log(items.length ? `已读取 ${items.length} 条知识库完整条目。` : '未读取到可用知识库完整条目。', 14);
   return items;
+}
+
+function loadImageKnowledgeItems(imageKnowledgeBaseStore, imageAssetIds, log) {
+  if (!imageAssetIds.length) return [];
+  if (!imageKnowledgeBaseStore?.getOutlineReferences) {
+    log('未找到图片知识库读取服务，本次不使用图片素材参考。', 12);
+    return [];
+  }
+
+  try {
+    const result = imageKnowledgeBaseStore.getOutlineReferences(imageAssetIds);
+    const items = (Array.isArray(result?.items) ? result.items : []).map((item) => ({
+      id: singleLine(item?.id),
+      title: singleLine(item?.title),
+      resume: singleLine(item?.resume),
+      content: singleLine(item?.resume),
+    })).filter((item) => item.id && item.title && item.content);
+    log(items.length ? `已读取 ${items.length} 条图片素材参考。` : '未读取到可用图片素材参考。', 14);
+    return items;
+  } catch (error) {
+    log(`读取图片知识库失败，已跳过：${error.message || String(error)}`, 12);
+    return [];
+  }
 }
 
 function formatKnowledgeItemsForPrompt(items) {
@@ -327,7 +355,7 @@ async function collectJson(aiService, options) {
   return aiService.collectJsonResponse ? aiService.collectJsonResponse(options) : aiService.requestJson(options);
 }
 
-async function runGlobalFactsTask({ aiService, workspaceStore, knowledgeBaseService, updateTask }) {
+async function runGlobalFactsTask({ aiService, workspaceStore, knowledgeBaseService, imageKnowledgeBaseStore, updateTask }) {
   let logs = ['开始生成全局事实变量。'];
   let currentProgress = 5;
   function log(message, progress = currentProgress) {
@@ -372,12 +400,16 @@ async function runGlobalFactsTask({ aiService, workspaceStore, knowledgeBaseServ
   updateTask({ status: 'running', progress: 5, logs }, technicalPlan);
 
   const referenceKnowledgeDocumentIds = normalizeReferenceDocumentIds(storedPlan);
+  const referenceImageKnowledgeAssetIds = normalizeReferenceImageKnowledgeAssetIds(storedPlan);
   const bidAnalysisFactsText = formatBidAnalysisFactsForPrompt(storedPlan);
   log('正在读取招标文件、Step02 解析结果、目录和参考知识库。', 10);
   if (isExpansionWorkflow) {
     log('已读取原方案，本次将优先从原方案抽取全局事实变量。', 18);
   }
-  const knowledgeItems = loadKnowledgeItems(knowledgeBaseService, referenceKnowledgeDocumentIds, log);
+  const knowledgeItems = [
+    ...loadKnowledgeItems(knowledgeBaseService, referenceKnowledgeDocumentIds, log),
+    ...loadImageKnowledgeItems(imageKnowledgeBaseStore, referenceImageKnowledgeAssetIds, log),
+  ];
 
   const selectedSection = storedPlan.tenderFile?.selectedSectionTitle ? {
     title: storedPlan.tenderFile.selectedSectionTitle,

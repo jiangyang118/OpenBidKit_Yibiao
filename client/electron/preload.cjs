@@ -195,6 +195,9 @@ const bridge = {
     exportCalendar: (options) => ipcRenderer.invoke('bid-opportunity:export-calendar', options),
     clear: () => ipcRenderer.invoke('bid-opportunity:clear'),
   },
+  bidMarketAnalysis: {
+    loadState: () => ipcRenderer.invoke('bid-market-analysis:load-state'),
+  },
   tasks: {
     startBidAnalysis: (payload) => ipcRenderer.invoke('tasks:start-bid-analysis', payload),
     startOutlineGeneration: (payload) => ipcRenderer.invoke('tasks:start-outline-generation', payload),
