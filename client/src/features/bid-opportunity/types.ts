@@ -38,6 +38,52 @@ export interface BidOpportunityKnowledgeMatch {
   matchedKeywords: string[];
 }
 
+export type BidOpportunityFollowUpMethod = 'phone' | 'wechat' | 'email' | 'meeting' | 'site' | 'system' | 'other';
+
+export interface BidOpportunityFollowUpRecord {
+  id: string;
+  opportunityId: string;
+  occurredAt: string;
+  method: BidOpportunityFollowUpMethod;
+  owner: string;
+  contactPerson: string;
+  content: string;
+  nextAction: string;
+  nextFollowUpAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BidOpportunityFollowUpRecordInput {
+  occurredAt?: string;
+  method?: BidOpportunityFollowUpMethod;
+  owner?: string;
+  contactPerson?: string;
+  content?: string;
+  nextAction?: string;
+  nextFollowUpAt?: string;
+}
+
+export interface BidOpportunityAttachment {
+  id: string;
+  opportunityId: string;
+  kind: BidOpportunityAttachmentKind;
+  fileName: string;
+  storedPath: string;
+  originalPath: string;
+  fileSize: number;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type BidOpportunityAttachmentKind = 'announcement' | 'communication' | 'qualification' | 'other';
+
+export interface BidOpportunityAttachmentPatch {
+  kind?: BidOpportunityAttachmentKind;
+  note?: string;
+}
+
 export interface BidOpportunity {
   id: string;
   title: string;
@@ -51,6 +97,8 @@ export interface BidOpportunity {
   scoreBreakdown: BidOpportunityScoreBreakdown;
   risks: BidOpportunityRisk[];
   knowledgeMatches?: BidOpportunityKnowledgeMatch[];
+  followUps?: BidOpportunityFollowUpRecord[];
+  attachments?: BidOpportunityAttachment[];
   recommendation: string;
   createdAt: string;
   updatedAt: string;
@@ -92,6 +140,12 @@ export interface BidOpportunityExportCalendarResult {
 }
 
 export interface BidOpportunityImportResult {
+  success: boolean;
+  message: string;
+  state: BidOpportunityState;
+}
+
+export interface BidOpportunityImportAttachmentsResult {
   success: boolean;
   message: string;
   state: BidOpportunityState;

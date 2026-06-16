@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useToast } from '../../../shared/ui';
-import type { BidOpportunity, BidOpportunityFollowUpPatch, BidOpportunityState, BidOpportunityStatus } from '../types';
+import type {
+  BidOpportunity,
+  BidOpportunityAttachmentKind,
+  BidOpportunityFollowUpMethod,
+  BidOpportunityFollowUpPatch,
+  BidOpportunityFollowUpRecordInput,
+  BidOpportunityState,
+  BidOpportunityStatus,
+} from '../types';
 
 const emptyState: BidOpportunityState = {
   opportunities: [],
@@ -17,6 +25,27 @@ const statusLabels: Record<BidOpportunityStatus, string> = {
 };
 
 const statusOptions: BidOpportunityStatus[] = ['pending', 'tracking', 'abandoned', 'submitted', 'won', 'lost'];
+
+const followUpMethodLabels: Record<BidOpportunityFollowUpMethod, string> = {
+  phone: '电话',
+  wechat: '微信',
+  email: '邮件',
+  meeting: '会议',
+  site: '现场',
+  system: '系统',
+  other: '其他',
+};
+
+const followUpMethodOptions: BidOpportunityFollowUpMethod[] = ['phone', 'wechat', 'email', 'meeting', 'site', 'system', 'other'];
+
+const attachmentKindLabels: Record<BidOpportunityAttachmentKind, string> = {
+  announcement: '公告附件',
+  communication: '沟通附件',
+  qualification: '资质附件',
+  other: '其他附件',
+};
+
+const attachmentKindOptions: BidOpportunityAttachmentKind[] = ['announcement', 'communication', 'qualification', 'other'];
 
 const fieldLabels: Array<[keyof BidOpportunity['parsedFields'], string]> = [
   ['projectName', '项目名称'],
@@ -58,6 +87,13 @@ function formatDateTime(value: string) {
   return date.toLocaleString('zh-CN', { hour12: false });
 }
 
+function formatFileSize(value: number) {
+  if (!value) return '0 B';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
 function summarizeStats(opportunities: BidOpportunity[]) {
   const trackingCount = opportunities.filter((item) => item.status === 'tracking').length;
   const averageScore = opportunities.length
@@ -76,6 +112,16 @@ function BidOpportunityPage() {
   const [title, setTitle] = useState('');
   const [sourceText, setSourceText] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
+  const [followUpDraft, setFollowUpDraft] = useState<BidOpportunityFollowUpRecordInput>({
+    method: 'phone',
+    content: '',
+    nextAction: '',
+    nextFollowUpAt: '',
+    contactPerson: '',
+  });
+  const [attachmentKind, setAttachmentKind] = useState<BidOpportunityAttachmentKind>('announcement');
+  const [savingFollowUp, setSavingFollowUp] = useState(false);
+  const [importingAttachments, setImportingAttachments] = useState(false);
 
   const activeOpportunity = useMemo(
     () => state.opportunities.find((item) => item.id === state.activeOpportunityId) || state.opportunities[0] || null,
@@ -83,6 +129,17 @@ function BidOpportunityPage() {
   );
   const stats = useMemo(() => summarizeStats(state.opportunities), [state.opportunities]);
   const reminderCount = useMemo(() => state.opportunities.filter((item) => item.reminderAt).length, [state.opportunities]);
+
+  useEffect(() => {
+    setFollowUpDraft({
+      method: 'phone',
+      content: '',
+      nextAction: activeOpportunity?.nextAction || '',
+      nextFollowUpAt: activeOpportunity?.reminderAt || '',
+      owner: activeOpportunity?.owner || '',
+      contactPerson: '',
+    });
+  }, [activeOpportunity?.id]);
 
   useEffect(() => {
     let canceled = false;
@@ -248,6 +305,100 @@ function BidOpportunityPage() {
       showToast('投标机会已删除', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '删除失败', 'error');
+    }
+  };
+
+  const addFollowUpRecord = async () => {
+    if (!activeOpportunity) return;
+    if (!String(followUpDraft.content || '').trim() && !String(followUpDraft.nextAction || '').trim()) {
+      showToast('请填写本次沟通记录或下一步动作', 'info');
+      return;
+    }
+    const creator = window.yibiao?.bidOpportunity?.addFollowUpRecord;
+    if (!creator) {
+      showToast('当前环境不支持保存跟进记录，请在桌面客户端中使用', 'error');
+      return;
+    }
+    setSavingFollowUp(true);
+    try {
+      const nextState = await creator(activeOpportunity.id, {
+        ...followUpDraft,
+        owner: followUpDraft.owner || activeOpportunity.owner,
+      });
+      if (nextState) setState(nextState);
+      setFollowUpDraft({
+        method: 'phone',
+        content: '',
+        nextAction: '',
+        nextFollowUpAt: '',
+        owner: followUpDraft.owner || activeOpportunity.owner,
+        contactPerson: '',
+      });
+      showToast('跟进记录已保存', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '跟进记录保存失败', 'error');
+    } finally {
+      setSavingFollowUp(false);
+    }
+  };
+
+  const deleteFollowUpRecord = async (id: string) => {
+    try {
+      const nextState = await window.yibiao?.bidOpportunity?.deleteFollowUpRecord(id);
+      if (nextState) setState(nextState);
+      showToast('跟进记录已删除', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '跟进记录删除失败', 'error');
+    }
+  };
+
+  const importAttachments = async () => {
+    if (!activeOpportunity) return;
+    const importer = window.yibiao?.bidOpportunity?.importAttachments;
+    if (!importer) {
+      showToast('当前环境不支持导入投标机会附件，请在桌面客户端中使用', 'error');
+      return;
+    }
+    setImportingAttachments(true);
+    try {
+      const result = await importer(activeOpportunity.id, { kind: attachmentKind });
+      setState(result.state);
+      showToast(result.message || (result.success ? '附件已导入' : '已取消导入'), result.success ? 'success' : 'info');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '附件导入失败', 'error');
+    } finally {
+      setImportingAttachments(false);
+    }
+  };
+
+  const updateAttachment = async (id: string, patch: { kind?: BidOpportunityAttachmentKind; note?: string }) => {
+    try {
+      const nextState = await window.yibiao?.bidOpportunity?.updateAttachment(id, patch);
+      if (nextState) setState(nextState);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '附件更新失败', 'error');
+    }
+  };
+
+  const patchLocalAttachment = (id: string, patch: { kind?: BidOpportunityAttachmentKind; note?: string }) => {
+    setState((prev) => ({
+      ...prev,
+      opportunities: prev.opportunities.map((opportunity) => ({
+        ...opportunity,
+        attachments: opportunity.attachments?.map((attachment) => (
+          attachment.id === id ? { ...attachment, ...patch } : attachment
+        )),
+      })),
+    }));
+  };
+
+  const deleteAttachment = async (id: string) => {
+    try {
+      const nextState = await window.yibiao?.bidOpportunity?.deleteAttachment(id);
+      if (nextState) setState(nextState);
+      showToast('附件已删除', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '附件删除失败', 'error');
     }
   };
 
@@ -442,6 +593,126 @@ function BidOpportunityPage() {
                     placeholder="例如：补充类似业绩、确认本地服务承诺、预约投标评审"
                   />
                 </label>
+              </div>
+
+              <div className="opportunity-follow-history-panel" aria-label="多轮跟进记录">
+                <div className="opportunity-panel-title-row">
+                  <div>
+                    <span className="section-kicker">持续跟进</span>
+                    <strong>新增跟进记录</strong>
+                  </div>
+                  <button type="button" className="secondary-action" onClick={addFollowUpRecord} disabled={savingFollowUp}>
+                    {savingFollowUp ? '保存中...' : '保存记录'}
+                  </button>
+                </div>
+                <div className="opportunity-follow-up-form">
+                  <label className="form-field">
+                    <span>方式</span>
+                    <select
+                      value={followUpDraft.method || 'other'}
+                      onChange={(event) => setFollowUpDraft((prev) => ({ ...prev, method: event.target.value as BidOpportunityFollowUpMethod }))}
+                    >
+                      {followUpMethodOptions.map((method) => <option value={method} key={method}>{followUpMethodLabels[method]}</option>)}
+                    </select>
+                  </label>
+                  <label className="form-field">
+                    <span>跟进负责人</span>
+                    <input
+                      value={followUpDraft.owner || ''}
+                      onChange={(event) => setFollowUpDraft((prev) => ({ ...prev, owner: event.target.value }))}
+                      placeholder="默认使用机会负责人"
+                    />
+                  </label>
+                  <label className="form-field">
+                    <span>沟通对象</span>
+                    <input
+                      value={followUpDraft.contactPerson || ''}
+                      onChange={(event) => setFollowUpDraft((prev) => ({ ...prev, contactPerson: event.target.value }))}
+                      placeholder="采购人、代理、内部评审人"
+                    />
+                  </label>
+                  <label className="form-field">
+                    <span>下次跟进</span>
+                    <input
+                      type="datetime-local"
+                      value={followUpDraft.nextFollowUpAt || ''}
+                      onChange={(event) => setFollowUpDraft((prev) => ({ ...prev, nextFollowUpAt: event.target.value }))}
+                    />
+                  </label>
+                  <label className="form-field is-textarea">
+                    <span>本次沟通记录</span>
+                    <textarea
+                      value={followUpDraft.content || ''}
+                      onChange={(event) => setFollowUpDraft((prev) => ({ ...prev, content: event.target.value }))}
+                      placeholder="记录公告补充、资格确认、客户沟通、内部评审意见等"
+                    />
+                  </label>
+                  <label className="form-field is-textarea">
+                    <span>记录下一步动作</span>
+                    <textarea
+                      value={followUpDraft.nextAction || ''}
+                      onChange={(event) => setFollowUpDraft((prev) => ({ ...prev, nextAction: event.target.value }))}
+                      placeholder="例如：补充业绩证明、拉商务报价、确认开标时间"
+                    />
+                  </label>
+                </div>
+                <div className="opportunity-follow-record-list">
+                  {activeOpportunity.followUps?.length ? activeOpportunity.followUps.map((record) => (
+                    <article key={record.id}>
+                      <div>
+                        <strong>{formatDateTime(record.occurredAt) || '未记录时间'} · {followUpMethodLabels[record.method]}</strong>
+                        <button type="button" className="link-button is-danger" onClick={() => deleteFollowUpRecord(record.id)}>删除</button>
+                      </div>
+                      <span>{record.owner || '未指定负责人'}{record.contactPerson ? ` · ${record.contactPerson}` : ''}</span>
+                      {record.content ? <p>{record.content}</p> : null}
+                      {record.nextAction || record.nextFollowUpAt ? <small>下一步：{record.nextAction || '未填写'}{record.nextFollowUpAt ? ` · ${formatDateTime(record.nextFollowUpAt)}` : ''}</small> : null}
+                    </article>
+                  )) : <span className="is-empty">暂无跟进记录。保存沟通记录后，会同步进入导出的投标建议报告。</span>}
+                </div>
+              </div>
+
+              <div className="opportunity-attachment-panel" aria-label="公告和沟通附件">
+                <div className="opportunity-panel-title-row">
+                  <div>
+                    <span className="section-kicker">附件</span>
+                    <strong>公告/沟通附件</strong>
+                  </div>
+                  <div className="opportunity-attachment-actions">
+                    <select value={attachmentKind} onChange={(event) => setAttachmentKind(event.target.value as BidOpportunityAttachmentKind)}>
+                      {attachmentKindOptions.map((kind) => <option value={kind} key={kind}>{attachmentKindLabels[kind]}</option>)}
+                    </select>
+                    <button type="button" className="secondary-action" onClick={importAttachments} disabled={importingAttachments}>
+                      {importingAttachments ? '导入中...' : '导入附件'}
+                    </button>
+                  </div>
+                </div>
+                <div className="opportunity-attachment-list">
+                  {activeOpportunity.attachments?.length ? activeOpportunity.attachments.map((attachment) => (
+                    <article key={attachment.id}>
+                      <div className="opportunity-attachment-main">
+                        <strong>{attachment.fileName}</strong>
+                        <span>{formatFileSize(attachment.fileSize)} · {attachment.storedPath}</span>
+                      </div>
+                      <select
+                        value={attachment.kind}
+                        onChange={(event) => {
+                          const kind = event.target.value as BidOpportunityAttachmentKind;
+                          patchLocalAttachment(attachment.id, { kind });
+                          void updateAttachment(attachment.id, { kind });
+                        }}
+                      >
+                        {attachmentKindOptions.map((kind) => <option value={kind} key={kind}>{attachmentKindLabels[kind]}</option>)}
+                      </select>
+                      <input
+                        value={attachment.note}
+                        onChange={(event) => patchLocalAttachment(attachment.id, { note: event.target.value })}
+                        onBlur={(event) => updateAttachment(attachment.id, { note: event.target.value })}
+                        placeholder="附件说明"
+                      />
+                      <button type="button" className="link-button is-danger" onClick={() => deleteAttachment(attachment.id)}>删除</button>
+                    </article>
+                  )) : <span className="is-empty">暂无附件。可导入公告原文、答疑截图、客户沟通记录或内部评审资料。</span>}
+                </div>
               </div>
 
               <div className="opportunity-field-grid">

@@ -2,11 +2,13 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { dialog } = require('electron');
+const { imageSize } = require('image-size');
 const {
   AlignmentType,
   BorderStyle,
   Document,
   HeadingLevel,
+  ImageRun,
   Packer,
   Paragraph,
   Table,
@@ -16,7 +18,7 @@ const {
   TextRun,
   WidthType,
 } = require('docx');
-const { getRejectionCheckDir, getRejectionCheckDocumentMarkdownPath } = require('../utils/paths.cjs');
+const { getImportedImagesDir, getRejectionCheckDir, getRejectionCheckDocumentMarkdownPath } = require('../utils/paths.cjs');
 const { deleteImportedImageBatches, deleteImportedImageBatchesForExactScope } = require('../utils/importedImages.cjs');
 
 const initialState = {
@@ -204,6 +206,67 @@ function createDocxParagraph(text, options = {}) {
   });
 }
 
+function resolveReportAssetPath(app, value) {
+  if (!app?.getPath) return null;
+  const source = String(value || '').trim();
+  if (!source) return null;
+  if (path.isAbsolute(source)) return source;
+  if (!/^yibiao-asset:\/\//i.test(source)) return null;
+
+  try {
+    const assetUrl = new URL(source);
+    const assetRoots = {
+      'imported-images': getImportedImagesDir(app),
+    };
+    const rootDir = assetRoots[assetUrl.hostname];
+    if (!rootDir) return null;
+    const relativePath = decodeURIComponent(assetUrl.pathname.replace(/^\/+/, ''));
+    if (!relativePath) return null;
+    const baseDir = path.resolve(rootDir);
+    const resolvedPath = path.resolve(baseDir, relativePath);
+    if (resolvedPath !== baseDir && !resolvedPath.startsWith(`${baseDir}${path.sep}`)) return null;
+    return resolvedPath;
+  } catch {
+    return null;
+  }
+}
+
+function createDocxImageParagraph(markdownImage, context = {}) {
+  const match = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(String(markdownImage || '').trim());
+  if (!match) return null;
+  const imagePath = resolveReportAssetPath(context.app, match[2]);
+  if (!imagePath || !fs.existsSync(imagePath)) return null;
+
+  try {
+    const buffer = fs.readFileSync(imagePath);
+    const size = imageSize(buffer);
+    const width = Math.max(1, Number(size.width || 1));
+    const height = Math.max(1, Number(size.height || 1));
+    const maxWidth = 420;
+    const scale = Math.min(1, maxWidth / width);
+    return new Paragraph({
+      spacing: { after: 120 },
+      children: [
+        new ImageRun({
+          data: buffer,
+          transformation: {
+            width: Math.round(width * scale),
+            height: Math.round(height * scale),
+          },
+          type: 'png',
+          altText: {
+            title: match[1] || '证据裁剪图',
+            description: match[1] || '证据裁剪图',
+            name: match[1] || '证据裁剪图',
+          },
+        }),
+      ],
+    });
+  } catch {
+    return null;
+  }
+}
+
 function createDocxTableCell(value, options = {}) {
   return new TableCell({
     margins: { top: 80, bottom: 80, left: 80, right: 80 },
@@ -236,7 +299,7 @@ function createDocxMarkdownTable(headers, rows) {
   });
 }
 
-function markdownReportToDocxChildren(markdown) {
+function markdownReportToDocxChildren(markdown, context = {}) {
   const lines = String(markdown || '').split(/\r?\n/);
   const children = [];
   for (let index = 0; index < lines.length; index += 1) {
@@ -269,8 +332,23 @@ function markdownReportToDocxChildren(markdown) {
       continue;
     }
 
+    if (/^!\[[^\]]*\]\([^)]+\)$/.test(trimmed)) {
+      const imageParagraph = createDocxImageParagraph(trimmed, context);
+      if (imageParagraph) {
+        children.push(imageParagraph);
+        continue;
+      }
+    }
+
     const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
     if (bullet) {
+      if (/^!\[[^\]]*\]\([^)]+\)$/.test(bullet[1].trim())) {
+        const imageParagraph = createDocxImageParagraph(bullet[1].trim(), context);
+        if (imageParagraph) {
+          children.push(imageParagraph);
+          continue;
+        }
+      }
       children.push(createDocxParagraph(stripMarkdownInline(bullet[1]), { bullet: true }));
       continue;
     }
@@ -280,8 +358,10 @@ function markdownReportToDocxChildren(markdown) {
   return children.length ? children : [createDocxParagraph('暂无报告内容')];
 }
 
-async function buildRejectionCheckReportDocxBuffer(state) {
-  const markdown = buildRejectionCheckReportMarkdown(state);
+async function buildRejectionCheckReportDocxBuffer(state, options = {}) {
+  const markdown = options.markdown || (options.app
+    ? await buildRejectionCheckReportMarkdownWithEvidenceCrops(state, options.app)
+    : buildRejectionCheckReportMarkdown(state));
   const doc = new Document({
     styles: {
       default: {
@@ -291,7 +371,7 @@ async function buildRejectionCheckReportDocxBuffer(state) {
         },
       },
     },
-    sections: [{ children: markdownReportToDocxChildren(markdown) }],
+    sections: [{ children: markdownReportToDocxChildren(markdown, { app: options.app }) }],
   });
   return Packer.toBuffer(doc);
 }
@@ -329,11 +409,11 @@ function markdownReportToPdfLines(markdown) {
     const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
     if (bullet) {
       const text = stripMarkdownInline(bullet[1]);
-      if (inEvidenceSnapshot && /^(?:▶\s*)?第\s*\d+\s*行\s*\|/.test(text)) {
+      if (inEvidenceSnapshot && (/^(?:▶\s*)?第\s*\d+\s*行\s*\|/.test(text) || text.startsWith('[页面截图]'))) {
         output.push({
           type: 'evidence-card-line',
           text,
-          target: text.startsWith('▶'),
+          target: text.startsWith('▶') || text.startsWith('[页面截图] 裁剪状态：已提供裁剪框'),
           size: 9,
           gapBefore: 2,
         });
@@ -488,8 +568,8 @@ function buildSimpleCjkPdf(textBlocks, options = {}) {
   return createPdfObjectStream(objects);
 }
 
-function buildRejectionCheckReportPdfBuffer(state) {
-  const markdown = buildRejectionCheckReportMarkdown(state);
+function buildRejectionCheckReportPdfBuffer(state, options = {}) {
+  const markdown = options.markdown || buildRejectionCheckReportMarkdown(state);
   return buildSimpleCjkPdf(markdownReportToPdfLines(markdown), { title: '废标项检查报告' });
 }
 
@@ -539,6 +619,264 @@ function findNearestHeading(lines, lineIndex) {
     }
   }
   return '';
+}
+
+function normalizePageScreenshotList(document) {
+  const candidates = [
+    document?.pageScreenshots,
+    document?.page_screenshots,
+    document?.pageImages,
+    document?.page_images,
+    document?.sourcePageImages,
+    document?.source_page_images,
+  ];
+  const list = candidates.find((value) => Array.isArray(value));
+  return Array.isArray(list) ? list : [];
+}
+
+function numberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function screenshotPageNumber(screenshot, fallbackIndex) {
+  return numberOrNull(screenshot?.pageNumber ?? screenshot?.page_number ?? screenshot?.page ?? screenshot?.pageIndex ?? screenshot?.page_index)
+    ?? fallbackIndex + 1;
+}
+
+function screenshotLineStart(screenshot) {
+  return numberOrNull(screenshot?.lineStart ?? screenshot?.line_start ?? screenshot?.startLine ?? screenshot?.start_line);
+}
+
+function screenshotLineEnd(screenshot) {
+  return numberOrNull(screenshot?.lineEnd ?? screenshot?.line_end ?? screenshot?.endLine ?? screenshot?.end_line);
+}
+
+function screenshotAssetLabel(screenshot) {
+  return String(
+    screenshot?.assetUrl
+    || screenshot?.asset_url
+    || screenshot?.imageUrl
+    || screenshot?.image_url
+    || screenshot?.previewUrl
+    || screenshot?.preview_url
+    || screenshot?.filePath
+    || screenshot?.file_path
+    || screenshot?.path
+    || '',
+  ).trim();
+}
+
+function normalizeCropBox(crop) {
+  if (!crop || typeof crop !== 'object') return '';
+  const left = crop.left ?? crop.x;
+  const top = crop.top ?? crop.y;
+  const width = crop.width ?? crop.w;
+  const height = crop.height ?? crop.h;
+  if ([left, top, width, height].some((value) => value === undefined || value === null || value === '')) return '';
+  const normalized = {
+    x: Number(left),
+    y: Number(top),
+    w: Number(width),
+    h: Number(height),
+  };
+  return [normalized.x, normalized.y, normalized.w, normalized.h].every((value) => Number.isFinite(value) && value >= 0)
+    && normalized.w > 0
+    && normalized.h > 0
+    ? normalized
+    : '';
+}
+
+function formatCropBox(crop) {
+  const normalized = normalizeCropBox(crop);
+  if (!normalized) return '';
+  return `x=${normalized.x}, y=${normalized.y}, w=${normalized.w}, h=${normalized.h}`;
+}
+
+function screenshotCropBox(screenshot) {
+  return normalizeCropBox(screenshot?.crop || screenshot?.cropBox || screenshot?.crop_box || screenshot?.bbox || screenshot?.boundingBox || screenshot?.bounding_box);
+}
+
+function screenshotCropLabel(screenshot) {
+  return formatCropBox(screenshotCropBox(screenshot));
+}
+
+function screenshotDimension(screenshot, key, fallback) {
+  const value = screenshot?.[key]
+    ?? screenshot?.[`page_${key}`]
+    ?? screenshot?.[`page${key.slice(0, 1).toUpperCase()}${key.slice(1)}`]
+    ?? screenshot?.dimensions?.[key]
+    ?? screenshot?.size?.[key]
+    ?? fallback;
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function createAutoEvidenceCropBox(screenshot, snapshot) {
+  const lineNumber = Number(snapshot?.lineNumber || 0);
+  const lineStart = screenshotLineStart(screenshot);
+  const lineEnd = screenshotLineEnd(screenshot);
+  if (!lineNumber || lineStart === null || lineEnd === null || lineNumber < lineStart || lineNumber > lineEnd) return '';
+
+  const pageWidth = screenshotDimension(screenshot, 'width', 1000);
+  const pageHeight = screenshotDimension(screenshot, 'height', 1414);
+  const horizontalMargin = Math.max(40, Math.round(pageWidth * 0.08));
+  const verticalMargin = Math.max(60, Math.round(pageHeight * 0.08));
+  const usableHeight = Math.max(1, pageHeight - verticalMargin * 2);
+  const totalLines = Math.max(1, lineEnd - lineStart + 1);
+  const lineOffset = Math.max(0, Math.min(totalLines - 1, lineNumber - lineStart));
+  const lineCenter = verticalMargin + ((lineOffset + 0.5) / totalLines) * usableHeight;
+  const cropHeight = Math.max(120, Math.min(Math.round(pageHeight * 0.18), Math.round((usableHeight / totalLines) * 3)));
+  const top = Math.max(0, Math.min(pageHeight - cropHeight, Math.round(lineCenter - cropHeight / 2)));
+  return { x: horizontalMargin, y: top, w: Math.max(1, pageWidth - horizontalMargin * 2), h: cropHeight };
+}
+
+function createAutoEvidenceCropLabel(screenshot, snapshot) {
+  return formatCropBox(createAutoEvidenceCropBox(screenshot, snapshot));
+}
+
+function createEvidenceCropKey(request) {
+  return stableHash(JSON.stringify({
+    asset: request.asset,
+    cropBox: request.cropBox,
+    pageWidth: request.pageWidth,
+    pageHeight: request.pageHeight,
+    pageNumber: request.pageNumber,
+  }));
+}
+
+function createEvidenceCropRequest(document, snapshot, screenshot) {
+  const cropBox = screenshot.cropBox || screenshot.autoCropBox;
+  if (!screenshot.asset || !cropBox) return null;
+  const request = {
+    asset: screenshot.asset,
+    cropBox,
+    pageWidth: screenshot.pageWidth,
+    pageHeight: screenshot.pageHeight,
+    pageNumber: screenshot.pageNumber,
+    documentId: document?.id || '',
+    lineNumber: snapshot?.lineNumber || '',
+  };
+  return { ...request, key: createEvidenceCropKey(request) };
+}
+
+async function createEvidenceCropAsset(app, request) {
+  if (!app?.getPath || !request?.asset || !request?.cropBox) return '';
+  let canvasModule = null;
+  try {
+    canvasModule = require('@napi-rs/canvas');
+  } catch {
+    return '';
+  }
+  if (!canvasModule?.loadImage || !canvasModule?.createCanvas) return '';
+
+  const sourcePath = resolveReportAssetPath(app, request.asset);
+  if (!sourcePath || !fs.existsSync(sourcePath)) return '';
+
+  try {
+    const image = await canvasModule.loadImage(sourcePath);
+    const pageWidth = Number(request.pageWidth || image.width || 1);
+    const pageHeight = Number(request.pageHeight || image.height || 1);
+    const scaleX = image.width / Math.max(1, pageWidth);
+    const scaleY = image.height / Math.max(1, pageHeight);
+    const sourceX = Math.max(0, Math.min(image.width - 1, Math.round(request.cropBox.x * scaleX)));
+    const sourceY = Math.max(0, Math.min(image.height - 1, Math.round(request.cropBox.y * scaleY)));
+    const sourceWidth = Math.max(1, Math.min(image.width - sourceX, Math.round(request.cropBox.w * scaleX)));
+    const sourceHeight = Math.max(1, Math.min(image.height - sourceY, Math.round(request.cropBox.h * scaleY)));
+    const outputCanvas = canvasModule.createCanvas(sourceWidth, sourceHeight);
+    const context = outputCanvas.getContext('2d');
+    context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight);
+    const outputBuffer = outputCanvas.toBuffer('image/png');
+    const scope = 'rejection-check-evidence-crops';
+    const fileName = `crop-${request.key.slice(0, 20)}.png`;
+    const targetDir = path.join(getImportedImagesDir(app), scope);
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(path.join(targetDir, fileName), outputBuffer);
+    return `yibiao-asset://imported-images/${encodeURIComponent(scope)}/${encodeURIComponent(fileName)}`;
+  } catch {
+    return '';
+  }
+}
+
+async function buildRejectionCheckReportMarkdownWithEvidenceCrops(state, app) {
+  if (!app?.getPath) return buildRejectionCheckReportMarkdown(state);
+  const requests = new Map();
+  buildRejectionCheckReportMarkdown(state, {
+    collectEvidenceCropRequest: (request) => {
+      if (request?.key) requests.set(request.key, request);
+    },
+  });
+  if (!requests.size) return buildRejectionCheckReportMarkdown(state);
+
+  const evidenceCropAssets = new Map();
+  for (const request of requests.values()) {
+    const assetUrl = await createEvidenceCropAsset(app, request);
+    if (assetUrl) evidenceCropAssets.set(request.key, assetUrl);
+  }
+  return buildRejectionCheckReportMarkdown(state, { evidenceCropAssets });
+}
+
+function findEvidencePageScreenshot(document, snapshot) {
+  const screenshots = normalizePageScreenshotList(document);
+  if (!screenshots.length || !snapshot?.matched) return null;
+  const lineNumber = Number(snapshot.lineNumber || 0);
+  let fallback = null;
+  for (let index = 0; index < screenshots.length; index += 1) {
+    const screenshot = screenshots[index];
+    const pageNumber = screenshotPageNumber(screenshot, index);
+    const lineStart = screenshotLineStart(screenshot);
+    const lineEnd = screenshotLineEnd(screenshot);
+    const cropBox = screenshotCropBox(screenshot);
+    const autoCropBox = createAutoEvidenceCropBox(screenshot, snapshot);
+    const candidate = {
+      pageNumber,
+      lineStart,
+      lineEnd,
+      asset: screenshotAssetLabel(screenshot),
+      crop: formatCropBox(cropBox),
+      cropBox,
+      autoCrop: formatCropBox(autoCropBox),
+      autoCropBox,
+      pageWidth: screenshotDimension(screenshot, 'width', null),
+      pageHeight: screenshotDimension(screenshot, 'height', null),
+      note: String(screenshot?.note || screenshot?.description || '').trim(),
+    };
+    if (!fallback) fallback = candidate;
+    if (lineNumber && lineStart !== null && lineEnd !== null && lineNumber >= lineStart && lineNumber <= lineEnd) {
+      return { ...candidate, matchedByLineRange: true };
+    }
+  }
+  return fallback ? { ...fallback, matchedByLineRange: false } : null;
+}
+
+function buildPageScreenshotSnapshotLines(document, snapshot, context = {}) {
+  const screenshot = findEvidencePageScreenshot(document, snapshot);
+  if (!screenshot) return [];
+  const cropStatus = screenshot.crop
+    ? `已提供裁剪框：${screenshot.crop}`
+    : screenshot.autoCrop
+      ? `自动生成裁剪框：${screenshot.autoCrop}`
+    : snapshot?.lineNumber
+      ? `已定位到第 ${snapshot.lineNumber} 行，待接入页面图裁剪坐标。`
+      : '已找到页面截图候选，待接入页面图裁剪坐标。';
+  const lines = [
+    `[页面截图] 页面：第 ${screenshot.pageNumber} 页${screenshot.matchedByLineRange ? '（按行号范围匹配）' : '（候选页）'}`,
+    `[页面截图] 素材：${screenshot.asset || '未提供页面图片路径'}`,
+    `[页面截图] 裁剪状态：${cropStatus}`,
+    ...(screenshot.note ? [`[页面截图] 说明：${screenshot.note}`] : []),
+  ];
+  const cropRequest = createEvidenceCropRequest(document, snapshot, screenshot);
+  if (cropRequest) {
+    if (typeof context.collectEvidenceCropRequest === 'function') {
+      context.collectEvidenceCropRequest(cropRequest);
+    }
+    const cropAssetUrl = context.evidenceCropAssets?.get(cropRequest.key) || '';
+    if (cropAssetUrl) {
+      lines.push(`[页面截图] 裁剪图：${cropAssetUrl}`);
+      lines.push(`![证据裁剪图](${cropAssetUrl})`);
+    }
+  }
+  return lines;
 }
 
 function createEvidenceContextSnapshot(bidDocuments = [], bidDocumentId = '', evidenceText = '') {
@@ -593,6 +931,8 @@ function createEvidenceContextSnapshot(bidDocuments = [], bidDocumentId = '', ev
     matched: true,
     locationText,
     snapshotLines,
+    lineNumber: lineIndex + 1,
+    heading,
   };
 }
 
@@ -601,23 +941,26 @@ function findEvidenceContext(bidDocuments = [], bidDocumentId = '', evidenceText
   return snapshot?.locationText || '';
 }
 
-function pushEvidenceDetailBlock(lines, title, details, anchorId, snapshotLines = []) {
+function pushEvidenceDetailBlock(lines, title, details, anchorId, snapshotLines = [], pageSnapshotLines = []) {
   if (anchorId) lines.push(`<a id="${anchorId}"></a>`, '');
   lines.push(`### ${title}`, '');
   details.forEach(([label, value]) => {
     lines.push(`- ${label}：${detailText(value)}`);
   });
-  if (snapshotLines.length) {
+  if (snapshotLines.length || pageSnapshotLines.length) {
     lines.push('', '#### 证据截图视图', '');
-    lines.push('以下为文本型截图视图，保留目标行和前后文，便于在 Markdown、Word 和 PDF 中复核证据。', '');
+    lines.push('以下为文本型截图视图，保留目标行、前后文和可用页面截图候选，便于在 Markdown、Word 和 PDF 中复核证据。', '');
     snapshotLines.forEach((line) => {
+      lines.push(`- ${line}`);
+    });
+    pageSnapshotLines.forEach((line) => {
       lines.push(`- ${line}`);
     });
   }
   lines.push('');
 }
 
-function buildRejectionCheckReportMarkdown(state) {
+function buildRejectionCheckReportMarkdown(state, context = {}) {
   const bidDocuments = Array.isArray(state.bidDocuments) ? state.bidDocuments : [];
   const extraction = state.invalidBidAndRejectionItems || {};
   const rejection = state.rejectionCheckResult || { status: 'idle', findings: [] };
@@ -694,6 +1037,7 @@ function buildRejectionCheckReportMarkdown(state) {
       ...visibleRejectionFindings.map((item, index) => {
         const titleText = item.title || '未命名风险';
         const snapshot = createEvidenceContextSnapshot(bidDocuments, item.bidDocumentId, item.bidEvidence);
+        const document = bidDocuments.find((bidDocument) => bidDocument.id === item.bidDocumentId);
         const locationText = snapshot?.locationText || '';
         return {
           type: '废标项风险',
@@ -703,6 +1047,7 @@ function buildRejectionCheckReportMarkdown(state) {
           heading: `废标项风险 ${index + 1}：${titleText}`,
           location: locationText,
           snapshotLines: snapshot?.snapshotLines || [],
+          pageSnapshotLines: buildPageScreenshotSnapshotLines(document, snapshot, context),
           details: [
             ['投标文件', documentLabel(bidDocuments, item.bidDocumentId)],
             ['类型', findingTypeLabel(item.type)],
@@ -718,6 +1063,7 @@ function buildRejectionCheckReportMarkdown(state) {
       ...visibleTypoFindings.map((item, index) => {
         const titleText = item.wrongText || '未命名错字';
         const snapshot = createEvidenceContextSnapshot(bidDocuments, item.bidDocumentId, item.originalExcerpt || item.wrongText);
+        const document = bidDocuments.find((bidDocument) => bidDocument.id === item.bidDocumentId);
         const locationText = snapshot?.locationText || '';
         return {
           type: '错别字',
@@ -727,6 +1073,7 @@ function buildRejectionCheckReportMarkdown(state) {
           heading: `错别字 ${index + 1}：${titleText}`,
           location: locationText || item.locationHint,
           snapshotLines: snapshot?.snapshotLines || [],
+          pageSnapshotLines: buildPageScreenshotSnapshotLines(document, snapshot, context),
           details: [
             ['投标文件', documentLabel(bidDocuments, item.bidDocumentId)],
             ['位置线索', item.locationHint],
@@ -741,6 +1088,7 @@ function buildRejectionCheckReportMarkdown(state) {
       ...visibleLogicFindings.map((item, index) => {
         const titleText = item.title || '未命名问题';
         const snapshot = createEvidenceContextSnapshot(bidDocuments, item.bidDocumentId, item.originalText);
+        const document = bidDocuments.find((bidDocument) => bidDocument.id === item.bidDocumentId);
         const locationText = snapshot?.locationText || '';
         return {
           type: '逻辑问题',
@@ -750,6 +1098,7 @@ function buildRejectionCheckReportMarkdown(state) {
           heading: `逻辑问题 ${index + 1}：${titleText}`,
           location: locationText || item.locationHint,
           snapshotLines: snapshot?.snapshotLines || [],
+          pageSnapshotLines: buildPageScreenshotSnapshotLines(document, snapshot, context),
           details: [
             ['投标文件', documentLabel(bidDocuments, item.bidDocumentId)],
             ['位置线索', item.locationHint],
@@ -769,7 +1118,7 @@ function buildRejectionCheckReportMarkdown(state) {
     lines.push('');
 
     evidenceDetails.forEach((item) => {
-      pushEvidenceDetailBlock(lines, item.heading, item.details, item.anchorId, item.snapshotLines);
+      pushEvidenceDetailBlock(lines, item.heading, item.details, item.anchorId, item.snapshotLines, item.pageSnapshotLines);
     });
   }
 
@@ -927,9 +1276,9 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
     const timestamp = now();
     db.prepare(`
       INSERT INTO rejection_check_documents (
-        document_id, role, source, file_name, markdown_path, content_hash, content_chars, parser_label, sort_order, imported_at, updated_at
+        document_id, role, source, file_name, markdown_path, content_hash, content_chars, parser_label, page_screenshots_json, sort_order, imported_at, updated_at
       ) VALUES (
-        @document_id, @role, @source, @file_name, @markdown_path, @content_hash, @content_chars, @parser_label, @sort_order, @imported_at, @updated_at
+        @document_id, @role, @source, @file_name, @markdown_path, @content_hash, @content_chars, @parser_label, @page_screenshots_json, @sort_order, @imported_at, @updated_at
       ) ON CONFLICT(document_id) DO UPDATE SET
         role = excluded.role,
         source = excluded.source,
@@ -938,6 +1287,7 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
         content_hash = excluded.content_hash,
         content_chars = excluded.content_chars,
         parser_label = excluded.parser_label,
+        page_screenshots_json = excluded.page_screenshots_json,
         sort_order = excluded.sort_order,
         imported_at = excluded.imported_at,
         updated_at = excluded.updated_at
@@ -950,6 +1300,7 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
       content_hash: stableHash(markdown),
       content_chars: markdown.length,
       parser_label: document.parserLabel ? String(document.parserLabel) : null,
+      page_screenshots_json: jsonOrNull(document.pageScreenshots || document.page_screenshots || document.pageImages || document.page_images || []),
       sort_order: role === 'bid' ? Number(sortOrder || 0) : 0,
       imported_at: document.importedAt || timestamp,
       updated_at: timestamp,
@@ -966,6 +1317,7 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
       content: readDocumentMarkdown(row.document_id || row.role),
       source: row.source === 'technical-plan' ? 'technical-plan' : 'upload',
       parserLabel: row.parser_label || undefined,
+      pageScreenshots: safeJsonParse(row.page_screenshots_json, []),
       importedAt: row.imported_at,
     };
   }
@@ -1374,6 +1726,7 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
           content: first.file_content,
           source: 'upload',
           parserLabel: first.parser_label || undefined,
+          pageScreenshots: Array.isArray(first.page_screenshots) ? first.page_screenshots : [],
           importedAt: now(),
         };
         saveDocument(document);
@@ -1404,6 +1757,7 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
           content: markdown,
           source: 'upload',
           parserLabel: item.parser_label || undefined,
+          pageScreenshots: Array.isArray(item.page_screenshots) ? item.page_screenshots : [],
           importedAt: now(),
         }, sortOrder);
         existingKeys.add(key);
@@ -1579,7 +1933,7 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
 
   async function exportRejectionReport(options = {}) {
     const state = loadRejectionCheck();
-    const markdown = buildRejectionCheckReportMarkdown(state);
+    const markdown = await buildRejectionCheckReportMarkdownWithEvidenceCrops(state, app);
     const requestedFormat = String(options.format || options.fileFormat || options.file_format || '').toLowerCase();
     const format = ['docx', 'pdf'].includes(requestedFormat) ? requestedFormat : 'md';
     const requestedPath = String(options.filePath || options.file_path || '').trim();
@@ -1603,7 +1957,7 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
       filePath = result.filePath;
     }
     if (format === 'docx') {
-      const buffer = await buildRejectionCheckReportDocxBuffer(state);
+      const buffer = await buildRejectionCheckReportDocxBuffer(state, { app, markdown });
       fs.writeFileSync(filePath, buffer);
       return {
         success: true,
@@ -1615,7 +1969,7 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
       };
     }
     if (format === 'pdf') {
-      const buffer = buildRejectionCheckReportPdfBuffer(state);
+      const buffer = buildRejectionCheckReportPdfBuffer(state, { markdown });
       fs.writeFileSync(filePath, buffer);
       return {
         success: true,
@@ -1680,6 +2034,7 @@ function createRejectionCheckStore({ app, db, fileService, technicalPlanStore })
 module.exports = {
   createRejectionCheckStore,
   buildRejectionCheckReportMarkdown,
+  buildRejectionCheckReportMarkdownWithEvidenceCrops,
   buildRejectionCheckReportDocxBuffer,
   buildRejectionCheckReportPdfBuffer,
   markdownReportToDocxChildren,

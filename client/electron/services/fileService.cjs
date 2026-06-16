@@ -1,6 +1,9 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const os = require('node:os');
+const { execFile } = require('node:child_process');
+const { pathToFileURL } = require('node:url');
 const { dialog } = require('electron');
 const AdmZip = require('adm-zip');
 const { formatDocumentParseError, isLibreOfficeMissingError, normalizeDocumentParseError } = require('./documentParseErrors.cjs');
@@ -9,12 +12,14 @@ const { getImportedImagesDir } = require('../utils/paths.cjs');
 
 const parserLabels = {
   local: '本地解析',
+  'local-ocr': '本地 OCR 解析',
   'mineru-accurate-api': 'MinerU 精准解析 API',
   'mineru-agent-api': 'MinerU-Agent 轻量解析 API',
 };
 const parserProviders = new Set(Object.keys(parserLabels));
 
 const localSupportedExtensions = new Set(['.txt', '.md', '.markdown', '.docx', '.pdf', '.doc', '.wps']);
+const localOcrSupportedExtensions = new Set(['.pdf', '.ofd', '.png', '.jpg', '.jpeg', '.bmp', '.webp', '.tif', '.tiff']);
 const mineruAgentSupportedExtensions = new Set([
   '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.png', '.jpg', '.jpeg', '.jp2', '.webp', '.gif', '.bmp', '.xls', '.xlsx',
 ]);
@@ -24,6 +29,7 @@ const mineruAccurateSupportedExtensions = new Set([
 const duplicateCheckSupportedExtensions = new Set(['.doc', '.docx', '.wps', '.pdf', '.md', '.markdown']);
 const parserSandboxSampleExtensions = ['.pdf', '.docx', '.doc', '.wps', '.ofd', '.jpeg', '.png'];
 const remoteImageTimeoutMs = 10000;
+const paddleOcrWrapperPath = path.join(os.homedir(), '.codex', 'skills', 'paddleocr-local', 'scripts', 'ocr_local.py');
 const markdownImagePattern = /!\[(?<alt>[^\]]*)\]\((?<target><[^>]+>|[^)\s]+)(?<title>\s+"[^"]*")?\)/gi;
 const htmlImageSrcPattern = /(<img\b[^>]*?\bsrc=["'])(?<src>[^"']+)(["'][^>]*>)/gi;
 
@@ -32,6 +38,9 @@ function sleep(ms) {
 }
 
 function getSupportedExtensions(provider) {
+  if (provider === 'local-ocr') {
+    return localOcrSupportedExtensions;
+  }
   if (provider === 'mineru-agent-api') {
     return mineruAgentSupportedExtensions;
   }
@@ -51,6 +60,7 @@ function getSelectableExtensions(provider) {
 function createParserCapability(extension) {
   const ext = String(extension || '').trim().toLowerCase().replace(/^\./, '.');
   const localSupported = localSupportedExtensions.has(ext);
+  const localOcrSupported = localOcrSupportedExtensions.has(ext);
   const mineruAccurateSupported = mineruAccurateSupportedExtensions.has(ext);
   const mineruAgentSupported = mineruAgentSupportedExtensions.has(ext);
   const imageLike = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.jp2'].includes(ext);
@@ -67,17 +77,17 @@ function createParserCapability(extension) {
   if (ext === '.pdf') {
     recommendedProvider = 'local';
     status = 'mixed';
-    note = '文本型 PDF 可先走本地解析；扫描件 PDF 建议使用 MinerU 精准解析或 MinerU-Agent OCR。';
+    note = '文本型 PDF 可先走本地解析；扫描件 PDF 可使用本地 OCR，复杂版面再尝试 MinerU。';
   } else if (['.doc', '.wps'].includes(ext)) {
     note = '本地解析依赖系统文档转换能力；Windows 中文路径需要保留，解析失败时建议另存为标准 DOCX。';
-  } else if (imageLike && (mineruAccurateSupported || mineruAgentSupported)) {
-    recommendedProvider = mineruAccurateSupported ? 'mineru-accurate-api' : 'mineru-agent-api';
-    status = 'remote-ocr';
-    note = '图片/扫描件不走本地解析；建议使用 MinerU OCR，并在设置中配置 Token 后验证。';
+  } else if (imageLike && localOcrSupported) {
+    recommendedProvider = 'local-ocr';
+    status = 'local-ocr';
+    note = '图片/扫描件可走本地 OCR；优先使用本机 PaddleOCR，共享运行时不可用时回退到 tesseract，复杂表格版面可再尝试 MinerU。';
   } else if (ext === '.ofd') {
-    recommendedProvider = '';
-    status = 'unsupported';
-    note = '当前未接入 OFD 解析；建议先转换为 PDF/DOCX，或用解析沙盘记录失败样本后再接入专用转换链路。';
+    recommendedProvider = 'local-ocr';
+    status = 'local-ocr';
+    note = 'OFD 可走本地 OCR 兜底：优先通过本机 OFD 转 PDF 工具或 LibreOffice 转为页面 PDF，再按页面截图调用 PaddleOCR；转换工具不可用时请先另存为 PDF。';
   } else if (!localSupported && (mineruAccurateSupported || mineruAgentSupported)) {
     recommendedProvider = mineruAccurateSupported ? 'mineru-accurate-api' : 'mineru-agent-api';
     status = 'remote';
@@ -87,6 +97,7 @@ function createParserCapability(extension) {
   return {
     extension: ext,
     local_supported: localSupported,
+    local_ocr_supported: localOcrSupported,
     mineru_accurate_supported: mineruAccurateSupported,
     mineru_agent_supported: mineruAgentSupported,
     recommended_provider: recommendedProvider,
@@ -109,7 +120,7 @@ function createDeveloperParserCapabilityReport() {
       note: '解析回归样本应至少包含一个中文目录和中文文件名，用于验证 Windows 中文路径、WPS/Word/LibreOffice 转换链路不丢路径。',
       example: 'C:\\投标项目\\样本文档\\技术方案样例.docx',
     },
-    scanned_document_policy: '扫描件 PDF、JPEG、PNG 不走本地解析，优先使用 MinerU OCR；本地解析结果为空时必须给出可操作提示。',
+    scanned_document_policy: '扫描件 PDF、JPEG、PNG 可先走本地 OCR；本地 OCR 默认优先使用 PaddleOCR，复杂表格、版面还原或本地 OCR 失败时再使用 MinerU。',
   };
 }
 
@@ -156,6 +167,23 @@ function summarizeParserForLog(parser, options = {}) {
   };
 }
 
+function execFilePromise(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, {
+      maxBuffer: options.maxBuffer || 50 * 1024 * 1024,
+      timeout: options.timeout || 120000,
+      cwd: options.cwd,
+    }, (error, stdout, stderr) => {
+      if (error) {
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
 async function parseLocalDocument(filePath, options = {}) {
   const ext = path.extname(filePath).toLowerCase();
 
@@ -168,6 +196,246 @@ async function parseLocalDocument(filePath, options = {}) {
     includeImages: options.preserveImages,
     imageResolver: options.imageResolver,
   });
+}
+
+function isLocalOcrImageExtension(ext) {
+  return ['.png', '.jpg', '.jpeg', '.bmp', '.webp', '.tif', '.tiff'].includes(String(ext || '').toLowerCase());
+}
+
+function formatLocalOcrCommandError(error, toolName) {
+  const stderr = String(error?.stderr || '').trim();
+  const detail = stderr || error?.message || '未知错误';
+  if (error?.code === 'ENOENT') {
+    return `本地 OCR 需要安装 ${toolName}。请先安装后重试。`;
+  }
+  return `${toolName} 执行失败：${detail}`;
+}
+
+function parsePaddleOcrPayload(rawOutput) {
+  if (rawOutput && typeof rawOutput === 'object' && !Buffer.isBuffer(rawOutput)) {
+    return rawOutput;
+  }
+  const output = String(rawOutput || '').trim();
+  if (!output) {
+    throw new Error('PaddleOCR 未返回解析结果');
+  }
+  try {
+    return JSON.parse(output);
+  } catch {
+    const start = output.indexOf('{');
+    const end = output.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      return JSON.parse(output.slice(start, end + 1));
+    }
+    throw new Error(`PaddleOCR 返回了无法解析的 JSON：${output.slice(0, 200)}`);
+  }
+}
+
+function extractPaddleOcrText(payload) {
+  const pages = Array.isArray(payload?.pages) ? payload.pages : [];
+  const pageText = pages
+    .map((page) => String(page?.text || '').trim())
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  return pageText || String(payload?.full_text || '').trim();
+}
+
+async function defaultPaddleOcrRunner(imagePath, options = {}) {
+  const wrapperPath = options.paddleOcrWrapperPath || paddleOcrWrapperPath;
+  const { stdout } = await execFilePromise(wrapperPath, [
+    imagePath,
+    '--format',
+    'json',
+    '--lang',
+    options.localOcrLang || 'ch',
+  ], {
+    timeout: options.paddleOcrTimeoutMs || 300000,
+    maxBuffer: 80 * 1024 * 1024,
+  });
+  return stdout;
+}
+
+async function runPaddleOcrImage(imagePath, options = {}) {
+  const runner = options.paddleOcrRunner || defaultPaddleOcrRunner;
+  try {
+    const rawOutput = await runner(imagePath, options);
+    const payload = parsePaddleOcrPayload(rawOutput);
+    return {
+      engine: String(payload?.engine || 'PaddleOCR'),
+      text: extractPaddleOcrText(payload),
+    };
+  } catch (error) {
+    throw new Error(formatLocalOcrCommandError(error, 'PaddleOCR'));
+  }
+}
+
+async function runTesseractOcr(imagePath) {
+  try {
+    const { stdout } = await execFilePromise('tesseract', [
+      imagePath,
+      'stdout',
+      '-l',
+      'chi_sim+eng',
+      '--psm',
+      '6',
+    ], { timeout: 180000 });
+    return String(stdout || '').trim();
+  } catch (error) {
+    throw new Error(formatLocalOcrCommandError(error, 'tesseract'));
+  }
+}
+
+async function runPreferredLocalOcr(imagePath, options = {}) {
+  const engine = options.localOcrEngine || 'auto';
+  let paddleError = null;
+
+  if (engine !== 'tesseract') {
+    try {
+      return await runPaddleOcrImage(imagePath, options);
+    } catch (error) {
+      paddleError = error;
+    }
+  }
+
+  try {
+    return {
+      engine: 'Tesseract',
+      text: await runTesseractOcr(imagePath),
+    };
+  } catch (error) {
+    if (paddleError) {
+      throw new Error(`本地 OCR 执行失败：${paddleError.message}；Tesseract 兜底也失败：${error.message}`);
+    }
+    throw error;
+  }
+}
+
+async function createOcrImageMarkdown(assets, imagePath, pageNumber) {
+  if (!assets) return '';
+  const buffer = await fs.readFile(imagePath);
+  const assetUrl = await saveImportedImage(assets, buffer, imagePath, '');
+  return assetUrl ? `![第${pageNumber}页 本地OCR页面截图](${assetUrl})` : '';
+}
+
+async function parseLocalOcrImage(imagePath, options = {}, pageNumber = 1) {
+  const ocrResult = await runPreferredLocalOcr(imagePath, options);
+  const imageMarkdown = options.preserveImages
+    ? await createOcrImageMarkdown(options.assets, imagePath, pageNumber)
+    : '';
+  return [
+    `## 第 ${pageNumber} 页 OCR 文本`,
+    `- OCR 引擎：${ocrResult.engine}`,
+    ocrResult.text || '（本页未识别到文字）',
+    imageMarkdown,
+  ].filter(Boolean).join('\n\n');
+}
+
+async function parseLocalOcrPdf(filePath, options = {}) {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'yibiao-local-ocr-'));
+  try {
+    const prefix = path.join(tempDir, 'page');
+    try {
+      await execFilePromise('pdftoppm', ['-png', '-r', '200', filePath, prefix], { timeout: 180000 });
+    } catch (error) {
+      throw new Error(formatLocalOcrCommandError(error, 'pdftoppm'));
+    }
+
+    const entries = (await fs.readdir(tempDir))
+      .filter((name) => /^page-\d+\.png$/i.test(name))
+      .sort((a, b) => {
+        const left = Number((/^page-(\d+)\.png$/i.exec(a) || [])[1] || 0);
+        const right = Number((/^page-(\d+)\.png$/i.exec(b) || [])[1] || 0);
+        return left - right;
+      });
+    if (!entries.length) {
+      throw new Error('pdftoppm 未生成页面图片，本地 OCR 无法继续');
+    }
+
+    const sections = [];
+    for (const entry of entries) {
+      const pageMatch = /^page-(\d+)\.png$/i.exec(entry);
+      const pageNumber = Number(pageMatch?.[1] || sections.length + 1);
+      sections.push(await parseLocalOcrImage(path.join(tempDir, entry), options, pageNumber));
+    }
+    return sections.join('\n\n');
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+async function findGeneratedPdf(outputDir, inputPath) {
+  const baseName = path.basename(inputPath, path.extname(inputPath)).toLowerCase();
+  const entries = await fs.readdir(outputDir).catch(() => []);
+  const pdfEntries = entries.filter((name) => path.extname(name).toLowerCase() === '.pdf');
+  const exact = pdfEntries.find((name) => path.basename(name, '.pdf').toLowerCase() === baseName);
+  const candidate = exact || pdfEntries[0];
+  return candidate ? path.join(outputDir, candidate) : '';
+}
+
+async function convertOFDToPdfWithCommand(filePath, outputPdfPath, tempDir, command, argsFactory) {
+  try {
+    await execFilePromise(command, argsFactory(), {
+      timeout: 180000,
+      maxBuffer: 50 * 1024 * 1024,
+      cwd: tempDir,
+    });
+    const generated = await findGeneratedPdf(tempDir, filePath);
+    const sourcePdf = generated || outputPdfPath;
+    await fs.access(sourcePdf);
+    if (sourcePdf !== outputPdfPath) {
+      await fs.copyFile(sourcePdf, outputPdfPath);
+    }
+    return outputPdfPath;
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return '';
+    }
+    return '';
+  }
+}
+
+async function defaultOFDToPdfConverter(filePath, callback) {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'yibiao-ofd-ocr-'));
+  try {
+    const outputPdfPath = path.join(tempDir, `${path.basename(filePath, path.extname(filePath)) || 'ofd'}.pdf`);
+    const attempts = [
+      ['ofd2pdf', () => [filePath, outputPdfPath]],
+      ['ofdconv', () => [filePath, outputPdfPath]],
+      ['soffice', () => ['--headless', '--convert-to', 'pdf', '--outdir', tempDir, filePath]],
+      ['libreoffice', () => ['--headless', '--convert-to', 'pdf', '--outdir', tempDir, filePath]],
+    ];
+
+    for (const [command, argsFactory] of attempts) {
+      const pdfPath = await convertOFDToPdfWithCommand(filePath, outputPdfPath, tempDir, command, argsFactory);
+      if (pdfPath) {
+        return await callback(pdfPath);
+      }
+    }
+
+    throw new Error('本地 OCR 解析 OFD 需要安装 OFD 转 PDF 工具（如 ofd2pdf/ofdconv），或安装支持 OFD 转 PDF 的 LibreOffice/WPS；也可以先手动另存为 PDF 后导入。');
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+async function parseLocalOcrOFD(filePath, options = {}) {
+  const converter = options.ofdToPdfConverter || defaultOFDToPdfConverter;
+  return converter(filePath, (pdfPath) => parseLocalOcrPdf(pdfPath, options));
+}
+
+async function parseLocalOcrDocument(filePath, options = {}) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (isLocalOcrImageExtension(ext)) {
+    return parseLocalOcrImage(filePath, options, 1);
+  }
+  if (ext === '.pdf') {
+    return parseLocalOcrPdf(filePath, options);
+  }
+  if (ext === '.ofd') {
+    return parseLocalOcrOFD(filePath, options);
+  }
+  throw new Error('本地 OCR 当前仅支持 PDF、OFD 和常见图片格式');
 }
 
 function formatImportError(error, filePath) {
@@ -381,6 +649,201 @@ function stripMarkdownImages(text) {
     .replace(markdownImagePattern, '')
     .replace(/<img\b[^>]*>/gi, '')
     .replace(/\n{3,}/g, '\n\n');
+}
+
+function extractPageNumberFromText(value) {
+  const text = String(value || '');
+  const patterns = [
+    /第\s*(\d{1,4})\s*页/i,
+    /\bpage[_\-\s]*(\d{1,4})\b/i,
+    /\bp[_\-\s]*(\d{1,4})\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    if (match) {
+      const pageNumber = Number(match[1]);
+      if (Number.isFinite(pageNumber) && pageNumber > 0) return pageNumber;
+    }
+  }
+  return null;
+}
+
+function extractPageScreenshotCandidates(markdown, options = {}) {
+  const text = String(markdown || '');
+  if (!text.trim()) return [];
+  const lines = text.split(/\r\n|\r|\n/);
+  const imageRefs = [];
+  const pushCandidate = (lineIndex, url, description = '') => {
+    const assetUrl = String(url || '').trim();
+    if (!assetUrl) return;
+    const previousText = lines.slice(Math.max(0, lineIndex - 2), lineIndex)
+      .map((line) => line.replace(markdownImagePattern, '').replace(/<img\b[^>]*>/gi, '').trim())
+      .filter(Boolean)
+      .slice(-1)[0] || '';
+    imageRefs.push({
+      lineNumber: lineIndex + 1,
+      assetUrl,
+      description,
+      previousText,
+    });
+  };
+
+  lines.forEach((line, lineIndex) => {
+    for (const match of String(line || '').matchAll(new RegExp(markdownImagePattern.source, markdownImagePattern.flags))) {
+      pushCandidate(lineIndex, match.groups?.target, match.groups?.alt);
+    }
+    for (const match of String(line || '').matchAll(new RegExp(htmlImageSrcPattern.source, htmlImageSrcPattern.flags))) {
+      pushCandidate(lineIndex, match.groups?.src, '');
+    }
+  });
+
+  return imageRefs.map((item, index) => {
+    const previous = imageRefs[index - 1];
+    const next = imageRefs[index + 1];
+    const lineStart = previous ? previous.lineNumber + 1 : 1;
+    const lineEnd = next ? Math.max(lineStart, next.lineNumber - 1) : Math.max(lineStart, lines.length);
+    const recoveredPageNumber = options.recoverPageNumber === false
+      ? null
+      : extractPageNumberFromText(`${item.description} ${item.assetUrl}`);
+    const pageNumber = recoveredPageNumber || index + 1;
+    return {
+      pageNumber,
+      lineStart,
+      lineEnd,
+      imageLine: item.lineNumber,
+      assetUrl: item.assetUrl,
+      ...(options.sourceType ? { sourceType: options.sourceType } : {}),
+      note: [
+        options.notePrefix || '',
+        item.description ? `图片说明：${item.description}` : '',
+        item.previousText ? `前文：${item.previousText.slice(0, 120)}` : '',
+        `自动行号范围：第 ${lineStart}-${lineEnd} 行`,
+      ].filter(Boolean).join('；') || '由文档解析图片引用生成的页面截图候选。',
+    };
+  });
+}
+
+function createPageLineRange(pageIndex, pageCount, lineCount) {
+  const totalPages = Math.max(1, Number(pageCount || 1));
+  const totalLines = Math.max(1, Number(lineCount || 1));
+  const index = Math.max(0, Number(pageIndex || 0));
+  const lineStart = Math.floor((index / totalPages) * totalLines) + 1;
+  const lineEnd = index >= totalPages - 1
+    ? totalLines
+    : Math.max(lineStart, Math.floor(((index + 1) / totalPages) * totalLines));
+  return { lineStart, lineEnd };
+}
+
+async function renderPdfPageScreenshotCandidates(app, filePath, options = {}) {
+  if (!app?.getPath || path.extname(filePath || '').toLowerCase() !== '.pdf') return [];
+  let canvas;
+  try {
+    canvas = require('@napi-rs/canvas');
+  } catch {
+    return [];
+  }
+  if (!canvas?.createCanvas) return [];
+
+  const assets = createAssetContext(app, options.assetScope || 'rejection-check-page-screenshots');
+  if (!assets) return [];
+
+  let document;
+  try {
+    const pdfParseEntryPath = require.resolve('pdf-parse');
+    const pdfParseRoot = path.resolve(path.dirname(pdfParseEntryPath), '..', '..', '..');
+    const pdfJsPath = path.join(pdfParseRoot, 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.mjs');
+    const { getDocument } = await import(pathToFileURL(pdfJsPath).href);
+    const buffer = await fs.readFile(filePath);
+    const loadingTask = getDocument({ data: new Uint8Array(buffer), disableWorker: true });
+    document = await loadingTask.promise;
+    const pageCount = Number(document.numPages || 0);
+    if (!pageCount) return [];
+    const maxPages = Math.max(1, Number(options.maxPages || 80));
+    const renderedPages = Math.min(pageCount, maxPages);
+    const lineCount = Number(options.lineCount || 0);
+    const candidates = [];
+
+    for (let index = 0; index < renderedPages; index += 1) {
+      const pageNumber = index + 1;
+      const page = await document.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: Number(options.scale || 1) || 1 });
+      const width = Math.max(1, Math.ceil(viewport.width));
+      const height = Math.max(1, Math.ceil(viewport.height));
+      const pageCanvas = canvas.createCanvas(width, height);
+      const context = pageCanvas.getContext('2d');
+      await page.render({ canvasContext: context, viewport }).promise;
+      const png = typeof pageCanvas.toBuffer === 'function'
+        ? pageCanvas.toBuffer('image/png')
+        : Buffer.from(await pageCanvas.encode('png'));
+      const assetUrl = await saveImportedImage(assets, png, `pdf-page-${pageNumber}.png`, 'image/png');
+      const { lineStart, lineEnd } = createPageLineRange(index, pageCount, lineCount);
+      candidates.push({
+        pageNumber,
+        lineStart,
+        lineEnd,
+        assetUrl,
+        width,
+        height,
+        note: [
+          `PDF 第 ${pageNumber} 页像素级截图`,
+          `自动行号范围：第 ${lineStart}-${lineEnd} 行`,
+          pageCount > renderedPages ? `仅生成前 ${renderedPages}/${pageCount} 页截图候选` : '',
+        ].filter(Boolean).join('；'),
+      });
+    }
+    return candidates;
+  } catch (error) {
+    if (options.throwOnError) throw error;
+    return [];
+  } finally {
+    if (document) {
+      try {
+        await document.destroy();
+      } catch {
+        // Ignore PDF cleanup errors; rendering screenshots is best-effort.
+      }
+    }
+  }
+}
+
+async function renderOfficePageScreenshotCandidates(app, filePath, options = {}) {
+  const ext = path.extname(filePath || '').toLowerCase();
+  if (!['.docx', '.doc', '.wps'].includes(ext)) return [];
+  const convertToPdf = options.convertToPdf || (async (inputPath, callback) => {
+    const { withWordPdfFile } = await import('./doc2markdown/convert.mjs');
+    return withWordPdfFile(inputPath, callback);
+  });
+
+  try {
+    return await convertToPdf(filePath, async (pdfPath) => {
+      const candidates = await renderPdfPageScreenshotCandidates(app, pdfPath, {
+        ...options,
+        assetScope: options.assetScope || 'rejection-check-office-page-screenshots',
+      });
+      return candidates.map((candidate) => ({
+        ...candidate,
+        sourceType: 'office-rendered-pdf',
+        note: [
+          `由 ${ext.slice(1).toUpperCase()} 转 PDF 后生成的页面截图`,
+          candidate.note || '',
+        ].filter(Boolean).join('；'),
+      }));
+    });
+  } catch (error) {
+    if (options.throwOnError) throw error;
+    return [];
+  }
+}
+
+async function renderDocumentPageScreenshotCandidates(app, filePath, options = {}) {
+  const ext = path.extname(filePath || '').toLowerCase();
+  if (ext === '.pdf') {
+    return renderPdfPageScreenshotCandidates(app, filePath, options);
+  }
+  if (['.docx', '.doc', '.wps'].includes(ext)) {
+    return renderOfficePageScreenshotCandidates(app, filePath, options);
+  }
+  return [];
 }
 
 function countMarkdownImages(text) {
@@ -598,10 +1061,22 @@ async function parseDocumentWithConfig(app, filePath, config, options = {}) {
   const provider = parser.provider;
   const preserveImages = options.preserveImages === true;
   const assets = preserveImages ? createAssetContext(app, options.assetScope || 'documents') : null;
-  const parseOptions = { preserveImages, assets, imageResolver: createImageResolver(assets) };
+  const parseOptions = {
+    preserveImages,
+    assets,
+    imageResolver: createImageResolver(assets),
+    localOcrEngine: options.localOcrEngine,
+    localOcrLang: options.localOcrLang,
+    paddleOcrRunner: options.paddleOcrRunner,
+    paddleOcrTimeoutMs: options.paddleOcrTimeoutMs,
+    paddleOcrWrapperPath: options.paddleOcrWrapperPath,
+    ofdToPdfConverter: options.ofdToPdfConverter,
+  };
   let markdown = '';
   try {
-    if (provider === 'mineru-agent-api') {
+    if (provider === 'local-ocr') {
+      markdown = await parseLocalOcrDocument(filePath, parseOptions);
+    } else if (provider === 'mineru-agent-api') {
       markdown = await parseWithMineruAgent(filePath, parseOptions);
     } else if (provider === 'mineru-accurate-api') {
       markdown = await parseWithMineruAccurate(filePath, config.file_parser?.mineru_token || '', parseOptions);
@@ -705,20 +1180,22 @@ function createFileService({ app, configStore } = {}) {
         },
       };
       const supportedExtensions = getSelectableExtensions(requestedProvider);
-      const result = await dialog.showOpenDialog({
-        title: '选择解析沙盘样本文件',
-        properties: ['openFile'],
-        filters: [
-          { name: parserLabels[requestedProvider] || '文件解析', extensions: [...supportedExtensions].map((item) => item.slice(1)) },
-          { name: '所有文件', extensions: ['*'] },
-        ],
-      });
+      let filePath = String(options?.filePath || '').trim();
+      if (!filePath) {
+        const result = await dialog.showOpenDialog({
+          title: '选择解析沙盘样本文件',
+          properties: ['openFile'],
+          filters: [
+            { name: parserLabels[requestedProvider] || '文件解析', extensions: [...supportedExtensions].map((item) => item.slice(1)) },
+            { name: '所有文件', extensions: ['*'] },
+          ],
+        });
 
-      if (result.canceled || result.filePaths.length === 0) {
-        return { success: false, message: '已取消选择' };
+        if (result.canceled || result.filePaths.length === 0) {
+          return { success: false, message: '已取消选择' };
+        }
+        filePath = result.filePaths[0];
       }
-
-      const filePath = result.filePaths[0];
       const parser = resolveFileParser(config, filePath);
       const startedAt = Date.now();
       const file = await createLocalFileSelection(filePath);
@@ -729,6 +1206,8 @@ function createFileService({ app, configStore } = {}) {
           file,
           parser_provider: parser.provider,
           parser_label: parserLabels[parser.provider] || '本地解析',
+          requested_provider: requestedProvider,
+          error_stage: 'extension-filter',
         };
       }
 
@@ -765,6 +1244,7 @@ function createFileService({ app, configStore } = {}) {
           parser_label: parserLabels[parser.provider] || '本地解析',
           requested_provider: requestedProvider,
           duration_ms: Date.now() - startedAt,
+          error_stage: 'parseDocumentWithConfig',
         };
       }
     },
@@ -800,9 +1280,23 @@ function createFileService({ app, configStore } = {}) {
         }
 
         let fileContent = '';
+        let pageScreenshots = [];
         try {
           const assetHash = crypto.createHash('sha1').update(filePath).digest('hex').slice(0, 12);
-          fileContent = (await parseDocumentWithConfig(app, filePath, config, { assetScope: `rejection-check-${documentRole}-${assetHash}`, preserveImages: false })).trim();
+          const parsedMarkdown = (await parseDocumentWithConfig(app, filePath, config, { assetScope: `rejection-check-${documentRole}-${assetHash}`, preserveImages: true })).trim();
+          const lineCount = parsedMarkdown.split(/\r\n|\r|\n/).length;
+          const pageImageScreenshots = await renderDocumentPageScreenshotCandidates(app, filePath, {
+            assetScope: `rejection-check-${documentRole}-${assetHash}-pages`,
+            lineCount,
+          });
+          pageScreenshots = [
+            ...pageImageScreenshots,
+            ...extractPageScreenshotCandidates(parsedMarkdown, parser.provider.startsWith('mineru-') ? {
+              sourceType: 'mineru-remote-image',
+              notePrefix: `${parserLabels[parser.provider] || 'MinerU 远程解析'}返回的页面图片`,
+            } : {}),
+          ];
+          fileContent = stripMarkdownImages(parsedMarkdown).trim();
         } catch (error) {
           errors.push(`${path.basename(filePath)}：${formatImportError(error, filePath)}`);
           continue;
@@ -819,6 +1313,7 @@ function createFileService({ app, configStore } = {}) {
           parser_provider: parser.provider,
           parser_label: parserLabels[parser.provider] || '本地解析',
           fallback_to_local: Boolean(parser.fallbackToLocal),
+          page_screenshots: pageScreenshots,
         });
       }
 
@@ -879,6 +1374,10 @@ function createFileService({ app, configStore } = {}) {
 module.exports = {
   createDeveloperParserCapabilityReport,
   createFileService,
+  extractPageScreenshotCandidates,
   parseDocumentWithConfig,
+  renderDocumentPageScreenshotCandidates,
+  renderOfficePageScreenshotCandidates,
+  renderPdfPageScreenshotCandidates,
   resolveFileParser,
 };

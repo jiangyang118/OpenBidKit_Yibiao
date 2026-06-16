@@ -9,6 +9,7 @@ type TechnicalPlanUploadBusy = 'tender' | 'originalPlan' | 'section' | null;
 
 const parserLabels: Record<FileParserProvider, string> = {
   local: '本地解析',
+  'local-ocr': '本地 OCR 解析',
   'mineru-accurate-api': 'MinerU 精准解析 API',
   'mineru-agent-api': 'MinerU-Agent 轻量解析 API',
 };

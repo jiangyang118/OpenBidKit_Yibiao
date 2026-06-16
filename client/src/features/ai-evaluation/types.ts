@@ -86,7 +86,11 @@ export interface AiEvaluationExpertScore {
   id: string;
   itemId: string;
   expertName: string;
+  expertRole: string;
+  reviewSession: string;
   score: number;
+  signatureConfirmed: boolean;
+  signedAt?: string;
   opinion: string;
   createdAt: string;
   updatedAt: string;
@@ -95,6 +99,9 @@ export interface AiEvaluationExpertScore {
 export interface AiEvaluationExpertReviewSummary {
   expertCount: number;
   scoreCount: number;
+  signedCount: number;
+  pendingSignatureCount: number;
+  reviewSessionCount: number;
   conflictCount: number;
   maxDeviation: number;
   conclusion: string;
@@ -137,7 +144,10 @@ export interface AiEvaluationExpertScoreInput {
   id?: string;
   itemId: string;
   expertName: string;
+  expertRole?: string;
+  reviewSession?: string;
   score: number;
+  signatureConfirmed?: boolean;
   opinion?: string;
 }
 
@@ -156,6 +166,16 @@ export interface AiEvaluationOfficeExportResult {
   filePath?: string;
   bytes?: number;
   format?: 'docx' | 'xlsx';
+}
+
+export interface AiEvaluationCommitteeExportResult {
+  success: boolean;
+  message: string;
+  reportId?: string;
+  filePath?: string;
+  bytes?: number;
+  markdownChars?: number;
+  format?: 'docx' | 'md';
 }
 
 export interface AiEvaluationImportDocumentResult {

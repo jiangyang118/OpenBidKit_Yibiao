@@ -26,6 +26,9 @@ client/release/
 agent-harness/outputs/
 agent-harness/runtime/
 
+# Local database backups
+output/database-backups/
+
 # 临时和缓存文件
 *.tmp
 *.temp

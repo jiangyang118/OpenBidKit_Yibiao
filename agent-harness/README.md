@@ -45,11 +45,23 @@ cli-anything-openbidkit-yibiao --json plan-summary
 cli-anything-openbidkit-yibiao --json smoke --check main-syntax
 cli-anything-openbidkit-yibiao --json list-tasks
 cli-anything-openbidkit-yibiao --json start-task --type duplicate-analysis --payload-json /path/to/task-payload.json --dry-run
+cli-anything-openbidkit-yibiao --json project-workspace --action list
+cli-anything-openbidkit-yibiao --json project-workspace --action create --name "医院后勤投标" --make-active
+cli-anything-openbidkit-yibiao --json project-workspace --action set-active --project-id default
 cli-anything-openbidkit-yibiao --json export-report --kind duplicate --state-json /path/to/state.json --output /tmp/duplicate-report.md
 cli-anything-openbidkit-yibiao --json export-report --kind rejection --state-json /path/to/state.json --output /tmp/rejection-report.docx --format docx
 cli-anything-openbidkit-yibiao --json export-report --kind rejection --state-json /path/to/state.json --output /tmp/rejection-report.pdf --format pdf
+cli-anything-openbidkit-yibiao --json export-report --kind business-bid --state-json /path/to/state.json --output /tmp/business-bid.xlsx --format xlsx
+cli-anything-openbidkit-yibiao --json export-report --kind ai-evaluation --state-json /path/to/state.json --output /tmp/ai-evaluation.docx --format docx
+cli-anything-openbidkit-yibiao --json export-report --kind bid-opportunity --state-json /path/to/state.json --output /tmp/bid-opportunity.md
 ```
 
-`export-report` calls the existing Electron Main report builders for Duplicate Check and Rejection Check through a Node helper. It expects a workspace state JSON file and writes UTF-8 Markdown by default, Word `.docx` with `--format docx`, or text PDF with `--format pdf`.
+`export-report` calls existing Electron Main report builders through a Node helper. It expects a workspace state JSON file and supports:
+
+- `duplicate` / `rejection`: UTF-8 Markdown, Word `.docx`, or text PDF.
+- `business-bid` / `ai-evaluation`: UTF-8 Markdown, Word `.docx`, or Excel `.xlsx`.
+- `bid-opportunity`: UTF-8 Markdown.
 
 `list-tasks` and `start-task --dry-run` call the real Electron Main `taskService.cjs` task definitions. The dry-run path returns the task definition, storage key, scope id, and payload signature without starting runners, writing stores, or requiring an Electron window.
+
+`project-workspace` calls the real Electron Main `projectWorkspaceStore.cjs` through a Node helper. It supports listing projects, creating projects, switching the active project, archive/restore, duplicate, export package, import package, and resolving a project workspace path. Use `--user-data /path/to/userData` for isolated tests or agent sandboxes.

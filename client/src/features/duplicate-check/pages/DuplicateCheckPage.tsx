@@ -717,7 +717,7 @@ function DuplicateAnalysisPane({ activeTab, onTabChange, metadataAnalysis, outli
           <>
             <span className="section-kicker">{activeItem.label}</span>
             <h3>{activeItem.label}查重结果区域</h3>
-            <p>这里先保留内容骨架，后续接入查重任务后展示分析日志、重复项列表和处理结果。</p>
+            <p>请切换到元数据、目录、正文或图片结果查看当前查重明细，并按需确认、忽略、批量处理或导出报告。</p>
           </>
         )}
       </div>

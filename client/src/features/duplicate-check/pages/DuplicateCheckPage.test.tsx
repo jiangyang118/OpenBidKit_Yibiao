@@ -195,6 +195,7 @@ describe('DuplicateCheckPage resolution actions', () => {
     renderPage();
 
     expect(await screen.findByText('项目团队提供驻场服务。')).toBeInTheDocument();
+    expect(screen.queryByText(/后续接入查重任务/)).not.toBeInTheDocument();
     expect(screen.queryByText('应急响应固定话术。')).not.toBeInTheDocument();
     expect(screen.getByText('未处理')).toBeInTheDocument();
     expect(screen.getByText(/已忽略 1 条/)).toBeInTheDocument();

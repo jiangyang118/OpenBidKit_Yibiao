@@ -19,21 +19,23 @@
       "expected": "Yibiao parser regression sample"
     }
   ],
-  "remote_or_unsupported": [
+  "remote_or_ocr": [
     {
       "extension": ".png",
-      "expected_provider": "mineru-accurate-api",
-      "reason": "图片和扫描件不走本地解析，需要 MinerU OCR。"
+      "expected_provider": "local-ocr",
+      "reason": "图片和扫描件优先走本地 OCR；PaddleOCR 不可用时回退 Tesseract，复杂版面再使用 MinerU。"
     },
     {
       "extension": ".ofd",
-      "expected_provider": "",
-      "reason": "当前未接入 OFD 解析，建议转换为 PDF/DOCX。"
+      "expected_provider": "local-ocr",
+      "reason": "OFD 先通过本机 OFD 转 PDF 工具或 LibreOffice 转为页面 PDF，再复用本地 OCR。"
     }
   ],
   "remote_gate": {
     "enabled_env": "YIBIAO_RUN_MINERU_E2E=1",
     "token_env": "YIBIAO_MINERU_TOKEN",
-    "note": "未设置环境变量时，CI 只验证能力矩阵和环境缺口，不触发网络解析。"
+    "command": "YIBIAO_RUN_MINERU_E2E=1 YIBIAO_MINERU_TOKEN=<token> npm run test:unit -- fileServiceParserRegression.test.ts",
+    "timeout_env": "YIBIAO_MINERU_E2E_TIMEOUT_MS",
+    "note": "未设置环境变量时，CI 只验证能力矩阵和环境缺口，不触发网络解析；开启后会真实调用 MinerU-Agent 验证 Markdown 解析；配置 Token 后会真实调用 MinerU 精准解析，验证 zip 图片资产重写和页面截图候选。"
   }
 }

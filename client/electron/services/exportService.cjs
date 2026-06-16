@@ -17,14 +17,18 @@ const {
   HeadingLevel,
   HighlightColor,
   ImageRun,
+  ImportedXmlComponent,
   LevelFormat,
   Packer,
   PageNumber,
+  PageBreak,
   PageOrientation,
   Paragraph,
+  SectionType,
   ShadingType,
   Table,
   TableCell,
+  TableOfContents,
   TableLayoutType,
   TableRow,
   TextRun,
@@ -37,6 +41,7 @@ const NUMBERING_REFERENCE_PREFIX = 'technical-plan-numbering';
 const DOCX_TABLE_WIDTH_TWIPS = 9000;
 const MERMAID_EXPORT_RETRY_ATTEMPTS = 2;
 const MERMAID_EXPORT_RETRY_DELAY_MS = 3000;
+const MERMAID_FALLBACK_IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAggAAACgCAYAAABpLJTJAAADNUlEQVR42u3dvQmAMBCA0YziDE6SLjtkUpextoytjQriz0me8HoJB/mqS5rGoQEAbCWHAAAIBABAIAAANwRCW2YAoDMCAQAQCACAQAAABAIAIBAAAIEAAAgEAEAgAAACAQAQCACAQAAABAIAIBAAAIEAAAgEgQAAAkEgAAACAQAQCACAQAAABAIAIBAAAIEAAAgEAEAgAAACAQAQCACAQAAABAIAIBAAAIEgEABAIAgEAEAgAAACAQAQCACAQAAABAIAIBAAAIEAAAgEAEAgAAACAQAQCE/+WO8MKwACQSAIBAAEgkCIGwi1ZAD4nEAQCAAgEAQCAAgEgQAAAkEgAIBAEAgAIBAEAgAIBIEAAAJBIAgEAASCQBAIAAiE3Yv45BMIACAQBIKhBEAgCAQA8FiTQAAAgSAQAEAgCAQAEAgCAQAEgkAAAIEgEAwrAAJBIAgEAASCQBAIAAgEgSAQABAIAkEgACAQBIJAAEAgCASBAIBAEAgCAQCBIBA89wzAwTPEAkEgCAQABIJAEAgCAUAgCASBIBAABIJAEAgCAUAgCASBIBAABIJAEAgCAUAgCASBIBAABIJAEAhWLQMgEASCQABAIAQPhKgMKwACQSAIBAAEgkAQCAAIBIEgEAAQCAJBIAAgEASCQABAIAgEgQCAQBAIAgEAgSAQBAIAAkEgCAQAEAhWLQOAQBAIACAQBAIACASBAAACQSC8oZYMdMgFiUAQCAIBEAgIBIEgEACBgEAQCAIBEAgIBIuSBAIgEBAIAkEgAAIBgSAQBAIgEBAICARAICAQBIJAAAQCAkEgCARAICAQBIJVywAIBIEgEAAQCAJBIAAgEASCQABAIAAAAkEgAIBAEAgAgEAAAAQCACAQAACBAAAIBABAIAAAAgEAEAgAgEAAAAQCACAQAACBAAAIBABAIAgEABAIAgEAEAgAgEAAAAQCACAQAACBAAAIBABAIAAAAgEAEAgAgEAAAAQCACAQAACBAAAIBIEAAAJBIAAAAgEAEAgAgEAAAAQCACAQAACBAAAIBABAIAAAAgEA+H8gAAAIBABAIAAAAgEAuGAFkvvXZJyV2HQAAAAASUVORK5CYII=';
 const INLINE_MARK_START = '[[YIBIAO_MARK_START]]';
 const INLINE_MARK_END = '[[YIBIAO_MARK_END]]';
 
@@ -368,14 +373,113 @@ function paragraph(children, options = {}) {
   });
 }
 
-function tableBorders() {
+function coverText(value) {
+  return String(value || '').trim();
+}
+
+function buildCoverPageParagraphs(payload = {}, pageSetup = {}) {
+  if (!pageSetup || pageSetup.cover_enabled !== true) return [];
+
+  const title = coverText(pageSetup.cover_title) || coverText(payload.project_name) || '投标技术文件';
+  const subtitle = coverText(pageSetup.cover_subtitle);
+  const company = coverText(pageSetup.cover_company);
+  const date = coverText(pageSetup.cover_date);
+  const paragraphs = [
+    paragraph([textRun(title, { font: '黑体', bold: true, size: 44 })], {
+      alignment: AlignmentType.CENTER,
+      before: 1320,
+      after: subtitle ? 260 : 520,
+      line: 420,
+    }),
+  ];
+
+  if (subtitle) {
+    paragraphs.push(paragraph([textRun(subtitle, { font: '宋体', size: 28 })], {
+      alignment: AlignmentType.CENTER,
+      after: 760,
+    }));
+  } else {
+    paragraphs.push(paragraph([textRun('')], { after: 760 }));
+  }
+
+  if (company) {
+    paragraphs.push(paragraph([textRun(company, { font: '宋体', size: 26 })], {
+      alignment: AlignmentType.CENTER,
+      before: 720,
+      after: 180,
+    }));
+  }
+
+  if (date) {
+    paragraphs.push(paragraph([textRun(date, { font: '宋体', size: 24 })], {
+      alignment: AlignmentType.CENTER,
+      after: 240,
+    }));
+  }
+
+  paragraphs.push(new Paragraph({ children: [new PageBreak()] }));
+  return paragraphs;
+}
+
+function buildTableOfContentsBlocks(pageSetup = {}) {
+  if (!pageSetup || pageSetup.toc_enabled !== true) return [];
+
+  const title = coverText(pageSetup.toc_title) || '目录';
+  const depth = Math.max(1, Math.min(6, Math.round(Number(pageSetup.toc_depth) || 3)));
+  return [
+    paragraph([textRun(title, { font: '黑体', bold: true, size: 32 })], {
+      alignment: AlignmentType.CENTER,
+      before: 240,
+      after: 240,
+    }),
+    new TableOfContents(title, {
+      hyperlink: true,
+      headingStyleRange: `1-${depth}`,
+    }),
+    new Paragraph({ children: [new PageBreak()] }),
+  ];
+}
+
+const DEFAULT_TABLE_STYLE = {
+  header_fill_color: 'F1F6FF',
+  border_color: 'DCDFF6',
+  inside_border_color: 'E8EDF6',
+  cell_margin_twips: 120,
+};
+
+function normalizeHexColor(value, fallback) {
+  return typeof value === 'string' && /^[0-9a-f]{6}$/i.test(value) ? value.toUpperCase() : fallback;
+}
+
+function getTableStyle(context = {}) {
+  const source = context.exportFormat?.table || {};
   return {
-    top: { style: BorderStyle.SINGLE, size: 1, color: 'DCDFF6' },
-    bottom: { style: BorderStyle.SINGLE, size: 1, color: 'DCDFF6' },
-    left: { style: BorderStyle.SINGLE, size: 1, color: 'DCDFF6' },
-    right: { style: BorderStyle.SINGLE, size: 1, color: 'DCDFF6' },
-    insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: 'E8EDF6' },
-    insideVertical: { style: BorderStyle.SINGLE, size: 1, color: 'E8EDF6' },
+    header_fill_color: normalizeHexColor(source.header_fill_color, DEFAULT_TABLE_STYLE.header_fill_color),
+    border_color: normalizeHexColor(source.border_color, DEFAULT_TABLE_STYLE.border_color),
+    inside_border_color: normalizeHexColor(source.inside_border_color, DEFAULT_TABLE_STYLE.inside_border_color),
+    cell_margin_twips: typeof source.cell_margin_twips === 'number'
+      ? Math.max(60, Math.min(360, Math.round(source.cell_margin_twips)))
+      : DEFAULT_TABLE_STYLE.cell_margin_twips,
+  };
+}
+
+function getImageExportStyle(context = {}) {
+  const source = context.exportFormat?.image || {};
+  return {
+    max_width_px: typeof source.max_width_px === 'number'
+      ? Math.max(160, Math.min(960, Math.round(source.max_width_px)))
+      : MAX_IMAGE_WIDTH,
+  };
+}
+
+function tableBorders(tableStyle = DEFAULT_TABLE_STYLE) {
+  return {
+    top: { style: BorderStyle.SINGLE, size: 1, color: tableStyle.border_color },
+    bottom: { style: BorderStyle.SINGLE, size: 1, color: tableStyle.border_color },
+    left: { style: BorderStyle.SINGLE, size: 1, color: tableStyle.border_color },
+    right: { style: BorderStyle.SINGLE, size: 1, color: tableStyle.border_color },
+    insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: tableStyle.inside_border_color },
+    insideVertical: { style: BorderStyle.SINGLE, size: 1, color: tableStyle.inside_border_color },
   };
 }
 
@@ -393,24 +497,25 @@ function tableCellWidth(columnSpan, totalColumns) {
   return Math.round((DOCX_TABLE_WIDTH_TWIPS * safeSpan) / safeTotal);
 }
 
-function createTableCell({ children, isHeader = false, columnSpan = 1, totalColumns = 1 }) {
+function createTableCell({ children, isHeader = false, columnSpan = 1, totalColumns = 1, tableStyle = DEFAULT_TABLE_STYLE }) {
   const safeSpan = Math.max(1, columnSpan || 1);
+  const margin = tableStyle.cell_margin_twips;
   return new TableCell({
     children,
-    shading: isHeader ? { type: ShadingType.CLEAR, fill: 'F1F6FF' } : undefined,
-    margins: { top: 120, bottom: 120, left: 140, right: 140 },
+    shading: isHeader ? { type: ShadingType.CLEAR, fill: tableStyle.header_fill_color } : undefined,
+    margins: { top: margin, bottom: margin, left: margin, right: margin },
     columnSpan: safeSpan > 1 ? safeSpan : undefined,
     width: { size: tableCellWidth(safeSpan, totalColumns), type: WidthType.DXA },
   });
 }
 
-function createDocxTable(rows, columnCount) {
+function createDocxTable(rows, columnCount, tableStyle = DEFAULT_TABLE_STYLE) {
   return new Table({
     rows,
     width: { size: 100, type: WidthType.PERCENTAGE },
     columnWidths: tableColumnWidths(columnCount),
     layout: TableLayoutType.FIXED,
-    borders: tableBorders(),
+    borders: tableBorders(tableStyle),
   });
 }
 
@@ -659,22 +764,99 @@ function formatOutlineTitle(id, title, numberingFormat) {
   return prefix ? `${prefix} ${title || ''}` : String(title || '');
 }
 
+function escapeXmlAttribute(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function getHeadingStyle(exportFormat, level) {
   const headings = (exportFormat && Array.isArray(exportFormat.headings)) ? exportFormat.headings : [];
   const idx = Math.min(level - 1, 5);
   return headings[idx] || null;
 }
 
-function buildHeader(text, font, size, alignment) {
+function normalizeWatermarkColor(value) {
+  const normalized = String(value || '').replace(/^#/, '').trim();
+  return /^[0-9a-f]{6}$/i.test(normalized) ? normalized.toUpperCase() : 'D9D9D9';
+}
+
+function normalizeWatermarkOpacity(value) {
+  const opacity = Number(value);
+  if (!Number.isFinite(opacity)) return 0.28;
+  return Math.max(0.05, Math.min(0.8, opacity));
+}
+
+function buildWatermarkConfig(pageSetup) {
+  if (!pageSetup || pageSetup.watermark_enabled !== true) return null;
+  const text = String(pageSetup.watermark_text || '').trim();
+  if (!text) return null;
+  return {
+    text,
+    font: String(pageSetup.watermark_font || '宋体').trim() || '宋体',
+    sizePt: Math.max(12, Math.min(120, Number(pageSetup.watermark_size_pt || 54))),
+    color: normalizeWatermarkColor(pageSetup.watermark_color),
+    opacity: normalizeWatermarkOpacity(pageSetup.watermark_opacity),
+  };
+}
+
+function buildWatermarkXmlComponent(watermark) {
+  if (!watermark) return null;
+  const opacityPercent = Math.round(watermark.opacity * 100);
+  const xml = `
+<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+  <w:r>
+    <w:pict>
+      <v:shapetype id="_x0000_t136" coordsize="21600,21600" o:spt="136" adj="10800" path="m@7,l@8,m@5,21600l@6,21600e">
+        <v:formulas>
+          <v:f eqn="sum #0 0 10800"/>
+          <v:f eqn="prod #0 2 1"/>
+          <v:f eqn="sum 21600 0 @1"/>
+          <v:f eqn="sum 0 0 @2"/>
+          <v:f eqn="sum 21600 0 @3"/>
+          <v:f eqn="if @0 @3 0"/>
+          <v:f eqn="if @0 21600 @1"/>
+          <v:f eqn="if @0 0 @2"/>
+          <v:f eqn="if @0 @4 21600"/>
+          <v:f eqn="mid @5 @6"/>
+          <v:f eqn="mid @8 @5"/>
+          <v:f eqn="mid @7 @8"/>
+          <v:f eqn="mid @6 @7"/>
+          <v:f eqn="sum @6 0 @5"/>
+        </v:formulas>
+        <v:path textpathok="t" o:connecttype="custom" o:connectlocs="@9,0;@10,10800;@11,21600;@12,10800" o:connectangles="270,180,90,0"/>
+        <v:textpath on="t" fitshape="t"/>
+        <v:handles>
+          <v:h position="#0,bottomRight" xrange="6629,14971"/>
+        </v:handles>
+        <o:lock v:ext="edit" text="t" shapetype="t"/>
+      </v:shapetype>
+      <v:shape id="YibiaoWatermark" o:spid="_x0000_s1025" type="#_x0000_t136" style="position:absolute;margin-left:0;margin-top:0;width:468pt;height:117pt;rotation:315;z-index:-251654144;mso-position-horizontal:center;mso-position-vertical:center" fillcolor="#${watermark.color}" stroked="f">
+        <v:fill opacity="${opacityPercent}%"/>
+        <v:textpath style="font-family:'${escapeXmlAttribute(watermark.font)}';font-size:${watermark.sizePt}pt" string="${escapeXmlAttribute(watermark.text)}"/>
+      </v:shape>
+    </w:pict>
+  </w:r>
+</w:p>`;
+  return ImportedXmlComponent.fromXmlString(xml);
+}
+
+function buildHeader(text, font, size, alignment, watermark) {
   const headerText = String(text || '').trim();
-  if (!headerText) return null;
+  const watermarkComponent = buildWatermarkXmlComponent(watermark);
+  if (!headerText && !watermarkComponent) return null;
+  const children = [];
+  if (watermarkComponent) children.push(watermarkComponent);
+  if (headerText) {
+    children.push(new Paragraph({
+      alignment,
+      children: [new TextRun({ text: headerText, font, size })],
+    }));
+  }
   return new Header({
-    children: [
-      new Paragraph({
-        alignment,
-        children: [new TextRun({ text: headerText, font, size })],
-      }),
-    ],
+    children,
   });
 }
 
@@ -735,6 +917,27 @@ function normalizeImageForDocx(loaded) {
   }
 
   return { buffer: image.toPNG(), type: 'png' };
+}
+
+function fallbackImageRun(title = 'Mermaid 转换失败') {
+  return new ImageRun({
+    type: 'png',
+    data: Buffer.from(MERMAID_FALLBACK_IMAGE_BASE64, 'base64'),
+    transformation: { width: 520, height: 160 },
+    altText: {
+      title: cleanText(title),
+      description: 'Mermaid 图无法联网转换时的替代图',
+      name: 'mermaid-fallback',
+    },
+  });
+}
+
+function imageFailureRun(message, options = {}) {
+  if (typeof options.onFailure === 'function') {
+    const fallback = options.onFailure(message);
+    if (fallback) return fallback;
+  }
+  return textRun(`[${message}]`, { color: 'C83220' });
 }
 
 function resolveAssetImagePath(url) {
@@ -857,7 +1060,7 @@ async function imageRunFromNode(node, context, options = {}) {
       phase: 'load',
       error: compactLogError(error),
     });
-    return textRun(`[${message}]`, { color: 'C83220' });
+    return imageFailureRun(message, options);
   }
   if (!loaded?.buffer || !loaded.type) {
     const message = `图片无法导出：${imageLabel}，未找到可用图片数据`;
@@ -868,7 +1071,7 @@ async function imageRunFromNode(node, context, options = {}) {
       phase: 'load',
       reason: 'missing_image_data',
     });
-    return textRun(`[${message}]`, { color: 'C83220' });
+    return imageFailureRun(message, options);
   }
 
   try {
@@ -883,7 +1086,7 @@ async function imageRunFromNode(node, context, options = {}) {
       source_type: loaded.type,
       error: compactLogError(error),
     });
-    return textRun(`[${message}]`, { color: 'C83220' });
+    return imageFailureRun(message, options);
   }
 
   let size;
@@ -900,11 +1103,13 @@ async function imageRunFromNode(node, context, options = {}) {
       bytes: loaded.buffer.length,
       error: compactLogError(error),
     });
-    return textRun(`[${message}]`, { color: 'C83220' });
+    return imageFailureRun(message, options);
   }
-  const sourceWidth = size.width || MAX_IMAGE_WIDTH;
-  const sourceHeight = size.height || Math.round(MAX_IMAGE_WIDTH * 0.62);
-  const ratio = Math.min(1, MAX_IMAGE_WIDTH / sourceWidth);
+  const imageStyle = getImageExportStyle(context);
+  const maxImageWidth = imageStyle.max_width_px;
+  const sourceWidth = size.width || maxImageWidth;
+  const sourceHeight = size.height || Math.round(maxImageWidth * 0.62);
+  const ratio = Math.min(1, maxImageWidth / sourceWidth);
   const width = Math.round(sourceWidth * ratio);
   const height = Math.round(sourceHeight * ratio);
   context.imageSuccessCount = (context.imageSuccessCount || 0) + 1;
@@ -933,6 +1138,39 @@ async function imageRunFromNode(node, context, options = {}) {
 
 async function imageParagraphFromSource(source, alt, context, options = {}) {
   return paragraph([await imageRunFromNode({ url: source, alt }, context, options)], { alignment: AlignmentType.CENTER });
+}
+
+async function mermaidToDocxBlocks(code, context, meta = {}) {
+  let fallbackMessage = '';
+  const mermaidRun = await imageRunFromNode({ url: mermaidInkUrl(code), alt: 'Mermaid 图' }, context, {
+    loadRetry: {
+      retryAttempts: Number.isFinite(context.mermaidRetryAttempts) ? context.mermaidRetryAttempts : MERMAID_EXPORT_RETRY_ATTEMPTS,
+      retryDelayMs: Number.isFinite(context.mermaidRetryDelayMs) ? context.mermaidRetryDelayMs : MERMAID_EXPORT_RETRY_DELAY_MS,
+      onRetry: (attempt) => {
+        if (typeof meta.onRetry === 'function') meta.onRetry(attempt);
+      },
+    },
+    onFailure: (message) => {
+      fallbackMessage = message;
+      writeExportLog(context, 'export.mermaid.fallback_image', {
+        mermaid_index: meta.index,
+        message,
+      });
+      return fallbackImageRun('Mermaid 转换失败替代图');
+    },
+  });
+
+  const blocks = [
+    paragraph([mermaidRun], { alignment: AlignmentType.CENTER, after: fallbackMessage ? 80 : 160 }),
+  ];
+
+  if (fallbackMessage) {
+    blocks.push(paragraph([
+      textRun('Mermaid 图转换失败，已插入替代图，请回到 Markdown 检查图表语法或网络连接。', { color: 'C83220' }),
+    ], { alignment: AlignmentType.CENTER, after: 120 }));
+  }
+
+  return blocks;
 }
 
 async function inlineRuns(nodes = [], context = {}, marks = {}) {
@@ -1053,6 +1291,7 @@ async function htmlInlineRuns($, nodes = [], context = {}, marks = {}) {
 
 async function htmlTableToDocx($, tableNode, context) {
   const rows = [];
+  const tableStyle = getTableStyle(context);
   const rowDescriptors = $(tableNode).find('tr').toArray().map((rowNode) => {
     const cells = $(rowNode).children('th,td').toArray().map((cellNode) => ({
       node: cellNode,
@@ -1076,6 +1315,7 @@ async function htmlTableToDocx($, tableNode, context) {
         isHeader,
         columnSpan: cell.columnSpan + Math.max(0, remainingSpan),
         totalColumns: maxColumns,
+        tableStyle,
       }));
     }
     rows.push(new TableRow({ children: cells }));
@@ -1085,7 +1325,7 @@ async function htmlTableToDocx($, tableNode, context) {
     return [];
   }
 
-  return [createDocxTable(rows, maxColumns)];
+  return [createDocxTable(rows, maxColumns, tableStyle)];
 }
 
 async function htmlListToDocx($, listNode, context, options = {}) {
@@ -1278,6 +1518,7 @@ async function markdownNodesToDocx(nodes = [], context = {}, options = {}) {
       }
     } else if (node.type === 'table') {
       const rows = [];
+      const tableStyle = getTableStyle(context);
       const maxColumns = Math.max(1, ...(node.children || []).map((row) => row.children?.length || 0));
       for (const [rowIndex, row] of (node.children || []).entries()) {
         const cells = [];
@@ -1291,12 +1532,13 @@ async function markdownNodesToDocx(nodes = [], context = {}, options = {}) {
             isHeader: rowIndex === 0,
             columnSpan,
             totalColumns: maxColumns,
+            tableStyle,
           }));
         }
         rows.push(new TableRow({ children: cells }));
       }
       if (rows.length) {
-        blocks.push(createDocxTable(rows, maxColumns));
+        blocks.push(createDocxTable(rows, maxColumns, tableStyle));
       }
     } else if (node.type === 'blockquote') {
       for (const child of node.children || []) {
@@ -1320,13 +1562,11 @@ async function markdownNodesToDocx(nodes = [], context = {}, options = {}) {
           code_metrics: textMetrics(node.value),
         });
         reportConversionProgress(context, `正在转换 Mermaid 图 ${nextIndex}/${total}，可能需要联网等待。`);
-        blocks.push(await imageParagraphFromSource(mermaidInkUrl(node.value), 'Mermaid 图', context, {
-          loadRetry: {
-            retryAttempts: MERMAID_EXPORT_RETRY_ATTEMPTS,
-            retryDelayMs: MERMAID_EXPORT_RETRY_DELAY_MS,
-            onRetry: (attempt) => {
-              reportConversionProgress(context, `Mermaid 图 ${nextIndex}/${total} 转换失败，3 秒后第 ${attempt} 次重试。`);
-            },
+        blocks.push(...await mermaidToDocxBlocks(node.value, context, {
+          index: nextIndex,
+          onRetry: (attempt) => {
+            const delaySeconds = Math.round(((Number.isFinite(context.mermaidRetryDelayMs) ? context.mermaidRetryDelayMs : MERMAID_EXPORT_RETRY_DELAY_MS) || 0) / 1000);
+            reportConversionProgress(context, `Mermaid 图 ${nextIndex}/${total} 转换失败，${delaySeconds} 秒后第 ${attempt} 次重试。`);
           },
         }));
         context.convertedMermaidCount = nextIndex;
@@ -1413,6 +1653,37 @@ async function addOutlineItems(children, items, context, level = 1) {
 
     await addOutlineItems(children, item.children, context, level + 1);
   }
+}
+
+function buildIntroChildren(payload, pageSetup) {
+  return [
+    ...buildCoverPageParagraphs(payload, pageSetup),
+    ...buildTableOfContentsBlocks(pageSetup),
+    paragraph([textRun('内容由 AI 生成', { italics: true, size: 18 })], { alignment: AlignmentType.CENTER, after: 120 }),
+    paragraph([textRun(payload.project_name || '投标技术文件', { bold: true, size: 34 })], { alignment: AlignmentType.CENTER, after: 300 }),
+  ];
+}
+
+async function buildDocumentSectionChildren(payload, pageSetup, context) {
+  const outline = Array.isArray(payload.outline) ? payload.outline : [];
+  const introChildren = buildIntroChildren(payload, pageSetup);
+  if (pageSetup?.chapter_section_break_enabled !== true || outline.length <= 1) {
+    await addOutlineItems(introChildren, outline, context);
+    return [{ children: introChildren }];
+  }
+
+  const sections = [{ children: introChildren }];
+  for (const [index, item] of outline.entries()) {
+    const chapterChildren = [];
+    await addOutlineItems(chapterChildren, [item], context);
+    if (index === 0) {
+      sections[0].children.push(...chapterChildren);
+    } else {
+      sections.push({ children: chapterChildren, type: SectionType.NEXT_PAGE });
+    }
+  }
+
+  return sections;
 }
 
 function createNumberingConfig(context) {
@@ -1513,6 +1784,8 @@ async function buildDocxResult(payload, options = {}) {
     unsupportedHtmlTags: new Set(),
     developerLogger: options.developerLogger,
     exportFormat,
+    mermaidRetryAttempts: Number.isFinite(options.mermaidRetryAttempts) ? options.mermaidRetryAttempts : undefined,
+    mermaidRetryDelayMs: Number.isFinite(options.mermaidRetryDelayMs) ? options.mermaidRetryDelayMs : undefined,
   };
   writeExportLog(context, 'export.docx.build.started', {
     stats,
@@ -1542,19 +1815,15 @@ async function buildDocxResult(payload, options = {}) {
     }
   }
 
-  const children = [
-    paragraph([textRun('内容由 AI 生成', { italics: true, size: 18 })], { alignment: AlignmentType.CENTER, after: 120 }),
-    paragraph([textRun(payload.project_name || '投标技术文件', { bold: true, size: 34 })], { alignment: AlignmentType.CENTER, after: 300 }),
-  ];
+  const pageSetup = (exportFormat && exportFormat.page) ? exportFormat.page : null;
 
   reportProgress(context, 10, stats.mermaidCount
     ? `准备导出正文，并转换 ${stats.mermaidCount} 张 Mermaid 图。`
     : '准备导出正文。');
-  await addOutlineItems(children, payload.outline || [], context);
+  const documentSections = await buildDocumentSectionChildren(payload, pageSetup, context);
   reportProgress(context, 90, '正在生成 Word 文件。');
 
   // 页面设置
-  const pageSetup = (exportFormat && exportFormat.page) ? exportFormat.page : null;
   const pageMargin = pageSetup ? {
     top: cmToTwips(pageSetup.margin_top_cm ?? 2),
     bottom: cmToTwips(pageSetup.margin_bottom_cm ?? 2),
@@ -1579,7 +1848,6 @@ async function buildDocxResult(payload, options = {}) {
   }
 
   // 页眉
-  const sectionChildren = [...children];
   const headerEnabled = pageSetup ? pageSetup.header_enabled === true : false;
   const headerText = pageSetup ? String(pageSetup.header_text || payload.project_name || '投标技术文件').trim() : '';
   const headerFont = pageSetup ? (pageSetup.header_font || '宋体') : '宋体';
@@ -1589,11 +1857,12 @@ async function buildDocxResult(payload, options = {}) {
   const evenOddHeaderEnabled = pageSetup ? pageSetup.header_even_odd_different === true : false;
   const firstPageHeaderText = pageSetup ? String(pageSetup.header_first_page_text || '').trim() : '';
   const evenPageHeaderText = pageSetup ? String(pageSetup.header_even_text || '').trim() : '';
+  const watermark = buildWatermarkConfig(pageSetup);
   let headers = undefined;
-  if (headerEnabled && headerText) {
-    const defaultHeader = buildHeader(headerText, headerFont, headerSize, headerAlignment);
-    const firstHeader = firstPageHeaderEnabled ? buildHeader(firstPageHeaderText, headerFont, headerSize, headerAlignment) : null;
-    const evenHeader = evenOddHeaderEnabled ? buildHeader(evenPageHeaderText || headerText, headerFont, headerSize, headerAlignment) : null;
+  if ((headerEnabled && headerText) || watermark) {
+    const defaultHeader = buildHeader(headerEnabled ? headerText : '', headerFont, headerSize, headerAlignment, watermark);
+    const firstHeader = firstPageHeaderEnabled ? buildHeader(headerEnabled ? firstPageHeaderText : '', headerFont, headerSize, headerAlignment, watermark) : null;
+    const evenHeader = evenOddHeaderEnabled ? buildHeader(headerEnabled ? (evenPageHeaderText || headerText) : '', headerFont, headerSize, headerAlignment, watermark) : null;
     headers = {
       ...(defaultHeader ? { default: defaultHeader } : {}),
       ...(firstHeader ? { first: firstHeader } : {}),
@@ -1634,8 +1903,15 @@ async function buildDocxResult(payload, options = {}) {
 
   const numbering = createNumberingConfig(context);
   const headingStyles = buildHeadingParagraphStyles(exportFormat);
+  const baseSectionProperties = {
+    page: {
+      margin: pageMargin,
+      ...pageSizeConfig,
+    },
+    ...(((headerEnabled || watermark) && firstPageHeaderEnabled) ? { titlePage: true } : {}),
+  };
   const doc = new Document({
-    ...(headerEnabled && evenOddHeaderEnabled ? { evenAndOddHeaderAndFooters: true } : {}),
+    ...((headerEnabled || watermark) && evenOddHeaderEnabled ? { evenAndOddHeaderAndFooters: true } : {}),
     ...(numbering ? { numbering } : {}),
     styles: {
       default: {
@@ -1646,18 +1922,15 @@ async function buildDocxResult(payload, options = {}) {
       },
       paragraphStyles: headingStyles,
     },
-    sections: [{
+    sections: documentSections.map((section) => ({
       properties: {
-        page: {
-          margin: pageMargin,
-          ...pageSizeConfig,
-        },
-        ...(headerEnabled && firstPageHeaderEnabled ? { titlePage: true } : {}),
+        ...baseSectionProperties,
+        ...(section.type ? { type: section.type } : {}),
       },
       headers,
       footers,
-      children: sectionChildren,
-    }],
+      children: section.children,
+    })),
   });
 
   const buffer = await Packer.toBuffer(doc);

@@ -8,6 +8,7 @@ function registerAiEvaluationIpc({ aiEvaluationStore }) {
   ipcMain.handle('ai-evaluation:save-expert-score', (_event, payload) => aiEvaluationStore.saveExpertScore(payload));
   ipcMain.handle('ai-evaluation:export-report', (_event, options) => aiEvaluationStore.exportReport(options));
   ipcMain.handle('ai-evaluation:export-office-package', (_event, options) => aiEvaluationStore.exportOfficePackage(options));
+  ipcMain.handle('ai-evaluation:export-committee-report', (_event, options) => aiEvaluationStore.exportCommitteeReport(options));
   ipcMain.handle('ai-evaluation:clear', () => aiEvaluationStore.clear());
 }
 

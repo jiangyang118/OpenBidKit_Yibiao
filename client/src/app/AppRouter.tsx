@@ -4,7 +4,7 @@ import { getAppMenuItemById } from './menuConfig';
 import AiEvaluationPage from '../features/ai-evaluation/pages/AiEvaluationPage';
 import BidOpportunityPage from '../features/bid-opportunity/pages/BidOpportunityPage';
 import BusinessBidPage from '../features/business-bid/pages/BusinessBidPage';
-import DeveloperDemoPage, { isDeveloperDemoSection } from '../features/developer/pages/DeveloperDemoPage';
+import DeveloperToolsPage, { isDeveloperToolsSection } from '../features/developer/pages/DeveloperToolsPage';
 import DeveloperTestPage from '../features/developer/pages/DeveloperTestPage';
 import ExportFormatPage from '../features/export-format/pages/ExportFormatPage';
 import DuplicateCheckPage from '../features/duplicate-check/pages/DuplicateCheckPage';
@@ -32,8 +32,8 @@ function AppRouter({ activeSection, developerMode, onDeveloperModeChange, onAppe
     return <SecondaryMenuPage menuItem={activeMenuItem} onNavigate={onSectionChange} />;
   }
 
-  if (isDeveloperDemoSection(activeSection)) {
-    return <DeveloperDemoPage sectionId={activeSection} />;
+  if (isDeveloperToolsSection(activeSection)) {
+    return <DeveloperToolsPage sectionId={activeSection} />;
   }
 
   switch (activeSection) {

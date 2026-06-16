@@ -4,7 +4,7 @@
 -- 1. 本文件用于开源开发者阅读、评审和排查问题，展示 workspace/yibiao.sqlite 的目标完整表结构。
 -- 2. 用户运行客户端时不需要手动执行本文件。
 -- 3. 客户端运行时建表和升级以 Electron Main 侧 migration 代码为准。
--- 4. 当前运行代码已落地 technical_plan_* v1、duplicate_check_* / rejection_check_* v2、knowledge_* v3、technical_plan_global_fact_groups v4、标段兼容 v5/v6、标段选择 v7、待选择标段恢复状态 v8、工作流类型和原方案文件状态 v9、招标解析项选择配置 v10、知识库排序 v11、废标项检查多投标文件 v12、投标机会工作台 v13、商务标工作台 v14、图片知识库 v15、AI 评标工作台 v16、标书查重人工处理状态 v17、废标项检查人工处理状态 v18、标书查重正文忽略规则 v19、投标机会跟进字段 v20、商务标责任人字段 v21、图片知识库文件夹字段 v22、商务标后台任务状态表 v23、AI 评标后台任务状态表 v24、AI 评标多投标文件评分结果表 v25、AI 评标审计意见和报告快照表 v26、AI 评标专家打分表 v27、投标机会知识库匹配结果 v28、商务标独立附件管理表 v29、标书查重相似图片字段和正文忽略规则分类 v30 目标结构。
+-- 4. 当前运行代码已落地 technical_plan_* v1、duplicate_check_* / rejection_check_* v2、knowledge_* v3、technical_plan_global_fact_groups v4、标段兼容 v5/v6、标段选择 v7、待选择标段恢复状态 v8、工作流类型和原方案文件状态 v9、招标解析项选择配置 v10、知识库排序 v11、废标项检查多投标文件 v12、投标机会工作台 v13、商务标工作台 v14、图片知识库 v15、AI 评标工作台 v16、标书查重人工处理状态 v17、废标项检查人工处理状态 v18、标书查重正文忽略规则 v19、投标机会跟进字段 v20、商务标责任人字段 v21、图片知识库文件夹字段 v22、商务标后台任务状态表 v23、AI 评标后台任务状态表 v24、AI 评标多投标文件评分结果表 v25、AI 评标审计意见和报告快照表 v26、AI 评标专家打分表 v27、投标机会知识库匹配结果 v28、商务标独立附件管理表 v29、标书查重相似图片字段和正文忽略规则分类 v30、投标机会多轮跟进和附件表 v31、AI 评标专家角色/评审会议/签名确认字段 v32、标书查重相似图片旋转检测字段 v33、标书查重相似图片水印提示字段 v34、标书查重相似图片内容裁剪框字段 v35 目标结构。
 -- 5. 每次表结构调整后，需要同步更新本文件和 runtime migration 版本。
 -- 6. 本文件不保存历史版本，每次更新都写入最新目标完整结构。
 
@@ -14,7 +14,7 @@ PRAGMA busy_timeout = 5000;
 
 -- 目标完整结构版本。
 -- 运行时代码应通过 PRAGMA user_version 判断是否需要自动升级。
-PRAGMA user_version = 30;
+PRAGMA user_version = 35;
 
 -- ============================================================================
 -- 技术方案 technical_plan_*（v1 已落地）
@@ -388,7 +388,10 @@ CREATE TABLE IF NOT EXISTS duplicate_check_duplicate_images (
   resolved_at TEXT,
   match_type TEXT NOT NULL DEFAULT 'exact',
   similarity_score REAL NOT NULL DEFAULT 1,
-  similarity_reason TEXT
+  similarity_reason TEXT,
+  rotation_degrees INTEGER,
+  watermark_hint TEXT,
+  crop_json TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_duplicate_check_duplicate_images_hash
@@ -440,6 +443,7 @@ CREATE TABLE IF NOT EXISTS rejection_check_documents (
   content_hash TEXT NOT NULL,
   content_chars INTEGER NOT NULL DEFAULT 0,
   parser_label TEXT,
+  page_screenshots_json TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
   imported_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -797,6 +801,45 @@ ON bid_opportunity_opportunities(status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_bid_opportunity_score
 ON bid_opportunity_opportunities(score DESC);
 
+-- 投标机会多轮跟进记录。
+-- 每次电话、微信、邮件、会议或现场沟通都单独落一条记录，并可回写主机会的负责人、下一步动作和提醒时间摘要。
+CREATE TABLE IF NOT EXISTS bid_opportunity_follow_ups (
+  record_id TEXT PRIMARY KEY,
+  opportunity_id TEXT NOT NULL,
+  occurred_at TEXT NOT NULL,
+  method TEXT NOT NULL DEFAULT 'other',
+  owner TEXT NOT NULL DEFAULT '',
+  contact_person TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  next_action TEXT NOT NULL DEFAULT '',
+  next_follow_up_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (opportunity_id) REFERENCES bid_opportunity_opportunities(opportunity_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_bid_opportunity_follow_ups_opportunity
+ON bid_opportunity_follow_ups(opportunity_id, occurred_at DESC, created_at DESC);
+
+-- 投标机会公告/沟通附件。
+-- 文件复制到 workspace/bid-opportunity/attachments/<opportunityId>/，SQLite 保存文件名、工作区相对路径、原始路径、大小和说明。
+CREATE TABLE IF NOT EXISTS bid_opportunity_attachments (
+  attachment_id TEXT PRIMARY KEY,
+  opportunity_id TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'announcement',
+  file_name TEXT NOT NULL,
+  stored_path TEXT NOT NULL,
+  original_path TEXT NOT NULL DEFAULT '',
+  file_size INTEGER NOT NULL DEFAULT 0,
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (opportunity_id) REFERENCES bid_opportunity_opportunities(opportunity_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_bid_opportunity_attachments_opportunity
+ON bid_opportunity_attachments(opportunity_id, kind, updated_at DESC);
+
 -- ============================================================================
 -- 商务标 business_bid_*（v14 已落地）
 -- ============================================================================
@@ -1027,7 +1070,11 @@ CREATE TABLE IF NOT EXISTS ai_evaluation_expert_scores (
   score_id TEXT PRIMARY KEY,
   item_id TEXT NOT NULL,
   expert_name TEXT NOT NULL,
+  expert_role TEXT NOT NULL DEFAULT '',
+  review_session TEXT NOT NULL DEFAULT '',
   expert_score REAL NOT NULL DEFAULT 0,
+  signature_confirmed INTEGER NOT NULL DEFAULT 0,
+  signed_at TEXT,
   opinion TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

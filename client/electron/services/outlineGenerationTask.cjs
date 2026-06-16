@@ -55,7 +55,33 @@ ${childrenOutlineJsonExample(id)}`;
 }
 
 const KNOWLEDGE_RESUME_MAX_CHARS = 220;
+const MAX_KNOWLEDGE_ITEMS_FOR_PROMPT = 80;
 const MAX_KNOWLEDGE_ADDITIONS = 30;
+const KNOWLEDGE_RELEVANCE_KEYWORDS = [
+  '智慧食堂',
+  '智慧餐厅',
+  '称重',
+  '消费机',
+  '绑盘',
+  '托盘',
+  '营养',
+  '订餐',
+  '人脸',
+  '二维码',
+  '一卡通',
+  '报表',
+  '库存',
+  '进销存',
+  '售后',
+  '培训',
+  '实施',
+  '验收',
+  '对接',
+  '接口',
+  'HIS',
+  '门禁',
+  '停车',
+];
 
 function truncateText(value, maxLength) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -131,6 +157,55 @@ function loadOutlineKnowledgeItems(knowledgeBaseService, documentIds, log) {
     log(`读取参考知识库失败，将按普通目录生成：${error.message || String(error)}`, 7);
     return [];
   }
+}
+
+function collectOutlineText(items) {
+  const parts = [];
+  function visit(nodes) {
+    (nodes || []).forEach((item) => {
+      parts.push(item?.title || '', item?.description || '');
+      if (item?.children?.length) visit(item.children);
+    });
+  }
+  visit(items || []);
+  return parts.join('\n');
+}
+
+function createKnowledgeKeywordSet(payload, outline) {
+  const source = [
+    payload?.overview || '',
+    payload?.requirements || '',
+    collectOutlineText(outline?.outline || []),
+    KNOWLEDGE_RELEVANCE_KEYWORDS.join('\n'),
+  ].join('\n');
+  const words = new Set(KNOWLEDGE_RELEVANCE_KEYWORDS.map((item) => item.toLowerCase()));
+  const matches = source.match(/[\u4e00-\u9fa5A-Za-z0-9]{2,12}/g) || [];
+  for (const match of matches) {
+    const word = match.toLowerCase();
+    if (word.length >= 2 && word.length <= 12) {
+      words.add(word);
+    }
+  }
+  return words;
+}
+
+function scoreKnowledgeItem(item, keywordSet) {
+  const text = `${item?.title || ''}\n${item?.resume || ''}`.toLowerCase();
+  let score = 0;
+  for (const keyword of keywordSet) {
+    if (keyword && text.includes(keyword)) score += keyword.length >= 4 ? 2 : 1;
+  }
+  return score;
+}
+
+function selectKnowledgeItemsForOutlinePrompt(knowledgeItems, payload, outline) {
+  if (!knowledgeItems.length) return [];
+  const keywordSet = createKnowledgeKeywordSet(payload, outline);
+  return knowledgeItems
+    .map((item, index) => ({ item, index, score: scoreKnowledgeItem(item, keywordSet) }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, MAX_KNOWLEDGE_ITEMS_FOR_PROMPT)
+    .map((entry) => entry.item);
 }
 
 function outlineSystemPrompt() {
@@ -1146,10 +1221,11 @@ async function enhanceOutlineWithKnowledgeAdditions(aiService, payload, outline,
   const devLog = (message) => {
     if (isDeveloperMode) log(`[开发者] ${message}`, 98);
   };
-  log(`开始根据 ${knowledgeItems.length} 条知识库条目补充缺失三级目录。`, 98);
-  devLog(`知识库补目录：可用二级父级 ${additionParents.length} 个，参考知识条目 ${knowledgeItems.length} 条。`);
+  const selectedKnowledgeItems = selectKnowledgeItemsForOutlinePrompt(knowledgeItems, payload, outline);
+  log(`开始根据 ${selectedKnowledgeItems.length}/${knowledgeItems.length} 条相关知识库条目补充缺失三级目录。`, 98);
+  devLog(`知识库补目录：可用二级父级 ${additionParents.length} 个，参考知识条目 ${knowledgeItems.length} 条，入模 ${selectedKnowledgeItems.length} 条。`);
   const patch = await collectJson(aiService, {
-    messages: generateKnowledgeAdditionMessages({ ...payload, outline, knowledgeItems }),
+    messages: generateKnowledgeAdditionMessages({ ...payload, outline, knowledgeItems: selectedKnowledgeItems }),
     temperature: 0.3,
     normalizer: (value) => normalizeKnowledgeAdditionsResponse(value, {
       outline: outline.outline || [],
@@ -1244,7 +1320,11 @@ async function runOutlineGenerationTask({ aiService, workspaceStore, knowledgeBa
   };
   let outline = taskPayload.mode === 'aligned' ? await alignedWorkflow(aiService, taskPayload, log) : await freeWorkflow(aiService, taskPayload, log);
   const knowledgeItems = loadOutlineKnowledgeItems(knowledgeBaseService, referenceKnowledgeDocumentIds, log);
-  outline = await enhanceOutlineWithKnowledgeAdditions(aiService, taskPayload, outline, knowledgeItems, log);
+  try {
+    outline = await enhanceOutlineWithKnowledgeAdditions(aiService, taskPayload, outline, knowledgeItems, log);
+  } catch (error) {
+    log(`知识库补目录失败，已保留已生成目录：${error.message || String(error)}`, 99);
+  }
   technicalPlan = workspaceStore.updateTechnicalPlan({
     outlineData: { ...outline, project_overview: overview },
     contentGenerationTask: undefined,

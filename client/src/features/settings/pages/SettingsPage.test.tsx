@@ -130,6 +130,8 @@ describe('SettingsPage appearance settings', () => {
         list: vi.fn().mockResolvedValue(projectWorkspaceState),
         create: vi.fn().mockResolvedValue({
           success: true,
+          restart_required: false,
+          runtime_reloaded: true,
           project: { ...projectWorkspaceState.projects[1], id: 'project-2', name: '新建投标项目' },
           state: {
             ...projectWorkspaceState,
@@ -143,7 +145,8 @@ describe('SettingsPage appearance settings', () => {
         setActive: vi.fn().mockResolvedValue({
           success: true,
           active_project_id: 'project-1',
-          restart_required: true,
+          restart_required: false,
+          runtime_reloaded: true,
           state: {
             ...projectWorkspaceState,
             active_project_id: 'project-1',
@@ -261,11 +264,23 @@ describe('SettingsPage appearance settings', () => {
     });
   });
 
+  it('shows local OCR as the scanning and OFD parser path instead of local text parsing', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('tab', { name: '文件解析' }));
+
+    expect(screen.getByRole('option', { name: '本地 OCR 解析' })).toBeInTheDocument();
+    expect(screen.getByText('pdf、docx、doc、wps、txt、md')).toBeInTheDocument();
+    expect(screen.getByText('pdf、ofd、jpeg、png、bmp、webp、tif')).toBeInTheDocument();
+    expect(screen.getByText(/扫描件、图片和 OFD 先走本地 OCR/)).toBeInTheDocument();
+    expect(screen.getByText(/PaddleOCR/)).toBeInTheDocument();
+  });
+
   it('loads project workspace list and creates a new active project', async () => {
     renderPage();
 
     expect(await screen.findByText('项目工作区')).toBeInTheDocument();
-    expect(screen.getByText('当前项目：默认项目。切换项目会在重启后加载对应工作区数据。')).toBeInTheDocument();
+    expect(screen.getByText('当前项目：默认项目。切换项目会热刷新当前会话的工作区数据。')).toBeInTheDocument();
     expect(screen.getByText('医院后勤投标')).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText('新项目名称'), { target: { value: '新建投标项目' } });
@@ -274,7 +289,7 @@ describe('SettingsPage appearance settings', () => {
     await waitFor(() => {
       expect(window.yibiao?.projectWorkspace.create).toHaveBeenCalledWith({ name: '新建投标项目', makeActive: true });
     });
-    expect(await screen.findByText('当前项目：新建投标项目。切换项目会在重启后加载对应工作区数据。')).toBeInTheDocument();
+    expect(await screen.findByText('当前项目：新建投标项目。切换项目会热刷新当前会话的工作区数据。')).toBeInTheDocument();
   });
 
   it('confirms project switch after checking active tasks', async () => {
@@ -291,7 +306,7 @@ describe('SettingsPage appearance settings', () => {
       expect(window.yibiao?.tasks.getActiveTasks).toHaveBeenCalled();
       expect(window.yibiao?.projectWorkspace.setActive).toHaveBeenCalledWith('project-1');
     });
-    expect(await screen.findByText('当前项目：医院后勤投标。切换项目会在重启后加载对应工作区数据。')).toBeInTheDocument();
+    expect(await screen.findByText('当前项目：医院后勤投标。切换项目会热刷新当前会话的工作区数据。')).toBeInTheDocument();
   });
 
   it('blocks project switching while background tasks are running', async () => {

@@ -43,6 +43,8 @@ class InstalledCliE2ETests(unittest.TestCase):
 
         self.assertTrue(payload["exists"])
         self.assertGreater(payload["heading_count"], 5)
+        self.assertEqual(payload["required_pending_markers"], 0)
+        self.assertEqual(payload["completion_status"], "required-complete")
 
     def test_smoke_runs_real_node_syntax_check(self):
         payload = self.run_json("smoke", "--check", "main-syntax", "--timeout", "60")
@@ -84,6 +86,52 @@ class InstalledCliE2ETests(unittest.TestCase):
             self.assertEqual(payload["definition"]["group"], "duplicate-check")
             self.assertTrue(payload["payload_signature"])
             self.assertTrue(payload["side_effect_free"])
+
+    def test_project_workspace_command_manages_temp_user_data(self):
+        with TemporaryDirectory() as temp_dir:
+            user_data = Path(temp_dir) / "user-data"
+
+            initial = self.run_json("project-workspace", "--action", "list", "--user-data", str(user_data))
+            self.assertTrue(initial["ok"], initial.get("stderr"))
+            self.assertEqual(initial["result"]["active_project_id"], "default")
+
+            created = self.run_json(
+                "project-workspace",
+                "--action",
+                "create",
+                "--user-data",
+                str(user_data),
+                "--name",
+                "CLI 测试项目",
+                "--make-active",
+            )
+            self.assertTrue(created["ok"], created.get("stderr"))
+            project_id = created["result"]["project"]["id"]
+            self.assertEqual(created["result"]["state"]["active_project_id"], project_id)
+
+            switched = self.run_json(
+                "project-workspace",
+                "--action",
+                "set-active",
+                "--user-data",
+                str(user_data),
+                "--project-id",
+                "default",
+            )
+            self.assertTrue(switched["ok"], switched.get("stderr"))
+            self.assertEqual(switched["result"]["active_project_id"], "default")
+
+            workspace_path = self.run_json(
+                "project-workspace",
+                "--action",
+                "get-workspace-path",
+                "--user-data",
+                str(user_data),
+                "--project-id",
+                project_id,
+            )
+            self.assertTrue(workspace_path["ok"], workspace_path.get("stderr"))
+            self.assertIn(project_id, workspace_path["result"]["workspace_path"])
 
     def test_export_report_command_outputs_markdown(self):
         with TemporaryDirectory() as temp_dir:
@@ -237,6 +285,50 @@ class InstalledCliE2ETests(unittest.TestCase):
             pdf = output_path.read_bytes()
             self.assertEqual(pdf[:5].decode("ascii"), "%PDF-")
             self.assertIn(b"/BaseFont /STSong-Light", pdf)
+
+    def test_export_report_command_outputs_business_bid_xlsx(self):
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            state_path = root / "business-bid-state.json"
+            output_path = root / "business-bid-report.xlsx"
+            state_path.write_text(json.dumps({
+                "source": {"fileName": "招标文件.docx", "type": "tender-document", "generatedAt": "2026-06-15 10:00"},
+                "clauses": [{
+                    "id": "clause-1",
+                    "category": "contract",
+                    "label": "合同条款",
+                    "originalText": "付款周期为验收后30日内。",
+                    "responseText": "完全响应。",
+                    "deviationType": "none",
+                    "riskLevel": "low",
+                    "materialRequirement": "合同响应说明",
+                    "owner": "商务负责人",
+                    "confirmedBy": "项目经理",
+                    "confirmed": True,
+                }],
+            }, ensure_ascii=False), encoding="utf-8")
+
+            payload = self.run_json(
+                "export-report",
+                "--kind",
+                "business-bid",
+                "--state-json",
+                str(state_path),
+                "--output",
+                str(output_path),
+                "--format",
+                "xlsx",
+            )
+
+            self.assertTrue(payload["ok"], payload.get("stderr"))
+            self.assertEqual(payload["kind"], "business-bid")
+            self.assertEqual(payload["format"], "xlsx")
+            self.assertTrue(output_path.exists())
+            with zipfile.ZipFile(output_path) as archive:
+                workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")
+                first_sheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+            self.assertIn("商务响应表", workbook_xml)
+            self.assertIn("付款周期为验收后30日内。", first_sheet)
 
 
 if __name__ == "__main__":

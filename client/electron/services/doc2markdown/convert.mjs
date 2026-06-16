@@ -811,6 +811,32 @@ export async function withLegacyWordDocxFile(inputPath, callback) {
   }
 }
 
+export async function withWordPdfFile(inputPath, callback) {
+  const suffix = path.extname(inputPath).toLowerCase();
+  const runWithDocx = async (docxPath) => {
+    const libreOfficeCommand = await findLibreOfficeCommand();
+    if (!libreOfficeCommand) {
+      throw new ConversionError('office_backend_missing', LIBREOFFICE_REQUIRED_MESSAGE, {
+        inputPath,
+        platform: process.platform,
+      });
+    }
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'doc2pdf-node-'));
+    try {
+      const pdfPath = await runLibreOfficePdfConversion(libreOfficeCommand, docxPath, tempDir);
+      await assertGeneratedPdfFile(pdfPath, 'LibreOffice', inputPath);
+      return await callback(pdfPath, tempDir);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  };
+
+  if (DOCX_SUFFIXES.has(suffix)) {
+    return runWithDocx(inputPath);
+  }
+  return withLegacyWordDocxFile(inputPath, (docxPath) => runWithDocx(docxPath));
+}
+
 async function buildLegacyWordConversionBackends(inputPath) {
   const suffix = path.extname(inputPath).toLowerCase();
   const [libreOfficeCommand, windowsComBackends] = await Promise.all([
@@ -834,7 +860,7 @@ async function buildLegacyWordConversionBackends(inputPath) {
 }
 
 async function runLibreOfficeDocxConversion(soffice, legacyInput, outputDir) {
-  await runLibreOfficeConvert(soffice, legacyInput, outputDir);
+  await runLibreOfficeConvert(soffice, legacyInput, outputDir, 'docx');
   const files = await readdir(outputDir);
   const docxName = files.find((file) => path.extname(file).toLowerCase() === '.docx');
   if (!docxName) {
@@ -843,6 +869,18 @@ async function runLibreOfficeDocxConversion(soffice, legacyInput, outputDir) {
     });
   }
   return path.join(outputDir, docxName);
+}
+
+async function runLibreOfficePdfConversion(soffice, inputPath, outputDir) {
+  await runLibreOfficeConvert(soffice, inputPath, outputDir, 'pdf');
+  const files = await readdir(outputDir);
+  const pdfName = files.find((file) => path.extname(file).toLowerCase() === '.pdf');
+  if (!pdfName) {
+    throw new ConversionError('office_conversion_failed', 'LibreOffice 未生成 PDF 文件', {
+      inputPath,
+    });
+  }
+  return path.join(outputDir, pdfName);
 }
 
 async function findWindowsComOfficeBackends() {
@@ -928,6 +966,22 @@ async function assertGeneratedDocxFile(docxPath, backendLabel, inputPath) {
   const header = await readFileHeader(docxPath, ZIP_LOCAL_FILE_HEADER.length);
   if (!isZipHeader(header)) {
     throw new ConversionError('office_conversion_failed', `${backendLabel} 生成的文件不是有效 DOCX`, {
+      inputPath,
+      backend: backendLabel,
+    });
+  }
+}
+
+async function assertGeneratedPdfFile(pdfPath, backendLabel, inputPath) {
+  if (!existsSync(pdfPath)) {
+    throw new ConversionError('office_conversion_failed', `${backendLabel} 未生成 PDF 文件`, {
+      inputPath,
+      backend: backendLabel,
+    });
+  }
+  const header = await readFileHeader(pdfPath, 5);
+  if (header.toString('ascii') !== '%PDF-') {
+    throw new ConversionError('office_conversion_failed', `${backendLabel} 生成的文件不是有效 PDF`, {
       inputPath,
       backend: backendLabel,
     });
@@ -1103,7 +1157,7 @@ async function canRunCommand(command, args) {
   }
 }
 
-async function runLibreOfficeConvert(soffice, inputPath, outputDir) {
+async function runLibreOfficeConvert(soffice, inputPath, outputDir, targetFormat = 'docx') {
   const profileDir = await mkdtemp(path.join(os.tmpdir(), 'doc2md-lo-profile-'));
   try {
     const profileUri = pathToFileUri(profileDir);
@@ -1115,7 +1169,7 @@ async function runLibreOfficeConvert(soffice, inputPath, outputDir) {
       '--nofirststartwizard',
       `-env:UserInstallation=${profileUri}`,
       '--convert-to',
-      'docx',
+      targetFormat,
       '--outdir',
       outputDir,
       inputPath,

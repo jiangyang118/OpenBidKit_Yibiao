@@ -1,10 +1,12 @@
-import type { ChatCompletionRequest, JsonCompletionRequest, JsonFailureSampleInput, JsonFailureSamplesResult, JsonReplayLogsResult } from './ai';
-import type { AiEvaluationExpertScoreInput, AiEvaluationExportReportResult, AiEvaluationImportDocumentResult, AiEvaluationItemPatch, AiEvaluationOfficeExportResult, AiEvaluationState } from '../../features/ai-evaluation/types';
+import type { ChatCompletionRequest, JsonCompletionRequest, JsonFailureSampleInput, JsonFailureSamplesResult, JsonReplayLogsResult, PromptDebugRecordInput, PromptDebugRecordResult } from './ai';
+import type { AiEvaluationCommitteeExportResult, AiEvaluationExpertScoreInput, AiEvaluationExportReportResult, AiEvaluationImportDocumentResult, AiEvaluationItemPatch, AiEvaluationOfficeExportResult, AiEvaluationState } from '../../features/ai-evaluation/types';
 import type { DuplicateCheckExportReportResult, DuplicateCheckWorkspaceState, FileSelectionResult, LocalFileSelection } from './bid';
 import type { BusinessBidAiExtractionResult, BusinessBidAttachmentPatch, BusinessBidClausePatch, BusinessBidExportReportResult, BusinessBidImportAttachmentsResult, BusinessBidImportDocumentResult, BusinessBidOfficeExportResult, BusinessBidState } from '../../features/business-bid/types';
 import type { ClientConfig, ConfigSaveResult, ImageModelTestResult, ModelListResult, UpdateChannel } from './config';
 import type {
   ImageKnowledgeAssetPatch,
+  ImageKnowledgeArchiveImportResult,
+  ImageKnowledgeArchiveSection,
   ImageKnowledgeBatchResult,
   ImageKnowledgeBatchUpdatePayload,
   ImageKnowledgeMarkdownReferenceRequest,
@@ -15,7 +17,19 @@ import type {
   ImageKnowledgeTagMutationResult,
   ImageKnowledgeUploadResult,
 } from '../../features/image-knowledge-base/types';
-import type { BidOpportunityExportCalendarResult, BidOpportunityExportReportResult, BidOpportunityFollowUpPatch, BidOpportunityImportResult, BidOpportunityInput, BidOpportunityState, BidOpportunityStatus } from '../../features/bid-opportunity/types';
+import type {
+  BidOpportunityAttachmentKind,
+  BidOpportunityAttachmentPatch,
+  BidOpportunityExportCalendarResult,
+  BidOpportunityExportReportResult,
+  BidOpportunityFollowUpPatch,
+  BidOpportunityFollowUpRecordInput,
+  BidOpportunityImportAttachmentsResult,
+  BidOpportunityImportResult,
+  BidOpportunityInput,
+  BidOpportunityState,
+  BidOpportunityStatus,
+} from '../../features/bid-opportunity/types';
 import type { KnowledgeAnalysisSnapshot, KnowledgeBaseActiveTasksSnapshot, KnowledgeBaseEvent, KnowledgeBaseIndex, KnowledgeBaseIndexMutationResult, KnowledgeBaseMigrationResult, KnowledgeBaseMigrationStatus, KnowledgeBaseMutationResult, KnowledgeBaseRetryDocumentResult, KnowledgeBaseStartMatchingResult, KnowledgeBaseUploadResult, KnowledgeDocument, KnowledgeFolder, KnowledgeItem } from '../../features/knowledge-base/types';
 import type { RejectionCheckExportReportResult, RejectionCheckWorkspaceState, RejectionDocumentRole } from '../../features/rejection-check/types';
 import type { BidAnalysisMode, BidAnalysisTaskState, ContentGenerationOptions, ContentGenerationPlanState, ContentGenerationRuntimeState, ContentGenerationSectionState, DetectedBidSection, GlobalFactGroupState, SaveOutlineRequest, TechnicalPlanState, TechnicalPlanStep, TechnicalPlanWorkflowKind } from '../../features/technical-plan/types';
@@ -81,7 +95,7 @@ export interface WordExportPreviewResult {
   error_message?: string;
 }
 
-export type DeveloperParserProvider = 'local' | 'mineru-accurate-api' | 'mineru-agent-api';
+export type DeveloperParserProvider = 'local' | 'local-ocr' | 'mineru-accurate-api' | 'mineru-agent-api';
 
 export interface DeveloperParserSampleResult {
   success: boolean;
@@ -98,15 +112,17 @@ export interface DeveloperParserSampleResult {
   markdown_chars?: number;
   image_count?: number;
   line_count?: number;
+  error_stage?: string;
 }
 
 export interface DeveloperParserCapability {
   extension: string;
   local_supported: boolean;
+  local_ocr_supported: boolean;
   mineru_accurate_supported: boolean;
   mineru_agent_supported: boolean;
   recommended_provider: DeveloperParserProvider | '';
-  status: 'local' | 'mixed' | 'remote' | 'remote-ocr' | 'unsupported';
+  status: 'local' | 'local-ocr' | 'mixed' | 'remote' | 'remote-ocr' | 'unsupported';
   note: string;
 }
 
@@ -197,12 +213,15 @@ export interface ProjectWorkspaceMutationResult {
   state: ProjectWorkspaceListResult;
   source_project_id?: string;
   imported_from?: string;
+  restart_required?: boolean;
+  runtime_reloaded?: boolean;
 }
 
 export interface ProjectWorkspaceActiveResult {
   success: boolean;
   active_project_id: string;
   restart_required: boolean;
+  runtime_reloaded?: boolean;
   state: ProjectWorkspaceListResult;
 }
 
@@ -261,12 +280,13 @@ export interface YibiaoBridge {
     listJsonFailureSamples: () => Promise<JsonFailureSamplesResult>;
     listJsonReplayLogs: () => Promise<JsonReplayLogsResult>;
     saveJsonFailureSample: (sample: JsonFailureSampleInput) => Promise<JsonFailureSamplesResult>;
+    savePromptDebugRecord: (record: PromptDebugRecordInput) => Promise<PromptDebugRecordResult>;
     clearJsonFailureSamples: () => Promise<JsonFailureSamplesResult>;
     testImageModel: (config: ClientConfig) => Promise<ImageModelTestResult>;
   };
   file: {
     selectDuplicateCheckFiles: (options?: { multiple?: boolean }) => Promise<FileSelectionResult>;
-    parseDeveloperSample: (options?: { provider?: DeveloperParserProvider; preserveImages?: boolean }) => Promise<DeveloperParserSampleResult>;
+    parseDeveloperSample: (options?: { provider?: DeveloperParserProvider; preserveImages?: boolean; filePath?: string }) => Promise<DeveloperParserSampleResult>;
     getDeveloperParserCapabilities: () => Promise<DeveloperParserCapabilityReport>;
   };
   knowledgeBase: {
@@ -291,6 +311,7 @@ export interface YibiaoBridge {
   imageKnowledgeBase: {
     list: (query?: ImageKnowledgeSearchQuery) => Promise<ImageKnowledgeState>;
     uploadImages: () => Promise<ImageKnowledgeUploadResult>;
+    importHistoricalArchives: (section: ImageKnowledgeArchiveSection) => Promise<ImageKnowledgeArchiveImportResult>;
     updateAsset: (id: string, patch: ImageKnowledgeAssetPatch) => Promise<ImageKnowledgeState>;
     batchUpdateAssets: (payload: ImageKnowledgeBatchUpdatePayload) => Promise<ImageKnowledgeBatchResult>;
     renameTag: (oldTag: string, newTag: string) => Promise<ImageKnowledgeTagMutationResult>;
@@ -370,6 +391,7 @@ export interface YibiaoBridge {
     saveExpertScore: (payload: AiEvaluationExpertScoreInput) => Promise<AiEvaluationState>;
     exportReport: (options?: { filePath?: string }) => Promise<AiEvaluationExportReportResult>;
     exportOfficePackage: (options: { format: 'docx' | 'xlsx'; filePath?: string }) => Promise<AiEvaluationOfficeExportResult>;
+    exportCommitteeReport: (options: { format: 'docx' | 'md'; filePath?: string }) => Promise<AiEvaluationCommitteeExportResult>;
     clear: () => Promise<AiEvaluationState>;
   };
   businessBid: {
@@ -393,6 +415,12 @@ export interface YibiaoBridge {
     importUrl: (payload: { url: string }) => Promise<BidOpportunityImportResult>;
     updateStatus: (id: string, status: BidOpportunityStatus) => Promise<BidOpportunityState>;
     updateFollowUp: (id: string, patch: BidOpportunityFollowUpPatch) => Promise<BidOpportunityState>;
+    addFollowUpRecord: (id: string, payload: BidOpportunityFollowUpRecordInput) => Promise<BidOpportunityState>;
+    updateFollowUpRecord: (id: string, patch: BidOpportunityFollowUpRecordInput) => Promise<BidOpportunityState>;
+    deleteFollowUpRecord: (id: string) => Promise<BidOpportunityState>;
+    importAttachments: (id: string, options?: { kind?: BidOpportunityAttachmentKind; filePaths?: string[]; note?: string }) => Promise<BidOpportunityImportAttachmentsResult>;
+    updateAttachment: (id: string, patch: BidOpportunityAttachmentPatch) => Promise<BidOpportunityState>;
+    deleteAttachment: (id: string) => Promise<BidOpportunityState>;
     deleteOpportunity: (id: string) => Promise<BidOpportunityState>;
     exportReport: (options?: { filePath?: string }) => Promise<BidOpportunityExportReportResult>;
     exportCalendar: (options?: { filePath?: string }) => Promise<BidOpportunityExportCalendarResult>;

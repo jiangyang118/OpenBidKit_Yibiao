@@ -1546,7 +1546,7 @@ button {
   line-height: 1.8;
 }
 
-.developer-secondary-demo-page {
+.developer-secondary-tools-page {
   display: grid;
   width: 100%;
   height: 100%;
@@ -1905,6 +1905,40 @@ button {
   line-height: 1.7;
 }
 
+.parser-sandbox-compare-control {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  background: var(--yb-surface-soft);
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 12px;
+}
+
+.parser-sandbox-compare-control strong {
+  color: var(--yb-text);
+}
+
+.parser-sandbox-provider-tabs {
+  display: grid;
+  gap: 8px;
+}
+
+.parser-sandbox-provider-tabs button {
+  min-height: 36px;
+  padding: 8px 10px;
+  color: var(--yb-text-soft);
+  text-align: left;
+  background: var(--yb-surface);
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 10px;
+}
+
+.parser-sandbox-provider-tabs button.is-active {
+  color: var(--yb-primary-strong);
+  background: rgba(47, 111, 237, 0.1);
+  border-color: rgba(47, 111, 237, 0.32);
+}
+
 .parser-sandbox-report {
   display: grid;
   gap: 14px;
@@ -1932,6 +1966,15 @@ button {
 
 .parser-sandbox-status span {
   color: var(--yb-text-soft);
+}
+
+.parser-sandbox-status small {
+  color: var(--yb-text-muted);
+}
+
+.parser-sandbox-comparison {
+  display: grid;
+  gap: 12px;
 }
 
 .parser-sandbox-markdown {
@@ -1995,6 +2038,7 @@ button {
 }
 
 .parser-capability-grid article.is-local,
+.parser-capability-grid article.is-local-ocr,
 .parser-capability-grid article.is-mixed {
   border-left-color: #31a66a;
 }
@@ -6824,6 +6868,7 @@ button {
 
 .form-field input,
 .form-field textarea,
+.form-field select,
 .opportunity-action-row select {
   width: 100%;
   color: var(--yb-text);
@@ -6834,6 +6879,7 @@ button {
 }
 
 .form-field input,
+.form-field select,
 .opportunity-action-row select {
   height: 42px;
   padding: 0 12px;
@@ -6940,6 +6986,8 @@ button {
 .opportunity-knowledge-panel,
 .opportunity-risk-panel,
 .opportunity-follow-up-panel,
+.opportunity-follow-history-panel,
+.opportunity-attachment-panel,
 .empty-panel {
   background: #f8fafd;
   border: 1px solid var(--yb-border-soft);
@@ -6982,6 +7030,158 @@ button {
 .opportunity-follow-up-panel textarea {
   min-height: 78px;
   resize: vertical;
+}
+
+.opportunity-follow-history-panel,
+.opportunity-attachment-panel {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 14px;
+}
+
+.opportunity-panel-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.opportunity-panel-title-row strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--yb-text);
+  font-size: 17px;
+}
+
+.opportunity-follow-up-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.opportunity-follow-up-form .form-field {
+  margin: 0;
+}
+
+.opportunity-follow-up-form .form-field.is-textarea {
+  grid-column: span 2;
+}
+
+.opportunity-follow-up-form textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.opportunity-follow-record-list,
+.opportunity-attachment-list {
+  display: grid;
+  gap: 10px;
+}
+
+.opportunity-follow-record-list article,
+.opportunity-attachment-list article,
+.opportunity-follow-record-list .is-empty,
+.opportunity-attachment-list .is-empty {
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid var(--yb-border-soft);
+  border-radius: 14px;
+}
+
+.opportunity-follow-record-list article {
+  display: grid;
+  gap: 7px;
+}
+
+.opportunity-follow-record-list article > div {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.opportunity-follow-record-list strong,
+.opportunity-attachment-main strong {
+  color: var(--yb-text);
+}
+
+.opportunity-follow-record-list span,
+.opportunity-follow-record-list small,
+.opportunity-follow-record-list .is-empty,
+.opportunity-attachment-list .is-empty,
+.opportunity-attachment-main span {
+  color: var(--yb-text-soft);
+}
+
+.opportunity-follow-record-list p {
+  margin: 0;
+  color: var(--yb-text);
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.opportunity-attachment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.opportunity-attachment-actions select,
+.opportunity-attachment-list select,
+.opportunity-attachment-list input {
+  height: 38px;
+  color: var(--yb-text);
+  background: #ffffff;
+  border: 1px solid var(--yb-border);
+  border-radius: 12px;
+  outline: none;
+}
+
+.opportunity-attachment-actions select,
+.opportunity-attachment-list select {
+  padding: 0 10px;
+}
+
+.opportunity-attachment-list article {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 112px minmax(120px, 0.8fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.opportunity-attachment-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.opportunity-attachment-main strong,
+.opportunity-attachment-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.opportunity-attachment-list input {
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.link-button {
+  width: max-content;
+  padding: 0;
+  color: var(--yb-primary);
+  font: inherit;
+  font-weight: 800;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.link-button.is-danger {
+  color: #c83220;
 }
 
 .opportunity-risk-panel {
@@ -7686,7 +7886,7 @@ button {
 
 .ai-evaluation-expert-editor {
   display: grid;
-  grid-template-columns: minmax(120px, 0.8fr) minmax(100px, 0.6fr) minmax(180px, 1.4fr) auto;
+  grid-template-columns: repeat(3, minmax(120px, 1fr)) minmax(160px, 1.2fr) auto;
   gap: 12px;
   align-items: end;
   padding: 12px;
@@ -7698,6 +7898,18 @@ button {
 .ai-evaluation-expert-editor label {
   display: grid;
   gap: 8px;
+}
+
+.ai-evaluation-signature-check {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 10px;
+  color: var(--yb-text);
+  font-weight: 700;
+  background: #ffffff;
+  border: 1px solid var(--yb-border);
+  border-radius: 12px;
 }
 
 .ai-evaluation-score-row > div,
@@ -7738,6 +7950,12 @@ button {
 .ai-evaluation-expert-editor input {
   height: 40px;
   padding: 0 10px;
+}
+
+.ai-evaluation-signature-check input {
+  width: auto;
+  height: auto;
+  margin: 0;
 }
 
 .ai-evaluation-field textarea {
@@ -7787,6 +8005,14 @@ button {
   margin: 0;
   color: var(--yb-text-soft);
   line-height: 1.7;
+}
+
+.image-knowledge-import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 300px;
 }
 
 .image-knowledge-toolbar {
@@ -12061,7 +12287,7 @@ button {
     grid-template-columns: 1fr;
   }
 
-  .developer-secondary-demo-page {
+  .developer-secondary-tools-page {
     overflow: auto;
   }
 

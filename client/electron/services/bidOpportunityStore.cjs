@@ -1,6 +1,8 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const path = require('node:path');
 const { dialog } = require('electron');
+const { getWorkspaceDir } = require('../utils/paths.cjs');
 
 const defaultParsedFields = {
   projectName: '',
@@ -15,6 +17,25 @@ const defaultParsedFields = {
 };
 
 const statusValues = new Set(['pending', 'tracking', 'abandoned', 'submitted', 'won', 'lost']);
+const followUpMethods = new Set(['phone', 'wechat', 'email', 'meeting', 'site', 'system', 'other']);
+const attachmentKinds = new Set(['announcement', 'communication', 'qualification', 'other']);
+
+const followUpMethodLabels = {
+  phone: '电话',
+  wechat: '微信',
+  email: '邮件',
+  meeting: '会议',
+  site: '现场',
+  system: '系统',
+  other: '其他',
+};
+
+const attachmentKindLabels = {
+  announcement: '公告附件',
+  communication: '沟通附件',
+  qualification: '资质附件',
+  other: '其他附件',
+};
 
 function now() {
   return new Date().toISOString();
@@ -34,8 +55,49 @@ function createId(sourceText) {
   return `opp-${hash}`;
 }
 
+function createFollowUpId(opportunityId, content) {
+  const hash = crypto.createHash('sha256').update(`${String(opportunityId || '')}\n${String(content || '')}\n${Date.now()}`, 'utf8').digest('hex').slice(0, 16);
+  return `opp-follow-${hash}`;
+}
+
+function createAttachmentId(opportunityId, filePath, index) {
+  const hash = crypto.createHash('sha256').update(`${String(opportunityId || '')}\n${String(filePath || '')}\n${Date.now()}\n${index}`, 'utf8').digest('hex').slice(0, 16);
+  return `opp-attachment-${hash}`;
+}
+
 function normalizeStatus(value) {
   return statusValues.has(value) ? value : 'pending';
+}
+
+function normalizeFollowUpMethod(value) {
+  return followUpMethods.has(value) ? value : 'other';
+}
+
+function normalizeAttachmentKind(value) {
+  return attachmentKinds.has(value) ? value : 'other';
+}
+
+function sanitizeFileName(value) {
+  return String(value || 'attachment')
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 160) || 'attachment';
+}
+
+function getBidOpportunityWorkspaceRoot(options = {}) {
+  if (options.workspaceRoot) return options.workspaceRoot;
+  const app = options.app;
+  if (app?.getPath) return getWorkspaceDir(app);
+  throw new Error('投标机会附件工作区未初始化');
+}
+
+function toWorkspaceRelativePath(absolutePath, workspaceRoot) {
+  return path.relative(workspaceRoot, absolutePath).replace(/\\/g, '/');
+}
+
+function resolveWorkspacePath(relativePath, workspaceRoot) {
+  return path.join(workspaceRoot, String(relativePath || '').replace(/\//g, path.sep));
 }
 
 function firstMatch(text, patterns) {
@@ -325,6 +387,39 @@ function rowToOpportunity(row) {
     reminderAt: row.reminder_at || '',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    followUps: [],
+    attachments: [],
+  };
+}
+
+function rowToFollowUp(row) {
+  return {
+    id: row.record_id,
+    opportunityId: row.opportunity_id,
+    occurredAt: row.occurred_at || '',
+    method: normalizeFollowUpMethod(row.method),
+    owner: row.owner || '',
+    contactPerson: row.contact_person || '',
+    content: row.content || '',
+    nextAction: row.next_action || '',
+    nextFollowUpAt: row.next_follow_up_at || '',
+    createdAt: row.created_at || '',
+    updatedAt: row.updated_at || '',
+  };
+}
+
+function rowToAttachment(row) {
+  return {
+    id: row.attachment_id,
+    opportunityId: row.opportunity_id,
+    kind: normalizeAttachmentKind(row.kind),
+    fileName: row.file_name || '',
+    storedPath: row.stored_path || '',
+    originalPath: row.original_path || '',
+    fileSize: Number(row.file_size || 0),
+    note: row.note || '',
+    createdAt: row.created_at || '',
+    updatedAt: row.updated_at || '',
   };
 }
 
@@ -445,6 +540,28 @@ function buildKnowledgeMatchList(opportunity) {
   ].filter(Boolean).join('\n')).join('\n');
 }
 
+function buildFollowUpList(opportunity) {
+  const records = Array.isArray(opportunity.followUps) ? opportunity.followUps : [];
+  if (!records.length) return '- 暂无多轮跟进记录。';
+  return records.map((record, index) => [
+    `- ${index + 1}. ${record.occurredAt || '未记录时间'} ${followUpMethodLabels[record.method] || '其他'}${record.owner ? `｜${record.owner}` : ''}${record.contactPerson ? `｜${record.contactPerson}` : ''}`,
+    record.content ? `  - 沟通记录：${record.content}` : '',
+    record.nextAction ? `  - 下一步：${record.nextAction}` : '',
+    record.nextFollowUpAt ? `  - 下次跟进：${record.nextFollowUpAt}` : '',
+  ].filter(Boolean).join('\n')).join('\n');
+}
+
+function buildAttachmentList(opportunity) {
+  const attachments = Array.isArray(opportunity.attachments) ? opportunity.attachments : [];
+  if (!attachments.length) return '- 暂无公告或沟通附件。';
+  return attachments.map((attachment, index) => [
+    `- ${index + 1}. ${attachment.fileName || '未命名附件'}（${attachmentKindLabels[attachment.kind] || '其他附件'}）`,
+    attachment.note ? `  - 说明：${attachment.note}` : '',
+    attachment.originalPath ? `  - 原始路径：${attachment.originalPath}` : '',
+    attachment.storedPath ? `  - 工作区路径：${attachment.storedPath}` : '',
+  ].filter(Boolean).join('\n')).join('\n');
+}
+
 function buildBidOpportunityReportMarkdown(state) {
   const opportunities = Array.isArray(state?.opportunities) ? state.opportunities : [];
   const trackingCount = opportunities.filter((item) => item.status === 'tracking').length;
@@ -477,6 +594,14 @@ function buildBidOpportunityReportMarkdown(state) {
     '#### 知识库/历史项目匹配',
     '',
     buildKnowledgeMatchList(opportunity),
+    '',
+    '#### 跟进记录',
+    '',
+    buildFollowUpList(opportunity),
+    '',
+    '#### 公告/沟通附件',
+    '',
+    buildAttachmentList(opportunity),
     '',
     '#### 风险提示',
     '',
@@ -560,14 +685,63 @@ function buildBidOpportunityCalendarIcs(state) {
   };
 }
 
-function createBidOpportunityStore({ db, fileService, aiService }) {
+function createBidOpportunityStore({ db, fileService, aiService, app, workspaceRoot }) {
+  const workspaceOptions = { app, workspaceRoot };
+
   function loadState() {
     const rows = db.prepare('SELECT * FROM bid_opportunity_opportunities ORDER BY updated_at DESC, created_at DESC').all();
     const opportunities = rows.map(rowToOpportunity);
+    const byId = new Map(opportunities.map((opportunity) => [opportunity.id, opportunity]));
+    let followUps = [];
+    let attachments = [];
+    try {
+      followUps = db.prepare('SELECT * FROM bid_opportunity_follow_ups ORDER BY occurred_at DESC, created_at DESC').all().map(rowToFollowUp);
+    } catch {
+      followUps = [];
+    }
+    try {
+      attachments = db.prepare('SELECT * FROM bid_opportunity_attachments ORDER BY updated_at DESC, created_at DESC').all().map(rowToAttachment);
+    } catch {
+      attachments = [];
+    }
+    for (const record of followUps) {
+      const opportunity = byId.get(record.opportunityId);
+      if (opportunity) opportunity.followUps.push(record);
+    }
+    for (const attachment of attachments) {
+      const opportunity = byId.get(attachment.opportunityId);
+      if (opportunity) opportunity.attachments.push(attachment);
+    }
     return {
       opportunities,
       activeOpportunityId: opportunities[0]?.id || null,
     };
+  }
+
+  function getOpportunityRow(opportunityId) {
+    return db.prepare('SELECT * FROM bid_opportunity_opportunities WHERE opportunity_id = ?').get(opportunityId);
+  }
+
+  function updateOpportunityFollowUpSummary(opportunityId, patch = {}) {
+    const current = getOpportunityRow(opportunityId);
+    if (!current) throw new Error('投标机会不存在');
+    const nextStatus = normalizeStatus(patch.status === undefined ? current.status : patch.status);
+    db.prepare(`
+      UPDATE bid_opportunity_opportunities
+      SET status = @status,
+          owner = @owner,
+          next_action = @next_action,
+          reminder_at = @reminder_at,
+          updated_at = @updated_at
+      WHERE opportunity_id = @opportunity_id
+    `).run({
+      opportunity_id: opportunityId,
+      status: nextStatus,
+      owner: String(patch.owner ?? current.owner ?? '').trim().slice(0, 80),
+      next_action: String(patch.nextAction ?? patch.next_action ?? current.next_action ?? '').trim().slice(0, 240),
+      reminder_at: String(patch.reminderAt ?? patch.reminder_at ?? current.reminder_at ?? '').trim().slice(0, 80),
+      updated_at: now(),
+    });
   }
 
   function matchKnowledgeItems(parsedFields, sourceText) {
@@ -680,23 +854,190 @@ function createBidOpportunityStore({ db, fileService, aiService }) {
   function updateFollowUp(id, patch = {}) {
     const opportunityId = String(id || '').trim();
     if (!opportunityId) throw new Error('机会 ID 不能为空');
-    const current = loadState().opportunities.find((item) => item.id === opportunityId);
+    const current = getOpportunityRow(opportunityId);
     if (!current) throw new Error('投标机会不存在');
-    const result = db.prepare(`
-      UPDATE bid_opportunity_opportunities
-      SET owner = @owner,
-          next_action = @next_action,
-          reminder_at = @reminder_at,
-          updated_at = @updated_at
-      WHERE opportunity_id = @opportunity_id
+    updateOpportunityFollowUpSummary(opportunityId, patch);
+    return loadState();
+  }
+
+  function addFollowUpRecord(id, payload = {}) {
+    const opportunityId = String(id || '').trim();
+    if (!opportunityId) throw new Error('机会 ID 不能为空');
+    const current = getOpportunityRow(opportunityId);
+    if (!current) throw new Error('投标机会不存在');
+    const content = String(payload.content || '').trim();
+    const nextAction = String(payload.nextAction ?? payload.next_action ?? '').trim();
+    if (!content && !nextAction) throw new Error('请填写本次沟通记录或下一步动作');
+    const timestamp = now();
+    const occurredAt = String(payload.occurredAt ?? payload.occurred_at ?? timestamp).trim() || timestamp;
+    const nextFollowUpAt = String(payload.nextFollowUpAt ?? payload.next_follow_up_at ?? '').trim().slice(0, 80);
+    const owner = String(payload.owner ?? current.owner ?? '').trim().slice(0, 80);
+    const recordId = createFollowUpId(opportunityId, `${content}\n${nextAction}`);
+    db.prepare(`
+      INSERT INTO bid_opportunity_follow_ups (
+        record_id, opportunity_id, occurred_at, method, owner, contact_person, content, next_action, next_follow_up_at, created_at, updated_at
+      ) VALUES (
+        @record_id, @opportunity_id, @occurred_at, @method, @owner, @contact_person, @content, @next_action, @next_follow_up_at, @created_at, @updated_at
+      )
     `).run({
+      record_id: recordId,
       opportunity_id: opportunityId,
-      owner: String(patch.owner ?? current.owner ?? '').trim().slice(0, 80),
-      next_action: String(patch.nextAction ?? patch.next_action ?? current.nextAction ?? '').trim().slice(0, 240),
-      reminder_at: String(patch.reminderAt ?? patch.reminder_at ?? current.reminderAt ?? '').trim().slice(0, 80),
+      occurred_at: occurredAt,
+      method: normalizeFollowUpMethod(payload.method),
+      owner,
+      contact_person: String(payload.contactPerson ?? payload.contact_person ?? '').trim().slice(0, 120),
+      content: content.slice(0, 2000),
+      next_action: nextAction.slice(0, 240),
+      next_follow_up_at: nextFollowUpAt,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    updateOpportunityFollowUpSummary(opportunityId, {
+      owner,
+      nextAction: nextAction || current.next_action,
+      reminderAt: nextFollowUpAt || current.reminder_at,
+      status: ['pending', 'tracking'].includes(current.status) ? 'tracking' : current.status,
+    });
+    return loadState();
+  }
+
+  function updateFollowUpRecord(recordId, patch = {}) {
+    const id = String(recordId || '').trim();
+    if (!id) throw new Error('跟进记录 ID 不能为空');
+    const existing = db.prepare('SELECT * FROM bid_opportunity_follow_ups WHERE record_id = ?').get(id);
+    if (!existing) throw new Error('跟进记录不存在');
+    db.prepare(`
+      UPDATE bid_opportunity_follow_ups
+      SET occurred_at = @occurred_at,
+          method = @method,
+          owner = @owner,
+          contact_person = @contact_person,
+          content = @content,
+          next_action = @next_action,
+          next_follow_up_at = @next_follow_up_at,
+          updated_at = @updated_at
+      WHERE record_id = @record_id
+    `).run({
+      record_id: id,
+      occurred_at: String(patch.occurredAt ?? patch.occurred_at ?? existing.occurred_at ?? '').trim().slice(0, 80),
+      method: normalizeFollowUpMethod(patch.method === undefined ? existing.method : patch.method),
+      owner: String(patch.owner ?? existing.owner ?? '').trim().slice(0, 80),
+      contact_person: String(patch.contactPerson ?? patch.contact_person ?? existing.contact_person ?? '').trim().slice(0, 120),
+      content: String(patch.content ?? existing.content ?? '').trim().slice(0, 2000),
+      next_action: String(patch.nextAction ?? patch.next_action ?? existing.next_action ?? '').trim().slice(0, 240),
+      next_follow_up_at: String(patch.nextFollowUpAt ?? patch.next_follow_up_at ?? existing.next_follow_up_at ?? '').trim().slice(0, 80),
       updated_at: now(),
     });
-    if (!result.changes) throw new Error('投标机会不存在');
+    return loadState();
+  }
+
+  function deleteFollowUpRecord(recordId) {
+    const id = String(recordId || '').trim();
+    if (!id) throw new Error('跟进记录 ID 不能为空');
+    db.prepare('DELETE FROM bid_opportunity_follow_ups WHERE record_id = ?').run(id);
+    return loadState();
+  }
+
+  async function importAttachments(id, options = {}) {
+    const opportunityId = String(id || '').trim();
+    if (!opportunityId) throw new Error('机会 ID 不能为空');
+    const current = getOpportunityRow(opportunityId);
+    if (!current) throw new Error('投标机会不存在');
+    const kind = normalizeAttachmentKind(options.kind || 'announcement');
+    let filePaths = Array.isArray(options.filePaths) ? options.filePaths.filter(Boolean) : [];
+    if (!filePaths.length) {
+      const result = await dialog.showOpenDialog({
+        title: kind === 'communication' ? '选择沟通附件' : '选择公告附件',
+        properties: ['openFile', 'multiSelections'],
+        filters: [
+          { name: '公告/沟通附件', extensions: ['doc', 'docx', 'pdf', 'xls', 'xlsx', 'wps', 'png', 'jpg', 'jpeg', 'zip', 'rar', 'txt', 'md'] },
+          { name: '所有文件', extensions: ['*'] },
+        ],
+      });
+      if (result.canceled || !result.filePaths.length) {
+        return { success: false, message: '已取消导入附件', state: loadState() };
+      }
+      filePaths = result.filePaths;
+    }
+
+    const workspace = getBidOpportunityWorkspaceRoot(workspaceOptions);
+    const attachmentDir = path.join(workspace, 'bid-opportunity', 'attachments', opportunityId);
+    fs.mkdirSync(attachmentDir, { recursive: true });
+    const timestamp = now();
+    const imported = [];
+    const insert = db.prepare(`
+      INSERT INTO bid_opportunity_attachments (
+        attachment_id, opportunity_id, kind, file_name, stored_path, original_path, file_size, note, created_at, updated_at
+      ) VALUES (
+        @attachment_id, @opportunity_id, @kind, @file_name, @stored_path, @original_path, @file_size, @note, @created_at, @updated_at
+      )
+    `);
+    for (const [index, filePath] of filePaths.entries()) {
+      const absolutePath = String(filePath || '').trim();
+      if (!absolutePath || !fs.existsSync(absolutePath)) continue;
+      const stats = fs.statSync(absolutePath);
+      if (!stats.isFile()) continue;
+      const fileName = sanitizeFileName(path.basename(absolutePath));
+      const attachmentId = createAttachmentId(opportunityId, absolutePath, index);
+      const storedAbsolutePath = path.join(attachmentDir, `${attachmentId}-${fileName}`);
+      fs.copyFileSync(absolutePath, storedAbsolutePath);
+      insert.run({
+        attachment_id: attachmentId,
+        opportunity_id: opportunityId,
+        kind,
+        file_name: fileName,
+        stored_path: toWorkspaceRelativePath(storedAbsolutePath, workspace),
+        original_path: absolutePath,
+        file_size: stats.size,
+        note: String(options.note || '').trim().slice(0, 500),
+        created_at: timestamp,
+        updated_at: timestamp,
+      });
+      imported.push(fileName);
+    }
+    updateOpportunityFollowUpSummary(opportunityId, {});
+    return {
+      success: imported.length > 0,
+      message: imported.length ? `已导入 ${imported.length} 个投标机会附件` : '未导入有效附件',
+      state: loadState(),
+    };
+  }
+
+  function updateAttachment(id, patch = {}) {
+    const attachmentId = String(id || '').trim();
+    if (!attachmentId) throw new Error('附件 ID 不能为空');
+    const existing = db.prepare('SELECT * FROM bid_opportunity_attachments WHERE attachment_id = ?').get(attachmentId);
+    if (!existing) throw new Error('附件不存在');
+    db.prepare(`
+      UPDATE bid_opportunity_attachments
+      SET kind = @kind,
+          note = @note,
+          updated_at = @updated_at
+      WHERE attachment_id = @attachment_id
+    `).run({
+      attachment_id: attachmentId,
+      kind: normalizeAttachmentKind(patch.kind === undefined ? existing.kind : patch.kind),
+      note: patch.note === undefined ? existing.note : String(patch.note || '').trim().slice(0, 500),
+      updated_at: now(),
+    });
+    updateOpportunityFollowUpSummary(existing.opportunity_id, {});
+    return loadState();
+  }
+
+  function deleteAttachment(id) {
+    const attachmentId = String(id || '').trim();
+    if (!attachmentId) throw new Error('附件 ID 不能为空');
+    const existing = db.prepare('SELECT * FROM bid_opportunity_attachments WHERE attachment_id = ?').get(attachmentId);
+    if (!existing) return loadState();
+    db.prepare('DELETE FROM bid_opportunity_attachments WHERE attachment_id = ?').run(attachmentId);
+    try {
+      const workspace = getBidOpportunityWorkspaceRoot(workspaceOptions);
+      const storedPath = resolveWorkspacePath(existing.stored_path, workspace);
+      if (fs.existsSync(storedPath)) fs.unlinkSync(storedPath);
+    } catch {
+      // 附件文件清理失败不阻塞记录删除。
+    }
+    updateOpportunityFollowUpSummary(existing.opportunity_id, {});
     return loadState();
   }
 
@@ -747,12 +1088,40 @@ function createBidOpportunityStore({ db, fileService, aiService }) {
   function deleteOpportunity(id) {
     const opportunityId = String(id || '').trim();
     if (!opportunityId) throw new Error('机会 ID 不能为空');
+    let attachments = [];
+    try {
+      attachments = db.prepare('SELECT * FROM bid_opportunity_attachments WHERE opportunity_id = ?').all(opportunityId);
+    } catch {
+      attachments = [];
+    }
     db.prepare('DELETE FROM bid_opportunity_opportunities WHERE opportunity_id = ?').run(opportunityId);
+    try {
+      const workspace = getBidOpportunityWorkspaceRoot(workspaceOptions);
+      for (const attachment of attachments) {
+        const storedPath = resolveWorkspacePath(attachment.stored_path, workspace);
+        if (fs.existsSync(storedPath)) fs.unlinkSync(storedPath);
+      }
+      fs.rmSync(path.join(workspace, 'bid-opportunity', 'attachments', opportunityId), { recursive: true, force: true });
+    } catch {
+      // 数据删除已完成，附件文件清理失败不影响用户继续整理机会。
+    }
     return loadState();
   }
 
   function clear() {
+    try {
+      db.prepare('DELETE FROM bid_opportunity_follow_ups').run();
+      db.prepare('DELETE FROM bid_opportunity_attachments').run();
+    } catch {
+      // 兼容旧库或测试替身只包含主表的情况。
+    }
     db.prepare('DELETE FROM bid_opportunity_opportunities').run();
+    try {
+      const workspace = getBidOpportunityWorkspaceRoot(workspaceOptions);
+      fs.rmSync(path.join(workspace, 'bid-opportunity', 'attachments'), { recursive: true, force: true });
+    } catch {
+      // 清空业务数据已完成，附件目录清理失败不影响工作台恢复。
+    }
     return loadState();
   }
 
@@ -823,6 +1192,12 @@ function createBidOpportunityStore({ db, fileService, aiService }) {
     importOpportunityDocument,
     importOpportunityUrl,
     updateFollowUp,
+    addFollowUpRecord,
+    updateFollowUpRecord,
+    deleteFollowUpRecord,
+    importAttachments,
+    updateAttachment,
+    deleteAttachment,
     updateStatus,
     deleteOpportunity,
     exportReport,

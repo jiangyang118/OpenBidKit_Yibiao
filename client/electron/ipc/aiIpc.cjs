@@ -6,6 +6,7 @@ function registerAiIpc({ aiService }) {
   ipcMain.handle('ai:list-json-failure-samples', () => aiService.listJsonFailureSamples());
   ipcMain.handle('ai:list-json-replay-logs', () => aiService.listJsonReplayLogs());
   ipcMain.handle('ai:save-json-failure-sample', (_event, sample) => aiService.saveJsonFailureSample(sample));
+  ipcMain.handle('ai:save-prompt-debug-record', (_event, record) => aiService.savePromptDebugRecord(record));
   ipcMain.handle('ai:clear-json-failure-samples', () => aiService.clearJsonFailureSamples());
   ipcMain.handle('ai:test-image-model', (_event, config) => aiService.testImageModel(config));
 }

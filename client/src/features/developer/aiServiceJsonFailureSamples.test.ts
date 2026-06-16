@@ -10,6 +10,7 @@ const require = createRequire(import.meta.url);
 const { createAiService } = require('../../../electron/services/aiService.cjs') as {
   createAiService: (options: { app: { getPath: (name: string) => string }; configStore: { load: () => Record<string, unknown> } }) => {
     saveJsonFailureSample: (sample: Record<string, unknown>) => Promise<{ success: boolean; samples: Array<Record<string, unknown>>; filePath: string }>;
+    savePromptDebugRecord: (record: Record<string, unknown>) => Promise<{ success: boolean; record: Record<string, unknown>; filePath: string }>;
     listJsonFailureSamples: () => Promise<{ success: boolean; samples: Array<Record<string, unknown>>; filePath: string }>;
     listJsonReplayLogs: () => Promise<{ success: boolean; logs: Array<Record<string, unknown>> }>;
     clearJsonFailureSamples: () => Promise<{ success: boolean; samples: Array<Record<string, unknown>>; filePath: string }>;
@@ -93,5 +94,36 @@ describe('aiService JSON failure samples', () => {
     expect(result.logs[0].invalid_content).toContain('[LOCAL_PATH_REMOVED]');
     expect(result.logs[0].invalid_content).toContain('[API_KEY_REMOVED]');
     expect(JSON.stringify(result.logs[0])).not.toContain('完整 prompt');
+  });
+
+  it('appends sanitized prompt debug records to developer logs', async () => {
+    const { service, userData } = createServiceContext();
+
+    const saved = await service.savePromptDebugRecord({
+      chainId: 'content-planning',
+      chainLabel: '正文编排 - 章节计划 JSON',
+      responseFormat: 'json_object',
+      schema: '{"outline":[]}',
+      messageCount: 1,
+      charCount: 50,
+      messages: [{
+        role: 'user',
+        content: '本地路径 /Users/jack/secret/file.md 和 token sk-1234567890abcdef 不应原样保存',
+      }],
+    });
+
+    expect(saved.success).toBe(true);
+    expect(saved.filePath).toContain(path.join('logs', 'developer-prompt-lab', 'debug-records.jsonl'));
+    expect(fs.existsSync(saved.filePath)).toBe(true);
+
+    const jsonl = fs.readFileSync(saved.filePath, 'utf-8').trim();
+    const record = JSON.parse(jsonl);
+    expect(record.chain_id).toBe('content-planning');
+    expect(record.chain_label).toBe('正文编排 - 章节计划 JSON');
+    expect(record.messages[0].content).toContain('[LOCAL_PATH_REMOVED]');
+    expect(record.messages[0].content).toContain('[API_KEY_REMOVED]');
+    expect(jsonl).not.toContain('/Users/jack/secret/file.md');
+    expect(jsonl).not.toContain('sk-1234567890abcdef');
+    expect(saved.filePath.startsWith(userData)).toBe(true);
   });
 });

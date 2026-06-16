@@ -18,6 +18,8 @@ const ANALYTICS_PROJECT_NAME = 'yibiao-client';
 const JSON_FAILURE_SAMPLE_LIMIT = 20;
 const JSON_FAILURE_SAMPLE_TEXT_LIMIT = 12000;
 const JSON_FAILURE_SAMPLE_FILE = 'failure-samples.json';
+const PROMPT_DEBUG_RECORD_TEXT_LIMIT = 12000;
+const PROMPT_DEBUG_RECORD_FILE = 'debug-records.jsonl';
 const JSON_LOG_REPLAY_LIMIT = 20;
 const OPENAI_IMAGE_PROVIDER_META = {
   jinlong: {
@@ -129,8 +131,20 @@ function getJsonFailureSamplesPath(app) {
   return path.join(app.getPath('userData'), 'logs', 'developer-json-lab', JSON_FAILURE_SAMPLE_FILE);
 }
 
+function getPromptDebugRecordsPath(app) {
+  return path.join(app.getPath('userData'), 'logs', 'developer-prompt-lab', PROMPT_DEBUG_RECORD_FILE);
+}
+
 function compactJsonFailureText(value, limit = JSON_FAILURE_SAMPLE_TEXT_LIMIT) {
   return String(value || '').slice(0, limit);
+}
+
+function compactPromptDebugText(value, limit = PROMPT_DEBUG_RECORD_TEXT_LIMIT) {
+  return String(value || '')
+    .replace(/sk-[A-Za-z0-9_-]{12,}/g, '[API_KEY_REMOVED]')
+    .replace(/[A-Za-z]:\\[^\s"'`]+/g, '[LOCAL_PATH_REMOVED]')
+    .replace(/\/Users\/[^\s"'`]+/g, '[LOCAL_PATH_REMOVED]')
+    .slice(0, limit);
 }
 
 function normalizeJsonFailureIssues(issues) {
@@ -189,6 +203,57 @@ function saveJsonFailureSample(app, input) {
   ].slice(0, JSON_FAILURE_SAMPLE_LIMIT);
   const filePath = writeJsonFailureSamples(app, samples);
   return { success: true, message: 'JSON 失败样本已保存', sample, samples, filePath };
+}
+
+function normalizePromptDebugRecord(input = {}) {
+  const messages = (Array.isArray(input.messages) ? input.messages : [])
+    .slice(0, 20)
+    .map((message) => ({
+      role: String(message?.role || '').slice(0, 24),
+      content: compactPromptDebugText(message?.content),
+    }))
+    .filter((message) => message.role && message.content);
+
+  const messageCount = Number.isFinite(Number(input.messageCount))
+    ? Number(input.messageCount)
+    : messages.length;
+  const charCount = Number.isFinite(Number(input.charCount))
+    ? Number(input.charCount)
+    : messages.reduce((sum, message) => sum + message.content.length, 0);
+
+  return {
+    id: String(input.id || createRequestId()),
+    created_at: String(input.created_at || input.createdAt || new Date().toISOString()),
+    chain_id: String(input.chain_id || input.chainId || '').slice(0, 120),
+    chain_label: String(input.chain_label || input.chainLabel || '').slice(0, 160),
+    response_format: String(input.response_format || input.responseFormat || '').slice(0, 80),
+    schema: compactPromptDebugText(input.schema, 4000),
+    message_count: messageCount,
+    char_count: charCount,
+    messages,
+    redaction: {
+      api_key: 'not included',
+      base_url: 'not included',
+      local_path: 'removed if present',
+      file_name: 'sample only',
+    },
+  };
+}
+
+function savePromptDebugRecord(app, input) {
+  const record = normalizePromptDebugRecord(input);
+  if (!record.chain_id || !record.chain_label || !record.messages.length) {
+    throw new Error('缺少可保存的 Prompt 调试记录');
+  }
+  const filePath = getPromptDebugRecordsPath(app);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.appendFileSync(filePath, `${JSON.stringify(record)}\n`, 'utf-8');
+  return {
+    success: true,
+    message: 'Prompt 调试记录已保存',
+    record,
+    filePath,
+  };
 }
 
 function redactJsonReplayText(value) {
@@ -965,6 +1030,31 @@ function createCodexCliArgs(config, outputFile) {
   return args;
 }
 
+function summarizeCodexCliFailure(stderr, stdout, signal) {
+  const combined = [stderr, stdout].filter(Boolean).join('\n').trim();
+  if (!combined) {
+    return signal ? `进程被终止：${signal}` : '';
+  }
+
+  if (/Codex ran out of room in the model's context window/i.test(combined)) {
+    return 'Codex CLI 上下文窗口不足：本次输入内容过长，请减少参考资料或分批生成。';
+  }
+
+  const lines = combined.split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const importantLines = lines.filter((line) => {
+    if (/^\d{4}-\d{2}-\d{2}T.*\bWARN\b/.test(line)) return false;
+    if (/^OpenAI Codex\b|^workdir:|^model:|^provider:|^approval:|^sandbox:|^reasoning\b|^session id:|^-{4,}$/.test(line)) return false;
+    return /\b(ERROR|Error|error|failed|失败|超时|timeout|not found|未找到)\b/.test(line);
+  });
+  const summary = (importantLines.length ? importantLines : lines)
+    .slice(-8)
+    .join('\n')
+    .trim();
+  return summary.length > 1600 ? `${summary.slice(0, 1600)}...` : summary;
+}
+
 function runCodexCli(app, config, prompt, options = {}) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-codex-'));
   const outputFile = path.join(tempDir, 'last-message.txt');
@@ -1003,7 +1093,7 @@ function runCodexCli(app, config, prompt, options = {}) {
       const stderr = Buffer.concat(stderrParts).toString('utf-8').trim();
       try {
         if (code !== 0) {
-          const suffix = stderr || stdout || (signal ? `进程被终止：${signal}` : '');
+          const suffix = summarizeCodexCliFailure(stderr, stdout, signal);
           reject(new Error(`Codex CLI 调用失败${suffix ? `：${suffix}` : ''}`));
           return;
         }
@@ -1907,6 +1997,10 @@ function createAiService({ app, configStore }) {
 
     async saveJsonFailureSample(sample) {
       return saveJsonFailureSample(app, sample);
+    },
+
+    async savePromptDebugRecord(record) {
+      return savePromptDebugRecord(app, record);
     },
 
     async clearJsonFailureSamples() {

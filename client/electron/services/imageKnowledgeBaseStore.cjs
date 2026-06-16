@@ -1,11 +1,14 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const AdmZip = require('adm-zip');
 const { dialog, nativeImage } = require('electron');
 const { lookup: lookupMimeType } = require('mime-types');
 const { getImageKnowledgeBaseImagesDir } = require('../utils/paths.cjs');
 
 const supportedExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
+const supportedArchiveExtensions = new Set(['.zip']);
+const historicalArchiveSections = new Set(['图片素材图示', '资质扫描管理']);
 
 function now() {
   return new Date().toISOString();
@@ -238,27 +241,27 @@ function createImageKnowledgeBaseStore({ app, db }) {
     }
   }
 
-  function importOne(filePath) {
-    const ext = path.extname(filePath).toLowerCase();
+  function importImageBuffer(input) {
+    const ext = path.extname(input.fileName).toLowerCase();
     if (!supportedExtensions.has(ext)) {
       return { imported: false, skipped: true };
     }
-    const buffer = fs.readFileSync(filePath);
+    const buffer = input.buffer;
     const contentHash = stableHash(buffer);
     const existing = db.prepare('SELECT image_id FROM image_knowledge_assets WHERE content_hash = ?').get(contentHash);
     if (existing) {
       return { imported: false, skipped: true };
     }
     const imageId = createAssetId(contentHash);
-    const fileName = path.basename(filePath);
+    const fileName = path.basename(input.fileName);
     const storedFileName = `${imageId}${ext === '.jpeg' ? '.jpg' : ext}`;
     const storedPath = path.join(imagesDir, storedFileName);
     fs.mkdirSync(imagesDir, { recursive: true });
-    fs.copyFileSync(filePath, storedPath);
+    fs.writeFileSync(storedPath, buffer);
     const thumbnail = createThumbnailDataUrl(storedPath);
     const stat = fs.statSync(storedPath);
     const timestamp = now();
-    const tags = [];
+    const tags = normalizeTags(input.tags);
     db.prepare(`
       INSERT INTO image_knowledge_assets (
         image_id, file_name, title, category, folder, description, source, scenario, tags_json,
@@ -272,14 +275,14 @@ function createImageKnowledgeBaseStore({ app, db }) {
     `).run({
       image_id: imageId,
       file_name: fileName,
-      title: path.basename(fileName, ext),
-      category: '未分类',
-      folder: '',
-      description: '',
-      source: '',
-      scenario: '',
+      title: normalizeText(input.title, path.basename(fileName, ext)),
+      category: normalizeText(input.category, '未分类'),
+      folder: normalizeText(input.folder),
+      description: normalizeText(input.description),
+      source: normalizeText(input.source),
+      scenario: normalizeText(input.scenario),
       tags_json: JSON.stringify(tags),
-      original_path: filePath,
+      original_path: normalizeText(input.originalPath, fileName),
       stored_path: storedPath,
       mime_type: lookupMimeType(storedPath) || 'image/*',
       size: stat.size,
@@ -291,6 +294,16 @@ function createImageKnowledgeBaseStore({ app, db }) {
       updated_at: timestamp,
     });
     return { imported: true, skipped: false };
+  }
+
+  function importOne(filePath) {
+    return importImageBuffer({
+      fileName: path.basename(filePath),
+      originalPath: filePath,
+      buffer: fs.readFileSync(filePath),
+      category: '未分类',
+      tags: [],
+    });
   }
 
   async function uploadImages() {
@@ -322,6 +335,102 @@ function createImageKnowledgeBaseStore({ app, db }) {
       imported,
       skipped,
       message: imported ? `已导入 ${imported} 张图片${skipped ? `，跳过 ${skipped} 张` : ''}` : '未导入新图片',
+    };
+  }
+
+  function deriveArchiveEntryMetadata(archivePath, entryName, section) {
+    const archiveName = path.basename(archivePath);
+    const archiveTitle = path.basename(archiveName, path.extname(archiveName));
+    const normalizedEntryName = String(entryName || '').replace(/\\/g, '/').replace(/^\/+/, '');
+    const entryDir = path.posix.dirname(normalizedEntryName);
+    const folderParts = [archiveTitle];
+    if (entryDir && entryDir !== '.') {
+      folderParts.push(entryDir);
+    }
+    const entryTitle = path.basename(normalizedEntryName, path.extname(normalizedEntryName));
+    return {
+      fileName: path.basename(normalizedEntryName),
+      title: entryTitle,
+      originalPath: `${archivePath}::${normalizedEntryName}`,
+      category: section,
+      folder: folderParts.join(' / '),
+      source: `历史压缩包：${archiveName}`,
+      scenario: section,
+      description: `从历史压缩包“${archiveName}”中的“${normalizedEntryName}”导入。`,
+      tags: [section, archiveTitle, ...entryDir.split('/').filter((part) => part && part !== '.')],
+    };
+  }
+
+  function importArchive(archivePath, section) {
+    const ext = path.extname(archivePath).toLowerCase();
+    if (!supportedArchiveExtensions.has(ext)) {
+      return { imported: 0, skipped: 1 };
+    }
+    const zip = new AdmZip(archivePath);
+    let imported = 0;
+    let skipped = 0;
+    for (const entry of zip.getEntries()) {
+      const entryName = String(entry.entryName || '');
+      const entryExt = path.extname(entryName).toLowerCase();
+      if (entry.isDirectory || !supportedExtensions.has(entryExt)) {
+        skipped += 1;
+        continue;
+      }
+      try {
+        const item = importImageBuffer({
+          ...deriveArchiveEntryMetadata(archivePath, entryName, section),
+          buffer: entry.getData(),
+        });
+        if (item.imported) imported += 1;
+        if (item.skipped) skipped += 1;
+      } catch (error) {
+        console.warn('[image-knowledge-base] 历史压缩包图片导入失败', {
+          archive: path.basename(archivePath),
+          entry: entryName,
+          message: error.message || String(error),
+        });
+        skipped += 1;
+      }
+    }
+    return { imported, skipped };
+  }
+
+  async function importHistoricalArchives(sectionInput) {
+    const section = normalizeText(sectionInput);
+    if (!historicalArchiveSections.has(section)) {
+      throw new Error('未知历史素材部分');
+    }
+    const result = await dialog.showOpenDialog({
+      title: `选择${section}历史压缩包`,
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: '历史压缩包', extensions: [...supportedArchiveExtensions].map((item) => item.slice(1)) },
+        { name: '所有文件', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || !result.filePaths.length) {
+      return { ...list(), imported: 0, skipped: 0, archives: 0, message: '已取消选择' };
+    }
+    let imported = 0;
+    let skipped = 0;
+    let archives = 0;
+    for (const archivePath of result.filePaths) {
+      try {
+        const item = importArchive(archivePath, section);
+        imported += item.imported;
+        skipped += item.skipped;
+        archives += 1;
+      } catch (error) {
+        console.warn('[image-knowledge-base] 历史压缩包导入失败', { archive: path.basename(archivePath), message: error.message || String(error) });
+        skipped += 1;
+      }
+    }
+    return {
+      ...list(),
+      imported,
+      skipped,
+      archives,
+      message: imported ? `已导入 ${imported} 张${section}图片${skipped ? `，跳过 ${skipped} 项` : ''}` : `未导入新的${section}图片`,
     };
   }
 
@@ -604,6 +713,7 @@ function createImageKnowledgeBaseStore({ app, db }) {
   return {
     list,
     uploadImages,
+    importHistoricalArchives,
     updateAsset,
     batchUpdateAssets,
     renameTag,

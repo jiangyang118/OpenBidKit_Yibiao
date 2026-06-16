@@ -37,6 +37,40 @@ export interface RejectionBackgroundTaskState {
   error?: string;
 }
 
+export interface RejectionEvidencePageScreenshot {
+  pageNumber?: number;
+  page_number?: number;
+  page?: number;
+  lineStart?: number;
+  line_start?: number;
+  lineEnd?: number;
+  line_end?: number;
+  imageLine?: number;
+  image_line?: number;
+  width?: number;
+  height?: number;
+  page_width?: number;
+  page_height?: number;
+  pageWidth?: number;
+  pageHeight?: number;
+  dimensions?: { width?: number; height?: number };
+  size?: { width?: number; height?: number };
+  assetUrl?: string;
+  asset_url?: string;
+  imageUrl?: string;
+  image_url?: string;
+  previewUrl?: string;
+  preview_url?: string;
+  filePath?: string;
+  file_path?: string;
+  path?: string;
+  crop?: { left?: number; top?: number; width?: number; height?: number; x?: number; y?: number; w?: number; h?: number };
+  cropBox?: { left?: number; top?: number; width?: number; height?: number; x?: number; y?: number; w?: number; h?: number };
+  crop_box?: { left?: number; top?: number; width?: number; height?: number; x?: number; y?: number; w?: number; h?: number };
+  note?: string;
+  description?: string;
+}
+
 export interface RejectionDocumentContent {
   id: string;
   role: RejectionDocumentRole;
@@ -45,6 +79,10 @@ export interface RejectionDocumentContent {
   source: RejectionDocumentSource;
   parserLabel?: string;
   importedAt: string;
+  pageScreenshots?: RejectionEvidencePageScreenshot[];
+  page_screenshots?: RejectionEvidencePageScreenshot[];
+  pageImages?: RejectionEvidencePageScreenshot[];
+  page_images?: RejectionEvidencePageScreenshot[];
 }
 
 export interface RejectionCheckWorkspaceState {

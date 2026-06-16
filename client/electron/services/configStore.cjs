@@ -159,6 +159,15 @@ const defaultExportFormat = {
     footer_size: '小五',
     page_number_enabled: true,
     page_number_format: '第{page}页',
+    cover_enabled: false,
+    cover_title: '投标技术文件',
+    cover_subtitle: '',
+    cover_company: '',
+    cover_date: '',
+    toc_enabled: false,
+    toc_title: '目录',
+    toc_depth: 3,
+    chapter_section_break_enabled: false,
     header_enabled: false,
     header_text: '投标技术文件',
     header_first_page_different: false,
@@ -168,6 +177,12 @@ const defaultExportFormat = {
     header_font: '宋体',
     header_size: '小五',
     header_alignment: '居中对齐',
+    watermark_enabled: false,
+    watermark_text: '内部资料',
+    watermark_font: '宋体',
+    watermark_size_pt: 54,
+    watermark_color: 'D9D9D9',
+    watermark_opacity: 0.28,
   },
   headings: [
     { font: '黑体', size: '小二', alignment: '居中对齐', spacing_before_pt: 10, spacing_after_pt: 10, first_line_indent_chars: 0, line_spacing: 1, numbering_format: 'chinese-chapter' },
@@ -185,6 +200,15 @@ const defaultExportFormat = {
     spacing_after_pt: 0,
     first_line_indent_chars: 2,
     line_spacing_multiple: 1.2,
+  },
+  table: {
+    header_fill_color: 'F1F6FF',
+    border_color: 'DCDFF6',
+    inside_border_color: 'E8EDF6',
+    cell_margin_twips: 120,
+  },
+  image: {
+    max_width_px: 520,
   },
 };
 
@@ -359,7 +383,7 @@ const VALID_NUMBERING_FORMATS = ['chinese-chapter','chinese-section','chinese-du
 
 function normalizeExportFormat(source) {
   const def = defaultExportFormat;
-  if (!source || typeof source !== 'object') return { page: { ...def.page }, headings: def.headings.map(h => ({ ...h })), body_text: { ...def.body_text } };
+  if (!source || typeof source !== 'object') return { page: { ...def.page }, headings: def.headings.map(h => ({ ...h })), body_text: { ...def.body_text }, table: { ...def.table }, image: { ...def.image } };
 
   const srcPage = source.page && typeof source.page === 'object' ? source.page : {};
   const page = {
@@ -375,6 +399,15 @@ function normalizeExportFormat(source) {
     footer_size: typeof srcPage.footer_size === 'string' && srcPage.footer_size ? srcPage.footer_size : def.page.footer_size,
     page_number_enabled: typeof srcPage.page_number_enabled === 'boolean' ? srcPage.page_number_enabled : def.page.page_number_enabled,
     page_number_format: typeof srcPage.page_number_format === 'string' && srcPage.page_number_format ? srcPage.page_number_format : def.page.page_number_format,
+    cover_enabled: typeof srcPage.cover_enabled === 'boolean' ? srcPage.cover_enabled : def.page.cover_enabled,
+    cover_title: typeof srcPage.cover_title === 'string' && srcPage.cover_title.trim() ? srcPage.cover_title.trim() : def.page.cover_title,
+    cover_subtitle: typeof srcPage.cover_subtitle === 'string' ? srcPage.cover_subtitle.trim() : def.page.cover_subtitle,
+    cover_company: typeof srcPage.cover_company === 'string' ? srcPage.cover_company.trim() : def.page.cover_company,
+    cover_date: typeof srcPage.cover_date === 'string' ? srcPage.cover_date.trim() : def.page.cover_date,
+    toc_enabled: typeof srcPage.toc_enabled === 'boolean' ? srcPage.toc_enabled : def.page.toc_enabled,
+    toc_title: typeof srcPage.toc_title === 'string' && srcPage.toc_title.trim() ? srcPage.toc_title.trim() : def.page.toc_title,
+    toc_depth: typeof srcPage.toc_depth === 'number' ? Math.max(1, Math.min(6, Math.round(srcPage.toc_depth))) : def.page.toc_depth,
+    chapter_section_break_enabled: typeof srcPage.chapter_section_break_enabled === 'boolean' ? srcPage.chapter_section_break_enabled : def.page.chapter_section_break_enabled,
     header_enabled: typeof srcPage.header_enabled === 'boolean' ? srcPage.header_enabled : def.page.header_enabled,
     header_text: typeof srcPage.header_text === 'string' && srcPage.header_text ? srcPage.header_text : def.page.header_text,
     header_first_page_different: typeof srcPage.header_first_page_different === 'boolean' ? srcPage.header_first_page_different : def.page.header_first_page_different,
@@ -384,6 +417,12 @@ function normalizeExportFormat(source) {
     header_font: typeof srcPage.header_font === 'string' && srcPage.header_font ? srcPage.header_font : def.page.header_font,
     header_size: typeof srcPage.header_size === 'string' && srcPage.header_size ? srcPage.header_size : def.page.header_size,
     header_alignment: typeof srcPage.header_alignment === 'string' && srcPage.header_alignment ? srcPage.header_alignment : def.page.header_alignment,
+    watermark_enabled: typeof srcPage.watermark_enabled === 'boolean' ? srcPage.watermark_enabled : def.page.watermark_enabled,
+    watermark_text: typeof srcPage.watermark_text === 'string' && srcPage.watermark_text ? srcPage.watermark_text : def.page.watermark_text,
+    watermark_font: typeof srcPage.watermark_font === 'string' && srcPage.watermark_font ? srcPage.watermark_font : def.page.watermark_font,
+    watermark_size_pt: typeof srcPage.watermark_size_pt === 'number' ? Math.max(12, Math.min(120, srcPage.watermark_size_pt)) : def.page.watermark_size_pt,
+    watermark_color: typeof srcPage.watermark_color === 'string' && /^[0-9a-f]{6}$/i.test(srcPage.watermark_color) ? srcPage.watermark_color.toUpperCase() : def.page.watermark_color,
+    watermark_opacity: typeof srcPage.watermark_opacity === 'number' ? Math.max(0.05, Math.min(0.8, srcPage.watermark_opacity)) : def.page.watermark_opacity,
   };
 
   const srcHeadings = Array.isArray(source.headings) ? source.headings : [];
@@ -413,7 +452,20 @@ function normalizeExportFormat(source) {
     line_spacing_multiple: typeof srcBody.line_spacing_multiple === 'number' ? srcBody.line_spacing_multiple : def.body_text.line_spacing_multiple,
   };
 
-  return { page, headings, body_text };
+  const srcTable = source.table && typeof source.table === 'object' ? source.table : {};
+  const table = {
+    header_fill_color: typeof srcTable.header_fill_color === 'string' && /^[0-9a-f]{6}$/i.test(srcTable.header_fill_color) ? srcTable.header_fill_color.toUpperCase() : def.table.header_fill_color,
+    border_color: typeof srcTable.border_color === 'string' && /^[0-9a-f]{6}$/i.test(srcTable.border_color) ? srcTable.border_color.toUpperCase() : def.table.border_color,
+    inside_border_color: typeof srcTable.inside_border_color === 'string' && /^[0-9a-f]{6}$/i.test(srcTable.inside_border_color) ? srcTable.inside_border_color.toUpperCase() : def.table.inside_border_color,
+    cell_margin_twips: typeof srcTable.cell_margin_twips === 'number' ? Math.max(60, Math.min(360, Math.round(srcTable.cell_margin_twips))) : def.table.cell_margin_twips,
+  };
+
+  const srcImage = source.image && typeof source.image === 'object' ? source.image : {};
+  const image = {
+    max_width_px: typeof srcImage.max_width_px === 'number' ? Math.max(160, Math.min(960, Math.round(srcImage.max_width_px))) : def.image.max_width_px,
+  };
+
+  return { page, headings, body_text, table, image };
 }
 
 function normalizeConfig(config) {

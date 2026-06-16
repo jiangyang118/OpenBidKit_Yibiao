@@ -40,6 +40,19 @@ export interface BodyTextStyleConfig {
   line_spacing_multiple: number;
 }
 
+// ── 表格样式 ──────────────────────────────────────
+export interface TableStyleConfig {
+  header_fill_color: string;
+  border_color: string;
+  inside_border_color: string;
+  cell_margin_twips: number;
+}
+
+// ── 图片导出策略 ──────────────────────────────────
+export interface ImageExportConfig {
+  max_width_px: number;
+}
+
 // ── 纸张类型 ──────────────────────────────────────
 export const PAPER_SIZES = [
   { value: 'a4', label: 'A4', detail: '210×297mm 国际标准公文纸' },
@@ -80,6 +93,15 @@ export interface PageSetupConfig {
   footer_size: string;
   page_number_enabled: boolean;
   page_number_format: string;   // '第{page}页'
+  cover_enabled: boolean;
+  cover_title: string;
+  cover_subtitle: string;
+  cover_company: string;
+  cover_date: string;
+  toc_enabled: boolean;
+  toc_title: string;
+  toc_depth: number;
+  chapter_section_break_enabled: boolean;
   header_enabled: boolean;
   header_text: string;
   header_first_page_different: boolean;
@@ -89,6 +111,12 @@ export interface PageSetupConfig {
   header_font: string;
   header_size: string;
   header_alignment: string;
+  watermark_enabled: boolean;
+  watermark_text: string;
+  watermark_font: string;
+  watermark_size_pt: number;
+  watermark_color: string;
+  watermark_opacity: number;
 }
 
 // ── 完整导出格式配置 ──────────────────────────────
@@ -96,6 +124,8 @@ export interface ExportFormatConfig {
   page: PageSetupConfig;
   headings: HeadingStyleConfig[];  // 索引 0=L1（章），5=L6
   body_text: BodyTextStyleConfig;
+  table: TableStyleConfig;
+  image: ImageExportConfig;
 }
 
 // ── 选项常量 ──────────────────────────────────────
@@ -188,6 +218,15 @@ const DEFAULT_PAGE_SETUP: PageSetupConfig = {
   footer_size: '小五',
   page_number_enabled: true,
   page_number_format: '第{page}页',
+  cover_enabled: false,
+  cover_title: '投标技术文件',
+  cover_subtitle: '',
+  cover_company: '',
+  cover_date: '',
+  toc_enabled: false,
+  toc_title: '目录',
+  toc_depth: 3,
+  chapter_section_break_enabled: false,
   header_enabled: false,
   header_text: '投标技术文件',
   header_first_page_different: false,
@@ -197,6 +236,12 @@ const DEFAULT_PAGE_SETUP: PageSetupConfig = {
   header_font: '宋体',
   header_size: '小五',
   header_alignment: '居中对齐',
+  watermark_enabled: false,
+  watermark_text: '内部资料',
+  watermark_font: '宋体',
+  watermark_size_pt: 54,
+  watermark_color: 'D9D9D9',
+  watermark_opacity: 0.28,
 };
 
 const DEFAULT_BODY_TEXT: BodyTextStyleConfig = {
@@ -207,6 +252,17 @@ const DEFAULT_BODY_TEXT: BodyTextStyleConfig = {
   spacing_after_pt: 0,
   first_line_indent_chars: 2,
   line_spacing_multiple: 1.2,
+};
+
+const DEFAULT_TABLE_STYLE: TableStyleConfig = {
+  header_fill_color: 'F1F6FF',
+  border_color: 'DCDFF6',
+  inside_border_color: 'E8EDF6',
+  cell_margin_twips: 120,
+};
+
+const DEFAULT_IMAGE_EXPORT: ImageExportConfig = {
+  max_width_px: 520,
 };
 
 /** 默认导出格式：6 级标题独立编号 */
@@ -227,6 +283,8 @@ export const DEFAULT_EXPORT_FORMAT: ExportFormatConfig = {
     { font: '宋体', size: '小四', alignment: '两端对齐', spacing_before_pt: 0, spacing_after_pt: 0, first_line_indent_chars: 2, line_spacing: 1, numbering_format: 'arabic-paren' },
   ],
   body_text: { ...DEFAULT_BODY_TEXT },
+  table: { ...DEFAULT_TABLE_STYLE },
+  image: { ...DEFAULT_IMAGE_EXPORT },
 };
 
 /** 标题级别中文标签 */

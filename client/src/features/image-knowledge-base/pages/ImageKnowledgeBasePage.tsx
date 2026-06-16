@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useToast } from '../../../shared/ui';
-import type { ImageKnowledgeAsset, ImageKnowledgeAssetPatch, ImageKnowledgeReference, ImageKnowledgeState } from '../types';
+import type { ImageKnowledgeArchiveSection, ImageKnowledgeAsset, ImageKnowledgeAssetPatch, ImageKnowledgeReference, ImageKnowledgeState } from '../types';
 
 const emptyState: ImageKnowledgeState = {
   assets: [],
@@ -22,6 +22,7 @@ function ImageKnowledgeBasePage() {
   const [state, setState] = useState<ImageKnowledgeState>(emptyState);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [importingSection, setImportingSection] = useState<ImageKnowledgeArchiveSection | ''>('');
   const [keyword, setKeyword] = useState('');
   const [category, setCategory] = useState('');
   const [folder, setFolder] = useState('');
@@ -100,6 +101,26 @@ function ImageKnowledgeBasePage() {
       showToast(error instanceof Error ? error.message : '图片上传失败', 'error');
     } finally {
       setUploading(false);
+    }
+  };
+
+  const importHistoricalArchives = async (section: ImageKnowledgeArchiveSection) => {
+    const importer = window.yibiao?.imageKnowledgeBase?.importHistoricalArchives;
+    if (!importer) {
+      showToast('当前环境不支持导入历史压缩包，请在桌面客户端中使用', 'error');
+      return;
+    }
+    setImportingSection(section);
+    try {
+      const result = await importer(section);
+      setState({ assets: result.assets, categories: result.categories, folders: result.folders, tags: result.tags });
+      setActiveId(result.assets[0]?.id || null);
+      setSelectedIds([]);
+      showToast(result.message, result.imported ? 'success' : 'info');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '历史压缩包导入失败', 'error');
+    } finally {
+      setImportingSection('');
     }
   };
 
@@ -251,9 +272,17 @@ function ImageKnowledgeBasePage() {
           <h2>图片素材、图示和资质扫描件管理</h2>
           <p>集中管理投标文件中常用的产品图、流程图、现场照片、荣誉证书、资质扫描件和截图素材。</p>
         </div>
-        <button type="button" className="primary-action" onClick={uploadImages} disabled={uploading}>
-          {uploading ? '正在上传...' : '上传图片'}
-        </button>
+        <div className="image-knowledge-import-actions">
+          <button type="button" className="secondary-action" onClick={() => { void importHistoricalArchives('图片素材图示'); }} disabled={Boolean(importingSection) || uploading}>
+            {importingSection === '图片素材图示' ? '正在导入...' : '导入图片素材图示'}
+          </button>
+          <button type="button" className="secondary-action" onClick={() => { void importHistoricalArchives('资质扫描管理'); }} disabled={Boolean(importingSection) || uploading}>
+            {importingSection === '资质扫描管理' ? '正在导入...' : '导入资质扫描管理'}
+          </button>
+          <button type="button" className="primary-action" onClick={uploadImages} disabled={uploading || Boolean(importingSection)}>
+            {uploading ? '正在上传...' : '上传图片'}
+          </button>
+        </div>
       </section>
 
       <section className="image-knowledge-toolbar">

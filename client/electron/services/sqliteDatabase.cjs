@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 30;
+const schemaVersion = 35;
 
 function createInitialSchema(db) {
   db.exec(`
@@ -431,7 +431,10 @@ function createDuplicateCheckSchema(db) {
       resolved_at TEXT,
       match_type TEXT NOT NULL DEFAULT 'exact',
       similarity_score REAL NOT NULL DEFAULT 1,
-      similarity_reason TEXT
+      similarity_reason TEXT,
+      rotation_degrees INTEGER,
+      watermark_hint TEXT,
+      crop_json TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_duplicate_check_duplicate_images_hash
@@ -479,6 +482,7 @@ function createRejectionCheckSchema(db) {
       content_hash TEXT NOT NULL,
       content_chars INTEGER NOT NULL DEFAULT 0,
       parser_label TEXT,
+      page_screenshots_json TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
       imported_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -606,6 +610,46 @@ function createBidOpportunitySchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_bid_opportunity_score
     ON bid_opportunity_opportunities(score DESC);
+  `);
+  createBidOpportunityFollowUpSchema(db);
+}
+
+function createBidOpportunityFollowUpSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bid_opportunity_follow_ups (
+      record_id TEXT PRIMARY KEY,
+      opportunity_id TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      method TEXT NOT NULL DEFAULT 'other',
+      owner TEXT NOT NULL DEFAULT '',
+      contact_person TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL DEFAULT '',
+      next_action TEXT NOT NULL DEFAULT '',
+      next_follow_up_at TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (opportunity_id) REFERENCES bid_opportunity_opportunities(opportunity_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bid_opportunity_follow_ups_opportunity
+    ON bid_opportunity_follow_ups(opportunity_id, occurred_at DESC, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS bid_opportunity_attachments (
+      attachment_id TEXT PRIMARY KEY,
+      opportunity_id TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'announcement',
+      file_name TEXT NOT NULL,
+      stored_path TEXT NOT NULL,
+      original_path TEXT NOT NULL DEFAULT '',
+      file_size INTEGER NOT NULL DEFAULT 0,
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (opportunity_id) REFERENCES bid_opportunity_opportunities(opportunity_id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bid_opportunity_attachments_opportunity
+    ON bid_opportunity_attachments(opportunity_id, kind, updated_at DESC);
   `);
 }
 
@@ -826,7 +870,11 @@ function createAiEvaluationSchema(db) {
       score_id TEXT PRIMARY KEY,
       item_id TEXT NOT NULL,
       expert_name TEXT NOT NULL,
+      expert_role TEXT NOT NULL DEFAULT '',
+      review_session TEXT NOT NULL DEFAULT '',
       expert_score REAL NOT NULL DEFAULT 0,
+      signature_confirmed INTEGER NOT NULL DEFAULT 0,
+      signed_at TEXT,
       opinion TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -912,6 +960,18 @@ function addDuplicateCheckV30Columns(db) {
   addDuplicateCheckIgnoreRuleCategoryColumn(db);
 }
 
+function addDuplicateCheckImageRotationColumn(db) {
+  addColumnIfMissing(db, 'duplicate_check_duplicate_images', 'rotation_degrees', 'INTEGER');
+}
+
+function addDuplicateCheckImageWatermarkColumn(db) {
+  addColumnIfMissing(db, 'duplicate_check_duplicate_images', 'watermark_hint', 'TEXT');
+}
+
+function addDuplicateCheckImageCropColumn(db) {
+  addColumnIfMissing(db, 'duplicate_check_duplicate_images', 'crop_json', 'TEXT');
+}
+
 function addBidOpportunityFollowUpColumns(db) {
   addColumnIfMissing(db, 'bid_opportunity_opportunities', 'owner', "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'bid_opportunity_opportunities', 'next_action', "TEXT NOT NULL DEFAULT ''");
@@ -925,6 +985,14 @@ function addBusinessBidResponsibilityColumns(db) {
 
 function addBidOpportunityKnowledgeMatchColumns(db) {
   addColumnIfMissing(db, 'bid_opportunity_opportunities', 'knowledge_matches_json', "TEXT NOT NULL DEFAULT '[]'");
+}
+
+function addAiEvaluationExpertFormalReviewColumns(db) {
+  createAiEvaluationExpertScoreSchema(db);
+  addColumnIfMissing(db, 'ai_evaluation_expert_scores', 'expert_role', "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, 'ai_evaluation_expert_scores', 'review_session', "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, 'ai_evaluation_expert_scores', 'signature_confirmed', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'ai_evaluation_expert_scores', 'signed_at', 'TEXT');
 }
 
 function createBusinessBidAttachmentSchema(db) {
@@ -1044,7 +1112,11 @@ function createAiEvaluationAuditReportSchema(db) {
       score_id TEXT PRIMARY KEY,
       item_id TEXT NOT NULL,
       expert_name TEXT NOT NULL,
+      expert_role TEXT NOT NULL DEFAULT '',
+      review_session TEXT NOT NULL DEFAULT '',
       expert_score REAL NOT NULL DEFAULT 0,
+      signature_confirmed INTEGER NOT NULL DEFAULT 0,
+      signed_at TEXT,
       opinion TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -1075,7 +1147,11 @@ function createAiEvaluationExpertScoreSchema(db) {
       score_id TEXT PRIMARY KEY,
       item_id TEXT NOT NULL,
       expert_name TEXT NOT NULL,
+      expert_role TEXT NOT NULL DEFAULT '',
+      review_session TEXT NOT NULL DEFAULT '',
       expert_score REAL NOT NULL DEFAULT 0,
+      signature_confirmed INTEGER NOT NULL DEFAULT 0,
+      signed_at TEXT,
       opinion TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -1135,6 +1211,7 @@ function migrateRejectionCheckMultiBidDocuments(db) {
   }
 
   addColumnIfMissing(db, 'rejection_check_documents', 'sort_order', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'rejection_check_documents', 'page_screenshots_json', 'TEXT');
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_rejection_check_documents_role_order
     ON rejection_check_documents(role, sort_order);
@@ -1507,6 +1584,16 @@ const schemaHealthTableGroups = [
     tables: ['duplicate_check_content_ignore_rules'],
     repair: addDuplicateCheckV30Columns,
   },
+  {
+    version: 31,
+    tables: ['bid_opportunity_follow_ups', 'bid_opportunity_attachments'],
+    repair: createBidOpportunityFollowUpSchema,
+  },
+  {
+    version: 32,
+    tables: ['ai_evaluation_expert_scores'],
+    repair: addAiEvaluationExpertFormalReviewColumns,
+  },
 ];
 
 const schemaHealthColumnGroups = [
@@ -1641,6 +1728,27 @@ const schemaHealthColumnGroups = [
     },
   },
   {
+    version: 33,
+    table: 'duplicate_check_duplicate_images',
+    columns: {
+      rotation_degrees: 'INTEGER',
+    },
+  },
+  {
+    version: 34,
+    table: 'duplicate_check_duplicate_images',
+    columns: {
+      watermark_hint: 'TEXT',
+    },
+  },
+  {
+    version: 35,
+    table: 'duplicate_check_duplicate_images',
+    columns: {
+      crop_json: 'TEXT',
+    },
+  },
+  {
     version: 30,
     table: 'duplicate_check_content_ignore_rules',
     columns: {
@@ -1685,6 +1793,49 @@ const schemaHealthColumnGroups = [
     table: 'bid_opportunity_opportunities',
     columns: {
       knowledge_matches_json: "TEXT NOT NULL DEFAULT '[]'",
+    },
+  },
+  {
+    version: 31,
+    table: 'bid_opportunity_follow_ups',
+    columns: {
+      record_id: 'TEXT',
+      opportunity_id: 'TEXT',
+      occurred_at: 'TEXT',
+      method: "TEXT NOT NULL DEFAULT 'other'",
+      owner: "TEXT NOT NULL DEFAULT ''",
+      contact_person: "TEXT NOT NULL DEFAULT ''",
+      content: "TEXT NOT NULL DEFAULT ''",
+      next_action: "TEXT NOT NULL DEFAULT ''",
+      next_follow_up_at: "TEXT NOT NULL DEFAULT ''",
+      created_at: 'TEXT',
+      updated_at: 'TEXT',
+    },
+  },
+  {
+    version: 31,
+    table: 'bid_opportunity_attachments',
+    columns: {
+      attachment_id: 'TEXT',
+      opportunity_id: 'TEXT',
+      kind: "TEXT NOT NULL DEFAULT 'announcement'",
+      file_name: 'TEXT',
+      stored_path: 'TEXT',
+      original_path: "TEXT NOT NULL DEFAULT ''",
+      file_size: 'INTEGER NOT NULL DEFAULT 0',
+      note: "TEXT NOT NULL DEFAULT ''",
+      created_at: 'TEXT',
+      updated_at: 'TEXT',
+    },
+  },
+  {
+    version: 32,
+    table: 'ai_evaluation_expert_scores',
+    columns: {
+      expert_role: "TEXT NOT NULL DEFAULT ''",
+      review_session: "TEXT NOT NULL DEFAULT ''",
+      signature_confirmed: 'INTEGER NOT NULL DEFAULT 0',
+      signed_at: 'TEXT',
     },
   },
   {
@@ -1912,6 +2063,31 @@ const migrations = [
     version: 30,
     description: '标书查重补齐相似图片字段和正文忽略规则分类',
     up: addDuplicateCheckV30Columns,
+  },
+  {
+    version: 31,
+    description: '投标机会新增多轮跟进记录和公告沟通附件表',
+    up: createBidOpportunityFollowUpSchema,
+  },
+  {
+    version: 32,
+    description: 'AI 评标专家打分新增角色、评审会议和签名确认字段',
+    up: addAiEvaluationExpertFormalReviewColumns,
+  },
+  {
+    version: 33,
+    description: '标书查重相似图片新增旋转检测字段',
+    up: addDuplicateCheckImageRotationColumn,
+  },
+  {
+    version: 34,
+    description: '标书查重相似图片新增水印提示字段',
+    up: addDuplicateCheckImageWatermarkColumn,
+  },
+  {
+    version: 35,
+    description: '标书查重相似图片新增内容裁剪框字段',
+    up: addDuplicateCheckImageCropColumn,
   },
 ];
 

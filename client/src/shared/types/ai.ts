@@ -73,3 +73,34 @@ export interface JsonReplayLogsResult {
   success: boolean;
   logs: JsonReplayLog[];
 }
+
+export interface PromptDebugRecordInput {
+  chainId: string;
+  chainLabel: string;
+  responseFormat: string;
+  schema: string;
+  messageCount: number;
+  charCount: number;
+  messages: ChatMessage[];
+  redaction?: Record<string, string>;
+}
+
+export interface PromptDebugRecord {
+  id: string;
+  created_at: string;
+  chain_id: string;
+  chain_label: string;
+  response_format: string;
+  schema: string;
+  message_count: number;
+  char_count: number;
+  messages: ChatMessage[];
+  redaction: Record<string, string>;
+}
+
+export interface PromptDebugRecordResult {
+  success: boolean;
+  message?: string;
+  record?: PromptDebugRecord;
+  filePath?: string;
+}

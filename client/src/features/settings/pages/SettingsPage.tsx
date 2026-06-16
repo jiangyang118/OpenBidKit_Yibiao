@@ -435,6 +435,7 @@ function getActiveTaskCount(tasks: unknown) {
 
 const fileParserProviders: Array<{ value: FileParserProvider; label: string }> = [
   { value: 'local', label: '本地解析' },
+  { value: 'local-ocr', label: '本地 OCR 解析' },
   { value: 'mineru-accurate-api', label: 'MinerU-精准解析 API' },
   { value: 'mineru-agent-api', label: 'MinerU-Agent 轻量解析 API' },
 ];
@@ -448,10 +449,24 @@ const parserOptions = [
     items: [
       ['Token', '无需'],
       ['解析速度', '快'],
-      ['支持格式', 'pdf、jpeg、png、docx、doc、wps、ofd'],
+      ['支持格式', 'pdf、docx、doc、wps、txt、md'],
       ['大小/页数', '无限制'],
       ['解析质量', '高'],
       ['扫描件', '不支持'],
+    ],
+  },
+  {
+    title: '本地 OCR 解析',
+    badge: '本机替代',
+    tone: 'primary',
+    summary: '使用本机 PaddleOCR / PDF 渲染工具处理扫描件、图片和 OFD，不依赖 MinerU Token；共享运行时不可用时回退到 Tesseract。',
+    items: [
+      ['Token', '无需'],
+      ['解析速度', '中等'],
+      ['支持格式', 'pdf、ofd、jpeg、png、bmp、webp、tif'],
+      ['大小/页数', '取决于本机性能'],
+      ['解析质量', '中'],
+      ['扫描件', '支持'],
     ],
   },
   {
@@ -1021,7 +1036,7 @@ function SettingsPage({ onDeveloperModeChange, onAppearanceChange }: SettingsPag
         setProjectState(result.state);
       }
       setNewProjectName('');
-      showToast('项目已创建并设为当前项目，重启后加载该项目工作区', 'success');
+      showToast(result?.runtime_reloaded ? '项目已创建并切换，当前会话已加载该项目工作区' : '项目已创建并设为当前项目', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '创建项目失败', 'error');
     } finally {
@@ -1121,7 +1136,7 @@ function SettingsPage({ onDeveloperModeChange, onAppearanceChange }: SettingsPag
         setProjectState(result.state);
       }
       setProjectDialog(null);
-      showToast(result?.restart_required ? '当前项目已切换，请重启应用加载新的项目数据' : '当前项目已切换', 'success');
+      showToast(result?.runtime_reloaded ? '当前项目已切换，当前会话已加载新的项目数据' : result?.restart_required ? '当前项目已切换，请重启应用加载新的项目数据' : '当前项目已切换', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '切换项目失败', 'error');
     } finally {
@@ -1482,7 +1497,7 @@ function SettingsPage({ onDeveloperModeChange, onAppearanceChange }: SettingsPag
                 <strong>项目工作区</strong>
                 <span>
                   {activeProject
-                    ? `当前项目：${activeProject.name}。切换项目会在重启后加载对应工作区数据。`
+                    ? `当前项目：${activeProject.name}。切换项目会热刷新当前会话的工作区数据。`
                     : projectLoading ? '正在读取项目列表。' : '尚未读取到项目工作区。'}
                 </span>
               </div>
@@ -1939,7 +1954,7 @@ function SettingsPage({ onDeveloperModeChange, onAppearanceChange }: SettingsPag
             <label className="settings-row">
               <div className="settings-row-copy">
                 <strong>文件解析方式</strong>
-                <span>优先使用本地解析，复杂扫描件可尝试 MinerU 精准解析 API</span>
+                <span>优先使用本地解析，扫描件可先走本地 OCR，复杂版面再尝试 MinerU 精准解析 API</span>
               </div>
               <select
                 value={state.fileParser.provider}
@@ -1957,7 +1972,7 @@ function SettingsPage({ onDeveloperModeChange, onAppearanceChange }: SettingsPag
               <label className="settings-row">
                 <div className="settings-row-copy">
                   <strong>MinerU Token</strong>
-                  <span>仅精准解析 API 需要 Token；轻量解析和本地解析无需填写</span>
+                  <span>仅精准解析 API 需要 Token；本地解析、本地 OCR 和轻量解析无需填写</span>
                 </div>
                 <input
                   type="password"
@@ -1994,7 +2009,7 @@ function SettingsPage({ onDeveloperModeChange, onAppearanceChange }: SettingsPag
             ))}
           </div>
           <div className="parser-note">
-            招标文件大多数是 Word 或 Word 导出的带文字层 PDF，本地解析可以适应 95% 以上的情况；如果解析失败，再尝试 MinerU 精准解析 API。
+            招标文件大多数是 Word 或 Word 导出的带文字层 PDF，本地解析可以适应 95% 以上的情况；扫描件、图片和 OFD 先走本地 OCR，复杂版面或本地 OCR 失败时再尝试 MinerU 精准解析 API。
           </div>
         </section>
       )}
@@ -2063,7 +2078,7 @@ function SettingsPage({ onDeveloperModeChange, onAppearanceChange }: SettingsPag
             <Dialog.Description>
               {projectDialog?.kind === 'delete'
                 ? `将从项目列表删除“${projectDialog.project.name}”，本地工作区文件会保留。`
-                : `将当前项目切换为“${projectDialog?.project.name || ''}”。切换后需要重启应用，业务数据才会从该项目工作区重新加载。`}
+                : `将当前项目切换为“${projectDialog?.project.name || ''}”。切换后会热刷新当前会话，业务数据会从该项目工作区重新加载。`}
             </Dialog.Description>
             <div className="project-workspace-dialog-path">
               {projectDialog?.project.workspace_path || ''}

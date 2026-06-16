@@ -1673,14 +1673,18 @@ function mergeImageGroupItems(items) {
   const fileIds = [];
   const occurrences = {};
   const locations = {};
+  let watermarkHint = '';
+  let crop = null;
   for (const item of items) {
     for (const fileId of item.file_ids || []) {
       if (!fileIds.includes(fileId)) fileIds.push(fileId);
       occurrences[fileId] = (occurrences[fileId] || 0) + Number(item.occurrences?.[fileId] || 0);
       locations[fileId] = [...(locations[fileId] || []), ...(item.locations?.[fileId] || [])];
     }
+    if (!watermarkHint && item.watermark_hint) watermarkHint = String(item.watermark_hint);
+    if (!crop && item.crop) crop = item.crop;
   }
-  return { file_ids: fileIds, occurrences, locations };
+  return { file_ids: fileIds, occurrences, locations, watermark_hint: watermarkHint, crop };
 }
 
 function buildSimilarImageGroups(globalImages) {
@@ -1694,14 +1698,14 @@ function buildSimilarImageGroups(globalImages) {
       const left = candidates[leftIndex];
       const right = candidates[rightIndex];
       if (left.hash === right.hash) continue;
-      const distance = hammingDistance64(left.perceptual_hash, right.perceptual_hash);
-      if (distance > 8) continue;
-      if (!hasComparableAspectRatio(left, right)) continue;
-      const similarity = Number((1 - distance / 64).toFixed(4));
+      const match = findBestPerceptualHashMatch(left, right);
+      if (!match || match.distance > 8) continue;
+      if (!hasComparableAspectRatio(left, right, match.rotationDegrees)) continue;
+      const similarity = Number((1 - match.distance / 64).toFixed(4));
       if (!edges.has(left.hash)) edges.set(left.hash, []);
       if (!edges.has(right.hash)) edges.set(right.hash, []);
-      edges.get(left.hash).push({ hash: right.hash, similarity, distance });
-      edges.get(right.hash).push({ hash: left.hash, similarity, distance });
+      edges.get(left.hash).push({ hash: right.hash, similarity, distance: match.distance, rotationDegrees: match.rotationDegrees });
+      edges.get(right.hash).push({ hash: left.hash, similarity, distance: match.distance, rotationDegrees: match.rotationDegrees });
     }
   }
 
@@ -1712,6 +1716,7 @@ function buildSimilarImageGroups(globalImages) {
     const stack = [item.hash];
     const component = [];
     const similarities = [];
+    const rotations = [];
     visited.add(item.hash);
     while (stack.length) {
       const hash = stack.pop();
@@ -1719,6 +1724,7 @@ function buildSimilarImageGroups(globalImages) {
       if (current) component.push(current);
       for (const edge of edges.get(hash) || []) {
         similarities.push(edge.similarity);
+        if (edge.rotationDegrees) rotations.push(edge.rotationDegrees);
         if (!visited.has(edge.hash)) {
           visited.add(edge.hash);
           stack.push(edge.hash);
@@ -1729,6 +1735,8 @@ function buildSimilarImageGroups(globalImages) {
     if (component.length < 2 || merged.file_ids.length < 2) continue;
     const score = similarities.length ? Math.min(...similarities) : 0;
     const hashes = component.map((entry) => entry.hash.slice(0, 8)).join('/');
+    const rotationDegrees = rotations[0] || 0;
+    const rotationReason = rotationDegrees ? `；检测到约 ${rotationDegrees}° 旋转后相似` : '';
     groups.push({
       hash: `similar-${hashes}`,
       preview_url: component[0].preview_url,
@@ -1737,21 +1745,100 @@ function buildSimilarImageGroups(globalImages) {
       locations: merged.locations,
       match_type: 'similar',
       similarity_score: Number(score.toFixed(4)),
-      similarity_reason: `感知哈希相似度 ${Math.round(score * 100)}%，疑似压缩、缩放或截图后复用`,
+      similarity_reason: `感知哈希相似度 ${Math.round(score * 100)}%，疑似压缩、缩放、旋转或截图后复用${rotationReason}`,
+      ...(rotationDegrees ? { rotation_degrees: rotationDegrees } : {}),
+      ...(merged.watermark_hint ? { watermark_hint: merged.watermark_hint } : {}),
+      ...(merged.crop ? { crop: merged.crop } : {}),
     });
   }
   return groups.sort((a, b) => b.similarity_score - a.similarity_score || b.file_ids.length - a.file_ids.length);
 }
 
-function hasComparableAspectRatio(left, right) {
+function hasComparableAspectRatio(left, right, rotationDegrees = 0) {
   const leftWidth = Number(left.width || 0);
   const leftHeight = Number(left.height || 0);
   const rightWidth = Number(right.width || 0);
   const rightHeight = Number(right.height || 0);
   if (!leftWidth || !leftHeight || !rightWidth || !rightHeight) return true;
   const leftRatio = leftWidth / leftHeight;
-  const rightRatio = rightWidth / rightHeight;
+  const rotated = Math.abs(Number(rotationDegrees || 0)) % 180 === 90;
+  const rightRatio = rotated ? rightHeight / rightWidth : rightWidth / rightHeight;
   return Math.abs(leftRatio - rightRatio) <= 0.08;
+}
+
+function normalizeRotationDegrees(value) {
+  const normalized = ((Number(value || 0) % 360) + 360) % 360;
+  return normalized === 270 ? 90 : normalized;
+}
+
+function rotateHash64(hash, degrees) {
+  const normalized = ((Number(degrees || 0) % 360) + 360) % 360;
+  const source = String(hash || '').padStart(16, '0').slice(-16);
+  if (normalized === 0) return source;
+  const bits = [];
+  for (let index = 0; index < 64; index += 1) {
+    const nibble = Number.parseInt(source[Math.floor(index / 4)] || '0', 16);
+    bits.push((nibble >> (3 - (index % 4))) & 1);
+  }
+  const rotated = new Array(64).fill(0);
+  for (let row = 0; row < 8; row += 1) {
+    for (let col = 0; col < 8; col += 1) {
+      const value = bits[row * 8 + col];
+      let nextRow = row;
+      let nextCol = col;
+      if (normalized === 90) {
+        nextRow = col;
+        nextCol = 7 - row;
+      } else if (normalized === 180) {
+        nextRow = 7 - row;
+        nextCol = 7 - col;
+      } else if (normalized === 270) {
+        nextRow = 7 - col;
+        nextCol = row;
+      }
+      rotated[nextRow * 8 + nextCol] = value;
+    }
+  }
+  let result = 0n;
+  rotated.forEach((value, index) => {
+    if (value) result |= 1n << BigInt(63 - index);
+  });
+  return result.toString(16).padStart(16, '0');
+}
+
+function imageHashVariants(item) {
+  const variants = [];
+  const add = (hash, rotationDegrees) => {
+    const normalizedHash = String(hash || '').trim();
+    if (!normalizedHash) return;
+    const rotation = ((Number(rotationDegrees || 0) % 360) + 360) % 360;
+    if (!variants.some((variant) => variant.hash === normalizedHash && variant.rotationDegrees === rotation)) {
+      variants.push({ hash: normalizedHash, rotationDegrees: rotation });
+    }
+  };
+  add(item?.perceptual_hash, 0);
+  const rotations = item?.perceptual_hash_rotations || item?.perceptualHashRotations;
+  if (rotations && typeof rotations === 'object') {
+    for (const [degrees, hash] of Object.entries(rotations)) add(hash, degrees);
+  }
+  return variants;
+}
+
+function findBestPerceptualHashMatch(left, right) {
+  const leftVariants = imageHashVariants(left);
+  const rightVariants = imageHashVariants(right);
+  let best = null;
+  for (const leftVariant of leftVariants) {
+    for (const rightVariant of rightVariants) {
+      const distance = hammingDistance64(leftVariant.hash, rightVariant.hash);
+      const rotationDegrees = normalizeRotationDegrees(rightVariant.rotationDegrees - leftVariant.rotationDegrees);
+      const candidate = { distance, rotationDegrees };
+      if (!best || candidate.distance < best.distance || (candidate.distance === best.distance && candidate.rotationDegrees < best.rotationDegrees)) {
+        best = candidate;
+      }
+    }
+  }
+  return best;
 }
 
 function hammingDistance64(left, right) {
@@ -1767,31 +1854,125 @@ function hammingDistance64(left, right) {
   return count;
 }
 
+function gridContrast(values, indexes) {
+  const selected = indexes.map((index) => Number(values[index])).filter((value) => Number.isFinite(value));
+  if (!selected.length) return { min: 0, max: 0, contrast: 0 };
+  const min = Math.min(...selected);
+  const max = Math.max(...selected);
+  return { min, max, contrast: max - min };
+}
+
+function detectWatermarkHintFromLumaGrid(values, columns = 8, rows = 8) {
+  if (!Array.isArray(values) || values.length < columns * rows || columns < 4 || rows < 4) return '';
+  const bottomRightIndexes = [];
+  const centerIndexes = [];
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < columns; col += 1) {
+      const index = row * columns + col;
+      if (row >= Math.floor(rows * 0.55) && col >= Math.floor(columns * 0.55)) bottomRightIndexes.push(index);
+      if (row >= Math.floor(rows * 0.25) && row < Math.ceil(rows * 0.75) && col >= Math.floor(columns * 0.25) && col < Math.ceil(columns * 0.75)) centerIndexes.push(index);
+    }
+  }
+  const bottomRight = gridContrast(values, bottomRightIndexes);
+  const center = gridContrast(values, centerIndexes);
+  const full = gridContrast(values, Array.from({ length: columns * rows }, (_, index) => index));
+  if (bottomRight.contrast < 55) return '';
+  if (bottomRight.contrast < full.contrast * 0.55) return '';
+  if (center.contrast > bottomRight.contrast * 0.85) return '';
+  return '右下角疑似叠加水印或角标';
+}
+
+function detectContentCropBoxFromLumaGrid(values, imageWidth = 0, imageHeight = 0, columns = 8, rows = 8) {
+  const width = Number(imageWidth || 0);
+  const height = Number(imageHeight || 0);
+  if (!Array.isArray(values) || values.length < columns * rows || !width || !height || columns < 4 || rows < 4) return null;
+  const cornerIndexes = [
+    0,
+    columns - 1,
+    (rows - 1) * columns,
+    rows * columns - 1,
+  ];
+  const background = cornerIndexes
+    .map((index) => Number(values[index]))
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+  if (!background.length) return null;
+  const backgroundLuma = background[Math.floor(background.length / 2)];
+  const threshold = 28;
+  let minRow = rows;
+  let minCol = columns;
+  let maxRow = -1;
+  let maxCol = -1;
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < columns; col += 1) {
+      const value = Number(values[row * columns + col]);
+      if (!Number.isFinite(value) || Math.abs(value - backgroundLuma) < threshold) continue;
+      minRow = Math.min(minRow, row);
+      minCol = Math.min(minCol, col);
+      maxRow = Math.max(maxRow, row);
+      maxCol = Math.max(maxCol, col);
+    }
+  }
+  if (maxRow < minRow || maxCol < minCol) return null;
+  const marginCells = minRow + minCol + (rows - 1 - maxRow) + (columns - 1 - maxCol);
+  if (marginCells <= 1) return null;
+  const left = Math.max(0, Math.floor((minCol / columns) * width));
+  const top = Math.max(0, Math.floor((minRow / rows) * height));
+  const right = Math.min(width, Math.ceil(((maxCol + 1) / columns) * width));
+  const bottom = Math.min(height, Math.ceil(((maxRow + 1) / rows) * height));
+  if (right - left < Math.max(16, width * 0.08) || bottom - top < Math.max(16, height * 0.08)) return null;
+  return {
+    left,
+    top,
+    width: right - left,
+    height: bottom - top,
+  };
+}
+
+function sampleImageLumaGrid(image, columns, rows) {
+  const canvas = canvasModule.createCanvas(columns, rows);
+  const context = canvas.getContext('2d');
+  context.drawImage(image, 0, 0, columns, rows);
+  const data = context.getImageData(0, 0, columns, rows).data;
+  const values = [];
+  for (let index = 0; index < data.length; index += 4) {
+    const alpha = data[index + 3] / 255;
+    const red = data[index] * alpha + 255 * (1 - alpha);
+    const green = data[index + 1] * alpha + 255 * (1 - alpha);
+    const blue = data[index + 2] * alpha + 255 * (1 - alpha);
+    values.push(red * 0.299 + green * 0.587 + blue * 0.114);
+  }
+  return values;
+}
+
 async function createImagePerceptualSignature(buffer) {
   if (!canvasModule?.loadImage || !canvasModule?.createCanvas || !buffer?.length) return null;
   try {
     const image = await canvasModule.loadImage(buffer);
-    const canvas = canvasModule.createCanvas(8, 8);
-    const context = canvas.getContext('2d');
-    context.drawImage(image, 0, 0, 8, 8);
-    const data = context.getImageData(0, 0, 8, 8).data;
-    const values = [];
-    for (let index = 0; index < data.length; index += 4) {
-      const alpha = data[index + 3] / 255;
-      const red = data[index] * alpha + 255 * (1 - alpha);
-      const green = data[index + 1] * alpha + 255 * (1 - alpha);
-      const blue = data[index + 2] * alpha + 255 * (1 - alpha);
-      values.push(red * 0.299 + green * 0.587 + blue * 0.114);
-    }
+    const imageWidth = Number(image.width || 0);
+    const imageHeight = Number(image.height || 0);
+    const values = sampleImageLumaGrid(image, 8, 8);
+    const fineValues = sampleImageLumaGrid(image, 16, 16);
     const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+    const watermarkHint = detectWatermarkHintFromLumaGrid(values, 8, 8);
+    const crop = detectContentCropBoxFromLumaGrid(fineValues, imageWidth, imageHeight, 16, 16)
+      || detectContentCropBoxFromLumaGrid(values, imageWidth, imageHeight, 8, 8);
     let bits = 0n;
     values.forEach((value, index) => {
       if (value >= average) bits |= 1n << BigInt(63 - index);
     });
     return {
       hash: bits.toString(16).padStart(16, '0'),
-      width: Number(image.width || 0),
-      height: Number(image.height || 0),
+      rotations: {
+        0: bits.toString(16).padStart(16, '0'),
+        90: rotateHash64(bits.toString(16).padStart(16, '0'), 90),
+        180: rotateHash64(bits.toString(16).padStart(16, '0'), 180),
+        270: rotateHash64(bits.toString(16).padStart(16, '0'), 270),
+      },
+      width: imageWidth,
+      height: imageHeight,
+      watermark_hint: watermarkHint,
+      crop,
     };
   } catch {
     return null;
@@ -2291,6 +2472,9 @@ function createDuplicateCheckService({ app, configStore, workspaceStore } = {}) 
               preview_url: occurrence.target,
               locations: [],
               perceptual_hash: perceptualSignature?.hash || '',
+              perceptual_hash_rotations: perceptualSignature?.rotations || null,
+              watermark_hint: perceptualSignature?.watermark_hint || '',
+              crop: perceptualSignature?.crop || null,
               width: perceptualSignature?.width || 0,
               height: perceptualSignature?.height || 0,
             };
@@ -2314,6 +2498,9 @@ function createDuplicateCheckService({ app, configStore, workspaceStore } = {}) 
             occurrences: {},
             locations: {},
             perceptual_hash: item.perceptual_hash || '',
+            perceptual_hash_rotations: item.perceptual_hash_rotations || null,
+            watermark_hint: item.watermark_hint || '',
+            crop: item.crop || null,
             width: item.width || 0,
             height: item.height || 0,
           };
@@ -2321,6 +2508,9 @@ function createDuplicateCheckService({ app, configStore, workspaceStore } = {}) 
           global.occurrences[fileId] = item.count;
           global.locations[fileId] = item.locations;
           if (!global.perceptual_hash && item.perceptual_hash) global.perceptual_hash = item.perceptual_hash;
+          if (!global.perceptual_hash_rotations && item.perceptual_hash_rotations) global.perceptual_hash_rotations = item.perceptual_hash_rotations;
+          if (!global.watermark_hint && item.watermark_hint) global.watermark_hint = item.watermark_hint;
+          if (!global.crop && item.crop) global.crop = item.crop;
           if (!global.width && item.width) global.width = item.width;
           if (!global.height && item.height) global.height = item.height;
           globalImages.set(hash, global);
@@ -2506,5 +2696,8 @@ function createDuplicateCheckService({ app, configStore, workspaceStore } = {}) 
 module.exports = {
   createDuplicateCheckService,
   buildDuplicateImages,
+  detectContentCropBoxFromLumaGrid,
+  detectWatermarkHintFromLumaGrid,
   hammingDistance64,
+  rotateHash64,
 };

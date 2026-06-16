@@ -15,12 +15,19 @@ const { buildBidOpportunityCalendarIcs, buildBidOpportunityReportMarkdown, creat
     db: unknown;
     fileService?: { importTechnicalPlanDocument: (label?: string) => Promise<Record<string, unknown>> };
     aiService?: { collectJsonResponse?: (options: Record<string, unknown>) => Promise<unknown>; requestJson?: (options: Record<string, unknown>) => Promise<unknown> };
+    workspaceRoot?: string;
   }) => {
     importOpportunityDocument: () => Promise<{ success: boolean; message: string; state: BidOpportunityState }>;
     importOpportunityUrl: (payload: { url: string }) => Promise<{ success: boolean; message: string; state: BidOpportunityState }>;
     saveOpportunity: (input: Record<string, unknown>) => BidOpportunityState;
     saveOpportunityWithAi: (input: Record<string, unknown>) => Promise<BidOpportunityState>;
     updateFollowUp: (id: string, patch: Record<string, unknown>) => BidOpportunityState;
+    addFollowUpRecord: (id: string, payload: Record<string, unknown>) => BidOpportunityState;
+    updateFollowUpRecord: (id: string, patch: Record<string, unknown>) => BidOpportunityState;
+    deleteFollowUpRecord: (id: string) => BidOpportunityState;
+    importAttachments: (id: string, options?: { filePaths?: string[]; kind?: string; note?: string }) => Promise<{ success: boolean; message: string; state: BidOpportunityState }>;
+    updateAttachment: (id: string, patch: Record<string, unknown>) => BidOpportunityState;
+    deleteAttachment: (id: string) => BidOpportunityState;
     exportCalendar: (options?: { filePath?: string }) => Promise<{ success: boolean; message: string; filePath?: string; calendarChars?: number; eventCount?: number }>;
   };
   htmlToReadableText: (html: string) => string;
@@ -28,18 +35,54 @@ const { buildBidOpportunityCalendarIcs, buildBidOpportunityReportMarkdown, creat
 
 function createFakeBidOpportunityDb(knowledgeItems: Array<Record<string, unknown>> = []) {
   const rows: Array<Record<string, unknown>> = [];
+  const followUps: Array<Record<string, unknown>> = [];
+  const attachments: Array<Record<string, unknown>> = [];
   return {
     prepare(sql: string) {
       if (/SELECT item_id, title, resume, content, source_file\s+FROM knowledge_items/i.test(sql)) {
         return { all: () => knowledgeItems };
       }
+      if (/SELECT \* FROM bid_opportunity_opportunities WHERE opportunity_id = \?/i.test(sql)) {
+        return { get: (opportunityId: string) => rows.find((item) => item.opportunity_id === opportunityId) };
+      }
       if (/SELECT \* FROM bid_opportunity_opportunities/i.test(sql)) {
         return { all: () => [...rows].reverse() };
+      }
+      if (/SELECT \* FROM bid_opportunity_follow_ups/i.test(sql)) {
+        return {
+          all: () => [...followUps].reverse(),
+          get: (recordId: string) => followUps.find((item) => item.record_id === recordId),
+        };
+      }
+      if (/SELECT \* FROM bid_opportunity_attachments WHERE attachment_id = \?/i.test(sql)) {
+        return { get: (attachmentId: string) => attachments.find((item) => item.attachment_id === attachmentId) };
+      }
+      if (/SELECT \* FROM bid_opportunity_attachments WHERE opportunity_id = \?/i.test(sql)) {
+        return { all: (opportunityId: string) => attachments.filter((item) => item.opportunity_id === opportunityId) };
+      }
+      if (/SELECT \* FROM bid_opportunity_attachments/i.test(sql)) {
+        return { all: () => [...attachments].reverse() };
       }
       if (/INSERT INTO bid_opportunity_opportunities/i.test(sql)) {
         return {
           run: (params: Record<string, unknown>) => {
             rows.push(params);
+            return { changes: 1 };
+          },
+        };
+      }
+      if (/INSERT INTO bid_opportunity_follow_ups/i.test(sql)) {
+        return {
+          run: (params: Record<string, unknown>) => {
+            followUps.push(params);
+            return { changes: 1 };
+          },
+        };
+      }
+      if (/INSERT INTO bid_opportunity_attachments/i.test(sql)) {
+        return {
+          run: (params: Record<string, unknown>) => {
+            attachments.push(params);
             return { changes: 1 };
           },
         };
@@ -58,6 +101,65 @@ function createFakeBidOpportunityDb(knowledgeItems: Array<Record<string, unknown
               row.status = params.status;
             }
             row.updated_at = params.updated_at;
+            return { changes: 1 };
+          },
+        };
+      }
+      if (/UPDATE bid_opportunity_follow_ups/i.test(sql)) {
+        return {
+          run: (params: Record<string, unknown>) => {
+            const row = followUps.find((item) => item.record_id === params.record_id);
+            if (!row) return { changes: 0 };
+            row.occurred_at = params.occurred_at;
+            row.method = params.method;
+            row.owner = params.owner;
+            row.contact_person = params.contact_person;
+            row.content = params.content;
+            row.next_action = params.next_action;
+            row.next_follow_up_at = params.next_follow_up_at;
+            row.updated_at = params.updated_at;
+            return { changes: 1 };
+          },
+        };
+      }
+      if (/UPDATE bid_opportunity_attachments/i.test(sql)) {
+        return {
+          run: (params: Record<string, unknown>) => {
+            const row = attachments.find((item) => item.attachment_id === params.attachment_id);
+            if (!row) return { changes: 0 };
+            row.kind = params.kind;
+            row.note = params.note;
+            row.updated_at = params.updated_at;
+            return { changes: 1 };
+          },
+        };
+      }
+      if (/DELETE FROM bid_opportunity_follow_ups/i.test(sql)) {
+        return {
+          run: (recordId?: string) => {
+            if (!recordId) {
+              const changes = followUps.length;
+              followUps.length = 0;
+              return { changes };
+            }
+            const index = followUps.findIndex((item) => item.record_id === recordId);
+            if (index === -1) return { changes: 0 };
+            followUps.splice(index, 1);
+            return { changes: 1 };
+          },
+        };
+      }
+      if (/DELETE FROM bid_opportunity_attachments/i.test(sql)) {
+        return {
+          run: (attachmentId?: string) => {
+            if (!attachmentId) {
+              const changes = attachments.length;
+              attachments.length = 0;
+              return { changes };
+            }
+            const index = attachments.findIndex((item) => item.attachment_id === attachmentId);
+            if (index === -1) return { changes: 0 };
+            attachments.splice(index, 1);
             return { changes: 1 };
           },
         };
@@ -96,6 +198,35 @@ describe('bidOpportunityStore report export', () => {
                 sourceFile: '历史项目.md',
                 score: 42,
                 matchedKeywords: ['智慧', '园区', '业绩'],
+              },
+            ],
+            followUps: [
+              {
+                id: 'follow-1',
+                opportunityId: 'opp-1',
+                occurredAt: '2026-06-15T10:30',
+                method: 'meeting',
+                owner: '张三',
+                contactPerson: '采购代理王经理',
+                content: '确认答疑文件预计本周发布。',
+                nextAction: '跟进答疑文件并补充授权资料',
+                nextFollowUpAt: '2026-06-16T09:00',
+                createdAt: '2026-06-15T10:30:00.000Z',
+                updatedAt: '2026-06-15T10:30:00.000Z',
+              },
+            ],
+            attachments: [
+              {
+                id: 'attachment-1',
+                opportunityId: 'opp-1',
+                kind: 'communication',
+                fileName: '代理沟通纪要.pdf',
+                storedPath: 'bid-opportunity/attachments/opp-1/代理沟通纪要.pdf',
+                originalPath: '/tmp/代理沟通纪要.pdf',
+                fileSize: 1024,
+                note: '电话沟通后整理的纪要',
+                createdAt: '2026-06-15T10:40:00.000Z',
+                updatedAt: '2026-06-15T10:40:00.000Z',
               },
             ],
             parsedFields: {
@@ -147,6 +278,10 @@ describe('bidOpportunityStore report export', () => {
     expect(markdown).toContain('2026-07-01T09:30');
     expect(markdown).toContain('#### 知识库/历史项目匹配');
     expect(markdown).toContain('智慧园区平台建设业绩');
+    expect(markdown).toContain('#### 跟进记录');
+    expect(markdown).toContain('确认答疑文件预计本周发布。');
+    expect(markdown).toContain('#### 公告/沟通附件');
+    expect(markdown).toContain('代理沟通纪要.pdf');
     expect(markdown).toContain('优先安排高评分机会');
   });
 
@@ -380,6 +515,147 @@ describe('bidOpportunityStore report export', () => {
       nextAction: '补充授权文件',
       reminderAt: '2026-07-02T14:00',
     });
+  });
+
+  it('adds multi-round follow-up records and syncs current action summary', () => {
+    const store = createBidOpportunityStore({ db: createFakeBidOpportunityDb() });
+    const saved = store.saveOpportunity({
+      sourceText: '项目名称：智慧园区平台\n预算金额：1200万元',
+      owner: '张三',
+    });
+    const opportunityId = saved.opportunities[0].id;
+
+    const updated = store.addFollowUpRecord(opportunityId, {
+      method: 'meeting',
+      owner: '李四',
+      contactPerson: '代理王经理',
+      content: '确认答疑文件发布时间。',
+      nextAction: '补充授权文件',
+      nextFollowUpAt: '2026-07-03T10:00',
+    });
+
+    expect(updated.opportunities[0]).toMatchObject({
+      id: opportunityId,
+      status: 'tracking',
+      owner: '李四',
+      nextAction: '补充授权文件',
+      reminderAt: '2026-07-03T10:00',
+    });
+    expect(updated.opportunities[0].followUps?.[0]).toMatchObject({
+      method: 'meeting',
+      owner: '李四',
+      contactPerson: '代理王经理',
+      content: '确认答疑文件发布时间。',
+      nextAction: '补充授权文件',
+    });
+  });
+
+  it('updates and deletes multi-round follow-up records', () => {
+    const store = createBidOpportunityStore({ db: createFakeBidOpportunityDb() });
+    const saved = store.saveOpportunity({
+      sourceText: '项目名称：智慧园区平台\n预算金额：1200万元',
+      owner: '张三',
+    });
+    const opportunityId = saved.opportunities[0].id;
+    const withRecord = store.addFollowUpRecord(opportunityId, {
+      method: 'phone',
+      owner: '张三',
+      content: '首次电话沟通。',
+      nextAction: '等待答疑。',
+    });
+    const recordId = withRecord.opportunities[0].followUps?.[0]?.id || '';
+
+    const updated = store.updateFollowUpRecord(recordId, {
+      method: 'email',
+      owner: '李四',
+      contactPerson: '代理王经理',
+      content: '邮件确认答疑时间。',
+      nextAction: '周五前补充材料。',
+      nextFollowUpAt: '2026-07-05T15:00',
+    });
+
+    expect(updated.opportunities[0].followUps?.[0]).toMatchObject({
+      id: recordId,
+      method: 'email',
+      owner: '李四',
+      contactPerson: '代理王经理',
+      content: '邮件确认答疑时间。',
+      nextAction: '周五前补充材料。',
+      nextFollowUpAt: '2026-07-05T15:00',
+    });
+
+    const deleted = store.deleteFollowUpRecord(recordId);
+
+    expect(deleted.opportunities[0].followUps).toHaveLength(0);
+  });
+
+  it('imports bid opportunity attachments into the workspace', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-opportunity-attachments-'));
+    const sourcePath = path.join(tempDir, '公告答疑.pdf');
+    fs.writeFileSync(sourcePath, 'attachment-content', 'utf-8');
+    try {
+      const store = createBidOpportunityStore({ db: createFakeBidOpportunityDb(), workspaceRoot: tempDir });
+      const saved = store.saveOpportunity({
+        sourceText: '项目名称：智慧园区平台\n预算金额：1200万元',
+      });
+      const opportunityId = saved.opportunities[0].id;
+
+      const result = await store.importAttachments(opportunityId, {
+        filePaths: [sourcePath],
+        kind: 'communication',
+        note: '答疑沟通附件',
+      });
+
+      expect(result.success).toBe(true);
+      const attachment = result.state.opportunities[0].attachments?.[0];
+      expect(attachment).toMatchObject({
+        kind: 'communication',
+        fileName: '公告答疑.pdf',
+        note: '答疑沟通附件',
+      });
+      expect(fs.existsSync(path.join(tempDir, attachment?.storedPath || ''))).toBe(true);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('updates attachment metadata and removes the copied workspace file', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yibiao-opportunity-attachment-delete-'));
+    const sourcePath = path.join(tempDir, '资格证明.pdf');
+    fs.writeFileSync(sourcePath, 'attachment-content', 'utf-8');
+    try {
+      const store = createBidOpportunityStore({ db: createFakeBidOpportunityDb(), workspaceRoot: tempDir });
+      const saved = store.saveOpportunity({
+        sourceText: '项目名称：智慧园区平台\n预算金额：1200万元',
+      });
+      const opportunityId = saved.opportunities[0].id;
+      const imported = await store.importAttachments(opportunityId, {
+        filePaths: [sourcePath],
+        kind: 'announcement',
+      });
+      const attachment = imported.state.opportunities[0].attachments?.[0];
+      const attachmentId = attachment?.id || '';
+      const copiedPath = path.join(tempDir, attachment?.storedPath || '');
+
+      const updated = store.updateAttachment(attachmentId, {
+        kind: 'qualification',
+        note: '资格证明原件',
+      });
+
+      expect(updated.opportunities[0].attachments?.[0]).toMatchObject({
+        id: attachmentId,
+        kind: 'qualification',
+        note: '资格证明原件',
+      });
+      expect(fs.existsSync(copiedPath)).toBe(true);
+
+      const deleted = store.deleteAttachment(attachmentId);
+
+      expect(deleted.opportunities[0].attachments).toHaveLength(0);
+      expect(fs.existsSync(copiedPath)).toBe(false);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it('exports reminder calendar to an iCalendar file', async () => {

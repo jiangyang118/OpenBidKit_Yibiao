@@ -505,7 +505,7 @@ function BidAnalysisPage({
           ) : (
             <div className="markdown-empty-state bid-analysis-empty">
               <strong>{activeTaskStatus === 'error' ? activeTaskState?.error || '解析失败' : '等待解析结果'}</strong>
-              <p>{activeTaskStatus === 'idle' ? '点击开始解析后，左侧任务会并发运行；选择任一任务查看实时输出。' : '正在等待模型返回内容。'}</p>
+              <p>{activeTaskStatus === 'idle' ? '点击开始解析后，左侧任务会并发运行；选择任一任务查看结果。' : activeTaskStatus === 'error' ? '请检查文本模型配置或稍后重试当前解析项。' : '正在等待模型返回内容，单次 AI 请求最长等待 300 秒。'}</p>
             </div>
           )}
         </article>

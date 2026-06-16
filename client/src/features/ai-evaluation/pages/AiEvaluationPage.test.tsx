@@ -61,7 +61,11 @@ const evaluationState: AiEvaluationState = {
       id: 'expert-1',
       itemId: 'eval-1',
       expertName: '专家A',
+      expertRole: '技术专家',
+      reviewSession: '第一次评审会',
       score: 45,
+      signatureConfirmed: true,
+      signedAt: '2026-06-14T10:03:30.000Z',
       opinion: '证据充分，建议略调分。',
       createdAt: '2026-06-14T10:03:00.000Z',
       updatedAt: '2026-06-14T10:03:00.000Z',
@@ -70,6 +74,9 @@ const evaluationState: AiEvaluationState = {
   expertReviewSummary: {
     expertCount: 1,
     scoreCount: 1,
+    signedCount: 1,
+    pendingSignatureCount: 0,
+    reviewSessionCount: 1,
     conflictCount: 0,
     maxDeviation: 4,
     conclusion: '专家打分暂未发现明显偏差。',
@@ -147,6 +154,7 @@ describe('AiEvaluationPage', () => {
         saveExpertScore: vi.fn().mockResolvedValue(evaluationState),
         exportReport: vi.fn().mockResolvedValue({ success: true, message: 'AI 评标自评报告已导出', filePath: '/tmp/ai-evaluation.md', markdownChars: 1200 }),
         exportOfficePackage: vi.fn().mockResolvedValue({ success: true, message: 'AI 评标正式报告已导出', filePath: '/tmp/ai-evaluation.docx', bytes: 1200, format: 'docx' }),
+        exportCommitteeReport: vi.fn().mockResolvedValue({ success: true, message: 'AI 评标委员会会议纪要 Word 已导出', filePath: '/tmp/ai-evaluation-committee.docx', bytes: 1200, markdownChars: 1500, format: 'docx' }),
         clear: vi.fn().mockResolvedValue({
           source: null,
           items: [],
@@ -202,8 +210,11 @@ describe('AiEvaluationPage', () => {
     expect(screen.getByText(/41\/50 · 高风险 1/)).toBeInTheDocument();
     expect(screen.getByText(/审计意见：1 条/)).toBeInTheDocument();
     expect(screen.getByText(/专家打分：1 条/)).toBeInTheDocument();
+    expect(screen.getByText(/签名确认：1\/1/)).toBeInTheDocument();
     expect(screen.getByText('交叉审核')).toBeInTheDocument();
-    expect(screen.getByText(/专家A：45 分/)).toBeInTheDocument();
+    expect(screen.getByText(/专家A（第一次评审会，技术专家，已签名/)).toBeInTheDocument();
+    expect(screen.getByText('会议 1 场')).toBeInTheDocument();
+    expect(screen.getByText('签名 1/1')).toBeInTheDocument();
     expect(screen.getByText('高风险评分项：技术方案完整性')).toBeInTheDocument();
     expect(screen.getByText(/已保存报告快照/)).toBeInTheDocument();
   });
@@ -269,15 +280,21 @@ describe('AiEvaluationPage', () => {
     await screen.findByText('技术方案完整性');
 
     fireEvent.change(screen.getByPlaceholderText('例如：专家A'), { target: { value: '专家B' } });
+    fireEvent.change(screen.getByPlaceholderText('例如：技术专家'), { target: { value: '商务专家' } });
+    fireEvent.change(screen.getByPlaceholderText('例如：第一次评审会'), { target: { value: '第二次评审会' } });
     fireEvent.change(screen.getByPlaceholderText('0-50'), { target: { value: '32' } });
     fireEvent.change(screen.getByPlaceholderText('评分口径、分差原因或复核说明'), { target: { value: '与当前自评分差较大' } });
+    fireEvent.click(screen.getByLabelText('签名确认'));
     fireEvent.click(screen.getByRole('button', { name: '保存专家打分' }));
 
     await waitFor(() => {
       expect(window.yibiao?.aiEvaluation.saveExpertScore).toHaveBeenCalledWith({
         itemId: 'eval-1',
         expertName: '专家B',
+        expertRole: '商务专家',
+        reviewSession: '第二次评审会',
         score: 32,
+        signatureConfirmed: true,
         opinion: '与当前自评分差较大',
       });
     });
@@ -305,6 +322,17 @@ describe('AiEvaluationPage', () => {
     await waitFor(() => {
       expect(window.yibiao?.aiEvaluation.exportOfficePackage).toHaveBeenCalledWith({ format: 'docx' });
       expect(window.yibiao?.aiEvaluation.exportOfficePackage).toHaveBeenCalledWith({ format: 'xlsx' });
+    });
+  });
+
+  it('exports the formal committee meeting minutes template', async () => {
+    renderPage();
+
+    const committeeButton = await screen.findByRole('button', { name: '导出会议纪要模板' });
+    fireEvent.click(committeeButton);
+
+    await waitFor(() => {
+      expect(window.yibiao?.aiEvaluation.exportCommitteeReport).toHaveBeenCalledWith({ format: 'docx' });
     });
   });
 });

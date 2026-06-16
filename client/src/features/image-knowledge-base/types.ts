@@ -73,6 +73,12 @@ export interface ImageKnowledgeUploadResult extends ImageKnowledgeState {
   message: string;
 }
 
+export type ImageKnowledgeArchiveSection = '图片素材图示' | '资质扫描管理';
+
+export interface ImageKnowledgeArchiveImportResult extends ImageKnowledgeUploadResult {
+  archives: number;
+}
+
 export interface ImageKnowledgeMarkdownReferenceRequest {
   imageId: string;
   targetType: 'technical-plan' | string;

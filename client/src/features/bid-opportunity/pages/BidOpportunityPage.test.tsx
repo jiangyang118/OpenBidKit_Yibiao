@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '../../../shared/ui';
 import type { BidOpportunityState } from '../types';
@@ -48,6 +48,35 @@ const existingState: BidOpportunityState = {
           matchedKeywords: ['智慧', '园区', '业绩'],
         },
       ],
+      followUps: [
+        {
+          id: 'follow-1',
+          opportunityId: 'opp-1',
+          occurredAt: '2026-06-15T10:30',
+          method: 'meeting',
+          owner: '张三',
+          contactPerson: '代理王经理',
+          content: '确认答疑文件发布时间。',
+          nextAction: '补充授权文件',
+          nextFollowUpAt: '2026-06-16T09:00',
+          createdAt: '2026-06-15T10:30:00.000Z',
+          updatedAt: '2026-06-15T10:30:00.000Z',
+        },
+      ],
+      attachments: [
+        {
+          id: 'attachment-1',
+          opportunityId: 'opp-1',
+          kind: 'communication',
+          fileName: '代理沟通纪要.pdf',
+          storedPath: 'bid-opportunity/attachments/opp-1/代理沟通纪要.pdf',
+          originalPath: '/tmp/代理沟通纪要.pdf',
+          fileSize: 1024,
+          note: '电话沟通后整理的纪要',
+          createdAt: '2026-06-15T10:40:00.000Z',
+          updatedAt: '2026-06-15T10:40:00.000Z',
+        },
+      ],
       risks: [],
       recommendation: '建议重点跟进',
       createdAt: '2026-06-14T10:00:00.000Z',
@@ -75,6 +104,12 @@ describe('BidOpportunityPage', () => {
         importUrl: vi.fn().mockResolvedValue({ success: true, message: '公告 URL 已读取并生成投标机会', state: existingState }),
         updateStatus: vi.fn().mockResolvedValue(existingState),
         updateFollowUp: vi.fn().mockResolvedValue(existingState),
+        addFollowUpRecord: vi.fn().mockResolvedValue(existingState),
+        updateFollowUpRecord: vi.fn().mockResolvedValue(existingState),
+        deleteFollowUpRecord: vi.fn().mockResolvedValue(existingState),
+        importAttachments: vi.fn().mockResolvedValue({ success: true, message: '已导入 1 个投标机会附件', state: existingState }),
+        updateAttachment: vi.fn().mockResolvedValue(existingState),
+        deleteAttachment: vi.fn().mockResolvedValue(existingState),
         deleteOpportunity: vi.fn().mockResolvedValue({ opportunities: [], activeOpportunityId: null }),
         exportReport: vi.fn().mockResolvedValue({ success: true, message: '投标机会建议报告已导出', filePath: '/tmp/opportunity.md', markdownChars: 1200 }),
         exportCalendar: vi.fn().mockResolvedValue({ success: true, message: '投标机会提醒日历已导出', filePath: '/tmp/opportunity.ics', calendarChars: 900, eventCount: 1 }),
@@ -98,6 +133,8 @@ describe('BidOpportunityPage', () => {
     expect(screen.getByLabelText('下一步动作')).toHaveValue('确认本地化服务承诺');
     expect(screen.getByText('智慧园区历史业绩')).toBeInTheDocument();
     expect(screen.getByText(/命中：智慧、园区、业绩/)).toBeInTheDocument();
+    expect(screen.getByText('确认答疑文件发布时间。')).toBeInTheDocument();
+    expect(screen.getByText('代理沟通纪要.pdf')).toBeInTheDocument();
     expect(screen.getByLabelText('评分拆解')).toBeInTheDocument();
     expect(screen.getByText('竞争强度')).toBeInTheDocument();
     expect(screen.getByText('利润空间')).toBeInTheDocument();
@@ -219,6 +256,68 @@ describe('BidOpportunityPage', () => {
         nextAction: '确认本地化服务承诺',
         reminderAt: '2026-07-02T14:00',
       });
+    });
+  });
+
+  it('adds and deletes multi-round follow-up records through the bridge', async () => {
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText('方式'), { target: { value: 'meeting' } });
+    fireEvent.change(screen.getByLabelText('跟进负责人'), { target: { value: '李四' } });
+    fireEvent.change(screen.getByLabelText('沟通对象'), { target: { value: '采购代理王经理' } });
+    fireEvent.change(screen.getByLabelText('下次跟进'), { target: { value: '2026-07-03T10:00' } });
+    fireEvent.change(screen.getByLabelText('本次沟通记录'), { target: { value: '确认答疑文件发布时间。' } });
+    fireEvent.change(screen.getByLabelText('记录下一步动作'), { target: { value: '补充授权文件' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存记录' }));
+
+    await waitFor(() => {
+      expect(window.yibiao?.bidOpportunity.addFollowUpRecord).toHaveBeenCalledWith('opp-1', {
+        method: 'meeting',
+        content: '确认答疑文件发布时间。',
+        nextAction: '补充授权文件',
+        nextFollowUpAt: '2026-07-03T10:00',
+        owner: '李四',
+        contactPerson: '采购代理王经理',
+      });
+    });
+
+    const followUpPanel = screen.getByLabelText('多轮跟进记录');
+    fireEvent.click(within(followUpPanel).getByRole('button', { name: '删除' }));
+
+    await waitFor(() => {
+      expect(window.yibiao?.bidOpportunity.deleteFollowUpRecord).toHaveBeenCalledWith('follow-1');
+    });
+  });
+
+  it('imports, updates and deletes bid opportunity attachments through the bridge', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '导入附件' }));
+
+    await waitFor(() => {
+      expect(window.yibiao?.bidOpportunity.importAttachments).toHaveBeenCalledWith('opp-1', { kind: 'announcement' });
+    });
+
+    const kindSelect = screen.getByDisplayValue('沟通附件');
+    fireEvent.change(kindSelect, { target: { value: 'qualification' } });
+
+    await waitFor(() => {
+      expect(window.yibiao?.bidOpportunity.updateAttachment).toHaveBeenCalledWith('attachment-1', { kind: 'qualification' });
+    });
+
+    const noteInput = screen.getByPlaceholderText('附件说明');
+    fireEvent.change(noteInput, { target: { value: '已更新附件说明' } });
+    fireEvent.blur(noteInput);
+
+    await waitFor(() => {
+      expect(window.yibiao?.bidOpportunity.updateAttachment).toHaveBeenCalledWith('attachment-1', { note: '已更新附件说明' });
+    });
+
+    const attachmentPanel = screen.getByLabelText('公告和沟通附件');
+    fireEvent.click(within(attachmentPanel).getByRole('button', { name: '删除' }));
+
+    await waitFor(() => {
+      expect(window.yibiao?.bidOpportunity.deleteAttachment).toHaveBeenCalledWith('attachment-1');
     });
   });
 });

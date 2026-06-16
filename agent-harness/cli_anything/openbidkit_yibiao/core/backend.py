@@ -15,6 +15,15 @@ CLIENT_ROOT = REPO_ROOT / "client"
 ANALYTICS_ROOT = REPO_ROOT / "analytics"
 EXPORT_REPORT_HELPER = HARNESS_ROOT / "cli_anything" / "openbidkit_yibiao" / "scripts" / "export_report.cjs"
 TASK_PLAN_HELPER = HARNESS_ROOT / "cli_anything" / "openbidkit_yibiao" / "scripts" / "task_plan.cjs"
+PROJECT_WORKSPACE_HELPER = HARNESS_ROOT / "cli_anything" / "openbidkit_yibiao" / "scripts" / "project_workspace.cjs"
+
+REPORT_FORMATS_BY_KIND = {
+    "duplicate": ["md", "docx", "pdf"],
+    "rejection": ["md", "docx", "pdf"],
+    "business-bid": ["md", "docx", "xlsx"],
+    "ai-evaluation": ["md", "docx", "xlsx"],
+    "bid-opportunity": ["md"],
+}
 
 
 @dataclass(frozen=True)
@@ -102,14 +111,24 @@ def plan_summary() -> dict[str, Any]:
     text = plan_path.read_text(encoding="utf-8") if plan_path.exists() else ""
     headings = [line.strip() for line in text.splitlines() if line.startswith("### ")]
     completed_markers = text.count("已补充") + text.count("已完成") + text.count("已通过")
-    pending_markers = text.count("待完成") + text.count("待增强") + text.count("后续")
+    required_pending_markers = text.count("待完成")
+    optional_enhancement_markers = text.count("待增强") + text.count("可选增强") + text.count("后续")
+    external_dependency_notes = [
+        line.strip()
+        for line in text.splitlines()
+        if "YIBIAO_MINERU_TOKEN" in line or "MinerU 精准解析真实网络" in line
+    ][:5]
     return {
         "path": str(plan_path),
         "exists": plan_path.exists(),
         "headings": headings,
         "heading_count": len(headings),
         "completed_markers": completed_markers,
-        "pending_markers": pending_markers,
+        "pending_markers": required_pending_markers,
+        "required_pending_markers": required_pending_markers,
+        "optional_enhancement_markers": optional_enhancement_markers,
+        "completion_status": "required-complete" if required_pending_markers == 0 else "has-required-pending",
+        "external_dependency_notes": external_dependency_notes,
     }
 
 
@@ -210,17 +229,19 @@ def run_smoke(checks: list[str] | None = None, timeout: int = 120) -> dict[str, 
 def export_report(kind: str, state_json: Path, output: Path, timeout: int = 60, format: str = "md") -> dict[str, Any]:
     normalized_kind = str(kind or "").strip()
     normalized_format = str(format or "").strip().lower()
-    if normalized_kind not in {"duplicate", "rejection"}:
+    if normalized_kind not in REPORT_FORMATS_BY_KIND:
         return {
             "ok": False,
             "error": "unknown_report_kind",
-            "available_kinds": ["duplicate", "rejection"],
+            "available_kinds": sorted(REPORT_FORMATS_BY_KIND.keys()),
         }
-    if normalized_format not in {"md", "docx", "pdf"}:
+    if normalized_format not in REPORT_FORMATS_BY_KIND[normalized_kind]:
         return {
             "ok": False,
             "error": "unknown_report_format",
-            "available_formats": ["md", "docx", "pdf"],
+            "available_formats": REPORT_FORMATS_BY_KIND[normalized_kind],
+            "kind": normalized_kind,
+            "format": normalized_format,
         }
     state_path = Path(state_json).expanduser()
     output_path = Path(output).expanduser()
@@ -344,6 +365,55 @@ def run_task_plan_helper(args: list[str], timeout: int = 30) -> dict[str, Any]:
     }
 
 
+def run_project_workspace_helper(args: list[str], timeout: int = 30) -> dict[str, Any]:
+    spec = CommandSpec(
+        key="project-workspace",
+        cwd=REPO_ROOT,
+        command=["node", str(PROJECT_WORKSPACE_HELPER), *args],
+        description="Manage project workspaces through the real Electron Main projectWorkspaceStore.",
+    )
+    env = os.environ.copy()
+    env["OPENBIDKIT_REPO_ROOT"] = str(REPO_ROOT)
+    try:
+        completed = subprocess.run(
+            spec.command,
+            cwd=spec.cwd,
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "ok": False,
+            "returncode": None,
+            "stdout": exc.stdout or "",
+            "stderr": exc.stderr or "",
+            "timeout": timeout,
+            "error": "timeout",
+            "command": spec.command,
+            "cwd": str(spec.cwd),
+        }
+
+    payload: dict[str, Any] = {}
+    if completed.stdout.strip():
+        try:
+            payload = json.loads(completed.stdout)
+        except json.JSONDecodeError:
+            payload = {}
+    return {
+        **payload,
+        "ok": completed.returncode == 0 and bool(payload.get("ok", completed.returncode == 0)),
+        "returncode": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+        "command": spec.command,
+        "cwd": str(spec.cwd),
+    }
+
+
 def list_task_definitions(timeout: int = 30) -> dict[str, Any]:
     return run_task_plan_helper(["--list"], timeout=timeout)
 
@@ -353,3 +423,32 @@ def start_task_dry_run(task_type: str, payload_json: Path | None = None, timeout
     if payload_json is not None:
         args.extend(["--payload-json", str(Path(payload_json).expanduser())])
     return run_task_plan_helper(args, timeout=timeout)
+
+
+def project_workspace(
+    action: str,
+    user_data: Path | None = None,
+    project_id: str | None = None,
+    name: str | None = None,
+    description: str | None = None,
+    make_active: bool = False,
+    package_dir: Path | None = None,
+    timeout: int = 30,
+) -> dict[str, Any]:
+    args = [
+        "--user-data",
+        str(Path(user_data).expanduser() if user_data is not None else default_user_data_path()),
+        "--action",
+        action,
+    ]
+    if project_id:
+        args.extend(["--project-id", project_id])
+    if name:
+        args.extend(["--name", name])
+    if description:
+        args.extend(["--description", description])
+    if make_active:
+        args.append("--make-active")
+    if package_dir is not None:
+        args.extend(["--package-dir", str(Path(package_dir).expanduser())])
+    return run_project_workspace_helper(args, timeout=timeout)

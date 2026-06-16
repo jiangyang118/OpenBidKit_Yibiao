@@ -4,6 +4,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { registerIpcHandlers } = require('./ipc/index.cjs');
 const { setupAutoUpdate, checkAndDownloadUpdate, triggerUpdateDownload, quitAndInstall, getLatestVersion, getUpdateDownloadUrl } = require('./services/updateService.cjs');
+const { applyNativeThemeSource } = require('./utils/nativeTheme.cjs');
 const { getConfigFilePath, getGeneratedImagesDir, getGpuStartupProbePath, getImportedImagesDir } = require('./utils/paths.cjs');
 
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
@@ -341,7 +342,7 @@ function createMainWindow() {
 }
 
 app.whenReady().then(() => {
-  nativeTheme.themeSource = 'light';
+  applyNativeThemeSource(nativeTheme, readStartupConfigFile() || {});
   registerAssetProtocol();
   const mainWindow = createMainWindow();
   scheduleGpuStartupProbeClear(mainWindow);
@@ -356,6 +357,7 @@ app.whenReady().then(() => {
     gpuStartupState,
     gpuTrialArg: GPU_HARDWARE_ACCELERATION_TRIAL_ARG,
     forceDisableGpuArgs: FORCE_DISABLE_GPU_ARGS,
+    nativeTheme,
   });
   setupAutoUpdate({ app, mainWindow });
 

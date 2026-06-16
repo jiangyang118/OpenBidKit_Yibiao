@@ -37,6 +37,7 @@ test('opens the AI evaluation workbench from the secondary menu', async ({ page 
   await expect(page.getByRole('button', { name: '导入投标文件匹配证据' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'AI 结构化抽取评分项' })).toBeVisible();
   await expect(page.getByRole('button', { name: '导出自评报告' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '导出会议纪要模板' })).toBeDisabled();
   await expect(page.getByText('暂无 AI 评标评分表')).toBeVisible();
 });
 
@@ -414,7 +415,7 @@ test('keeps historical workbench panels dark when dark theme is active', async (
   await expectDarkSurface(page, '.developer-test-panel');
 });
 
-test('guards project workspace switching while tasks are running and confirms restart-scoped switch', async ({ page }) => {
+test('guards project workspace switching while tasks are running and confirms runtime hot switch', async ({ page }) => {
   await page.addInitScript(() => {
     const defaultProject = {
       id: 'default',
@@ -521,7 +522,7 @@ test('guards project workspace switching while tasks are running and confirms re
         setActive: async (projectId) => {
           window.__projectSetActiveCalls.push(projectId);
           activeProjectId = projectId;
-          return { success: true, active_project_id: projectId, restart_required: true, state: buildState() };
+          return { success: true, active_project_id: projectId, restart_required: false, runtime_reloaded: true, state: buildState() };
         },
         archive: async () => ({ success: true, state: buildState() }),
         delete: async () => ({ success: true, state: buildState() }),
@@ -551,7 +552,7 @@ test('guards project workspace switching while tasks are running and confirms re
   await page.getByRole('button', { name: '设置' }).click();
 
   await expect(page.getByText('项目工作区', { exact: true })).toBeVisible();
-  await expect(page.getByText('当前项目：默认项目。切换项目会在重启后加载对应工作区数据。')).toBeVisible();
+  await expect(page.getByText('当前项目：默认项目。切换项目会热刷新当前会话的工作区数据。')).toBeVisible();
   await expect(page.getByText('医院后勤投标')).toBeVisible();
 
   await page.getByRole('button', { name: '设为当前' }).click();
@@ -572,11 +573,11 @@ test('guards project workspace switching while tasks are running and confirms re
 
   await page.getByRole('button', { name: '设为当前' }).click();
   await expect(page.getByRole('dialog', { name: '切换项目' })).toBeVisible();
-  await expect(page.getByText('切换后需要重启应用')).toBeVisible();
+  await expect(page.getByText('切换后会热刷新当前会话')).toBeVisible();
   await page.getByRole('button', { name: '确认切换' }).click();
 
   await expect.poll(async () => page.evaluate(() => window.__projectSetActiveCalls?.[0])).toBe('project-a');
-  await expect(page.getByText('当前项目：医院后勤投标。切换项目会在重启后加载对应工作区数据。')).toBeVisible();
+  await expect(page.getByText('当前项目：医院后勤投标。切换项目会热刷新当前会话的工作区数据。')).toBeVisible();
 });
 
 test('shows LM Studio as an API-keyless local text model provider', async ({ page }) => {
@@ -621,7 +622,67 @@ test('opens the real prompt lab in developer mode', async ({ page }) => {
 
   await expect(page.getByRole('heading', { name: 'Prompt调试台' })).toBeVisible();
   await expect(page.getByText('变量注入后的消息')).toBeVisible();
+  await expect(page.getByRole('button', { name: '保存到开发者日志' })).toBeVisible();
   await expect(page.getByText(/项目名称：易标测试项目/)).toBeVisible();
+});
+
+test('opens the parser sandbox with local OCR guidance in developer mode', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.yibiao = {
+      config: {
+        load: async () => ({
+          developer_mode: true,
+          theme: 'system',
+          sidebar_layout: 'classic',
+        }),
+        save: async (config) => ({ success: true, config }),
+      },
+      file: {
+        getDeveloperParserCapabilities: async () => ({
+          providers: [],
+          samples: [
+            {
+              extension: '.pdf',
+              local_supported: true,
+              local_ocr_supported: true,
+              mineru_accurate_supported: true,
+              mineru_agent_supported: true,
+              recommended_provider: 'local',
+              status: 'mixed',
+              note: '文本型 PDF 可先走本地解析；扫描件 PDF 建议优先使用本地 OCR。',
+            },
+            {
+              extension: '.ofd',
+              local_supported: false,
+              local_ocr_supported: true,
+              mineru_accurate_supported: false,
+              mineru_agent_supported: false,
+              recommended_provider: 'local-ocr',
+              status: 'local-ocr',
+              note: 'OFD 可走本地 OCR 兜底：优先通过本机 OFD 转 PDF 工具或 LibreOffice 转为页面 PDF，再按页面截图调用 PaddleOCR。',
+            },
+          ],
+          chinese_path_smoke: {
+            required: true,
+            note: '解析回归样本应至少包含一个中文目录和中文文件名。',
+            example: 'C:\\投标项目\\样本文档\\技术方案样例.docx',
+          },
+          scanned_document_policy: '扫描件 PDF、JPEG、PNG 可先走本地 OCR；本地 OCR 默认优先使用 PaddleOCR。',
+        }),
+      },
+    };
+  });
+
+  await page.goto('/');
+  await page.getByRole('button', { name: '测试页' }).click();
+  await page.getByRole('button', { name: /文件解析沙盘/ }).click();
+
+  await expect(page.getByRole('heading', { name: '文件解析沙盘' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /本地 OCR 解析\s+适合扫描 PDF、OFD 和图片/ })).toBeVisible();
+  await expect(page.getByText('样本覆盖矩阵')).toBeVisible();
+  await expect(page.getByText(/扫描件 PDF、JPEG、PNG 可先走本地 OCR/)).toBeVisible();
+  await expect(page.getByText(/本地 OCR 默认优先使用 PaddleOCR/)).toBeVisible();
+  await expect(page.getByText(/OFD 可走本地 OCR/)).toBeVisible();
 });
 
 test('opens the export dry-run preview in developer mode', async ({ page }) => {

@@ -1,10 +1,15 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { ipcMain, shell } = require('electron');
+const { applyNativeThemeSource } = require('../utils/nativeTheme.cjs');
 
-function registerConfigIpc({ configStore, aiService }) {
+function registerConfigIpc({ configStore, aiService, nativeTheme }) {
   ipcMain.handle('config:load', () => configStore.load());
-  ipcMain.handle('config:save', (_event, config) => configStore.save(config));
+  ipcMain.handle('config:save', (_event, config) => {
+    const result = configStore.save(config);
+    applyNativeThemeSource(nativeTheme, configStore.load());
+    return result;
+  });
   ipcMain.handle('config:list-models', (_event, config) => aiService.listModels(config));
   ipcMain.handle('config:open-config-folder', async () => {
     const configFolder = path.dirname(configStore.getConfigFilePath());

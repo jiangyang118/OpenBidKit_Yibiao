@@ -6,77 +6,13 @@ import type { SectionId } from '../../../shared/types/navigation';
 import { getBidAnalysisTasks } from '../../technical-plan/services/bidAnalysisWorkflow';
 import type { TechnicalPlanState } from '../../technical-plan/types';
 
-type DeveloperDemoSectionId = 'developer-prompt-lab' | 'developer-parser-sandbox' | 'developer-export-preview';
+type DeveloperToolsSectionId = 'developer-prompt-lab' | 'developer-parser-sandbox' | 'developer-export-preview';
 
-interface DeveloperDemoPageProps {
-  sectionId: DeveloperDemoSectionId;
+interface DeveloperToolsPageProps {
+  sectionId: DeveloperToolsSectionId;
 }
 
-interface DeveloperDemoConfig {
-  kicker: string;
-  title: string;
-  description: string;
-  accent: string;
-  metrics: Array<{ label: string; value: string; detail: string }>;
-  steps: Array<{ title: string; text: string }>;
-  preview: string[];
-}
-
-const demoConfigs: Record<DeveloperDemoSectionId, DeveloperDemoConfig> = {
-  'developer-prompt-lab': {
-    kicker: 'Prompt Lab',
-    title: 'Prompt调试台',
-    description: '把 Prompt 版本、变量注入、输出格式和模型反馈集中到同一张观察台，方便定位生成质量波动。',
-    accent: '版本化提示词',
-    metrics: [
-      { label: 'Prompt 片段', value: '18', detail: '系统、任务、格式约束' },
-      { label: '变量槽位', value: '42', detail: '招标文件、目录、事实设定' },
-      { label: '输出规则', value: '9', detail: 'JSON、Markdown、字数约束' },
-    ],
-    steps: [
-      { title: '选择业务链路', text: '从目录生成、正文生成、查重和废标检查中选择调试目标。' },
-      { title: '检查变量注入', text: '对比实际入参、截断策略和敏感字段过滤结果。' },
-      { title: '沉淀调试记录', text: '记录模型、温度、输出结构和失败原因，便于复现。' },
-    ],
-    preview: ['系统 Prompt', '任务 Prompt', '输出 Schema', '模型返回摘要'],
-  },
-  'developer-parser-sandbox': {
-    kicker: 'Parser Sandbox',
-    title: '文件解析沙盘',
-    description: '用统一视角检查本地解析、MinerU 解析、图片资产导入和 Markdown 清洗结果，降低解析问题排查成本。',
-    accent: '解析链路体检',
-    metrics: [
-      { label: '解析通道', value: '2', detail: '本地解析 / MinerU' },
-      { label: '资产批次', value: '7', detail: '图片、表格、附件' },
-      { label: '清洗规则', value: '13', detail: '标题、空行、图片引用' },
-    ],
-    steps: [
-      { title: '导入样本文件', text: '选择招标文件、投标文件或历史异常样本。' },
-      { title: '对比解析结果', text: '同时查看 Markdown、图片引用、页码和结构化摘要。' },
-      { title: '定位异常阶段', text: '把失败点归因到上传、解析、清洗或资产落盘。' },
-    ],
-    preview: ['原始文件信息', 'Markdown 片段', '图片资产清单', '解析耗时分布'],
-  },
-  'developer-export-preview': {
-    kicker: 'Export Preview',
-    title: '导出链路预演',
-    description: '预演正文、Markdown、Mermaid 和图片资产进入 Word 导出的完整路径，提前发现样式和资源缺失问题。',
-    accent: '导出前检查',
-    metrics: [
-      { label: '导出目标', value: '3', detail: 'Word、Markdown、图片' },
-      { label: '图表转换', value: 'Mermaid', detail: 'Renderer 预览 / Main 转图' },
-      { label: '检查项', value: '16', detail: '目录、正文、图片、表格' },
-    ],
-    steps: [
-      { title: '读取权威正文', text: '以 outlineData.outline[*].content 作为导出内容来源。' },
-      { title: '转换图表资源', text: '把 Mermaid 和导入图片统一转换为 Word 可用资源。' },
-      { title: '输出检查报告', text: '展示缺图、空章节、转换失败和导出耗时。' },
-    ],
-    preview: ['章节正文', 'Mermaid 图表', '图片资源', '导出进度事件'],
-  },
-};
-
-export function isDeveloperDemoSection(sectionId: SectionId): sectionId is DeveloperDemoSectionId {
+export function isDeveloperToolsSection(sectionId: SectionId): sectionId is DeveloperToolsSectionId {
   return sectionId === 'developer-prompt-lab' || sectionId === 'developer-parser-sandbox' || sectionId === 'developer-export-preview';
 }
 
@@ -102,6 +38,47 @@ const sampleBidContent = `# 易标测试项目投标文件
 
 ## 资格证明
 已提供营业执照、相关资质证书和类似项目业绩。`;
+
+const sampleOriginalPlanContent = `# 原技术方案
+
+本项目拟采用“需求调研、系统部署、联调测试、试运行、验收交付”的五阶段实施路线。
+项目经理为张伟，售后服务响应时间为 2 小时内响应、24 小时内到场。`;
+
+const sampleOutline: OutlineItem[] = [
+  {
+    id: '1',
+    title: '项目实施方案',
+    description: '说明实施组织、阶段计划、质量控制和交付成果。',
+    children: [
+      {
+        id: '1.1',
+        title: '实施组织与职责',
+        description: '明确项目团队、负责人和协作机制。',
+        children: [
+          {
+            id: '1.1.1',
+            title: '项目团队配置',
+            description: '列明项目经理、技术负责人和实施人员安排。',
+          },
+        ],
+      },
+    ],
+  },
+];
+
+const sampleChapter = {
+  id: '1.1.1',
+  title: '项目团队配置',
+  description: '列明项目经理、技术负责人和实施人员安排。',
+};
+
+function formatPromptOutline(items: OutlineItem[] = [], level = 1, lines: string[] = []) {
+  for (const item of items) {
+    lines.push(`${'  '.repeat(Math.max(0, level - 1))}- ${item.id} ${item.title}${item.description ? `：${item.description}` : ''}`);
+    if (item.children?.length) formatPromptOutline(item.children, level + 1, lines);
+  }
+  return lines.join('\n');
+}
 
 const promptLabChains = [
   {
@@ -168,6 +145,136 @@ const promptLabChains = [
     schema: '{"findings":[{"type":"invalidBid","severity":"high","title":"","summary":"","requirement":"","bidEvidence":"","riskReason":"","suggestion":""}]}',
     responseFormat: 'json_object',
   },
+  {
+    id: 'global-facts',
+    label: '全局事实预设',
+    description: '对齐 Main 侧 globalFactsTask 第一轮变量预设，用于观察全文一致性事实变量如何进入正文生成。',
+    buildMessages: (): ChatMessage[] => [
+      {
+        role: 'system',
+        content: `用户正在编写投标书中的技术方案。在编写正文前，需要根据招标文件、Step02 解析结果、目录和知识库，提前提取全文需要保持一致的关键变量。
+
+要求：
+1. 只返回有价值的变量组。
+2. 必须覆盖工期、运维期或交货时间中的至少一类。
+3. 优先输出具体变量，例如项目经理、响应时间、质保期、设备型号等。
+4. 不要输出长段落、分析过程、来源说明、风险提示或正文草稿。
+5. 只返回 JSON。`,
+      },
+      { role: 'user', content: `招标文件原文：\n${sampleTenderContent}` },
+      { role: 'user', content: '关键解析结果：\n## 项目信息\n项目名称：易标测试项目\n预算：100 万元\n## 交货和服务要求\n服务期：一年，需提供本地化运维支持。' },
+      { role: 'user', content: `已生成技术方案目录：\n${formatPromptOutline(sampleOutline)}` },
+      { role: 'user', content: '用户选中的知识库完整条目：\n[{"title":"类似项目售后承诺","resume":"响应时效与服务团队配置","content":"2 小时内响应，24 小时内到场，设置项目经理负责总体协调。"}]' },
+      {
+        role: 'user',
+        content: `请返回 JSON，格式如下：
+{
+  "groups": [
+    { "id": "service_period", "title": "服务期限与响应", "content": "- 服务期：一年\\n- 响应时间：2 小时内响应" }
+  ]
+}`,
+      },
+    ],
+    schema: '{"groups":[{"id":"","title":"","content":""}]}',
+    responseFormat: 'json_object',
+  },
+  {
+    id: 'content-planning',
+    label: '正文编排 - 章节计划 JSON',
+    description: '对齐 Main 侧 contentGenerationTask 的章节编排决策，观察表格、配图、知识库和全局事实选择。',
+    buildMessages: (): ChatMessage[] => [
+      {
+        role: 'system',
+        content: `你是投标技术方案正文编排助手。你只负责为单个叶子小节决定正文写作策略，不直接生成正文。
+
+要求：
+1. 只返回 JSON，不要输出解释、总结或 Markdown。
+2. outline 必须说明本章节正文的写作重点。
+3. table.needed 表示本小节是否适合输出 Markdown 表格。
+4. image.needed 表示本小节是否适合进入 AI 生图候选池。
+5. mermaid.needed 表示本小节是否适合进入 Mermaid 图表候选池。
+6. knowledge.item_ids 只能从本小节已筛选的参考知识库条目 id 中选择。
+7. facts.titles 只能从全局事实变量标题清单中选择。`,
+      },
+      { role: 'user', content: '项目概述信息：\n易标测试项目，软件服务类采购，预算 100 万元。' },
+      { role: 'user', content: 'Step02 关键解析结果：\n## 项目信息\n实施地点：北京市海淀区\n## 交货和服务要求\n服务期一年，需提供运维保障。' },
+      { role: 'user', content: 'Step04 全局事实变量标题清单：\n["项目团队","服务期限与响应"]' },
+      { role: 'user', content: '本小节已筛选的参考知识库轻量条目：\n[{"id":"kb-1","title":"项目组织模板","resume":"团队职责和响应机制","relevance_reason":"与项目团队配置直接相关"}]' },
+      { role: 'user', content: `请为以下章节返回正文编排 JSON：\n编号：${sampleChapter.id}\n标题：${sampleChapter.title}\n描述：${sampleChapter.description}\n\nJSON 格式：\n{"outline":[],"table":{"needed":false,"purpose":""},"image":{"needed":false,"title":"","prompt":"","style":"engineering_diagram"},"mermaid":{"needed":false,"title":"","prompt":""},"knowledge":{"item_ids":[]},"facts":{"titles":[]}}` },
+    ],
+    schema: '{"outline":[""],"table":{"needed":false,"purpose":""},"image":{"needed":false,"title":"","prompt":"","style":""},"mermaid":{"needed":false,"title":"","prompt":""},"knowledge":{"item_ids":[]},"facts":{"titles":[]}}',
+    responseFormat: 'json_object',
+  },
+  {
+    id: 'content-generation',
+    label: '正文生成 - 单章节 Markdown',
+    description: '对齐 Main 侧 contentGenerationTask 的单章节正文生成链路，检查选中事实、知识素材和编排决策注入。',
+    buildMessages: (): ChatMessage[] => [
+      {
+        role: 'system',
+        content: `你是专业的投标技术方案写作助手。请根据章节说明、项目概述、全局事实和参考素材，编写当前叶子小节正文。
+
+要求：
+1. 只输出当前章节正文，不输出标题。
+2. 使用专业、稳健、可交付的投标文件表达。
+3. 涉及事实变量时优先使用用户提供的全局事实。
+4. 不要编造招标文件未要求的承诺。
+5. 严禁输出 Mermaid、PlantUML、Graphviz 或图片 Markdown；配图由系统另行处理。`,
+      },
+      { role: 'user', content: '项目概述信息：\n易标测试项目，软件服务类采购，预算 100 万元。' },
+      { role: 'user', content: '本章节需要使用的全局事实变量：\n## 项目团队\n项目经理：张伟，负责总体协调。\n## 服务期限与响应\n2 小时内响应，24 小时内到场。' },
+      { role: 'user', content: '参考正文素材：\n[{"title":"项目组织模板","content":"项目经理负责计划、资源和质量协调，技术负责人负责方案落地和交付验收。"}]' },
+      { role: 'user', content: '正文编排决策：\n写作重点：团队职责、沟通机制、服务响应。\n表格：不需要。\n配图：不需要。\n知识库：使用 kb-1。\n全局事实：项目团队、服务期限与响应。' },
+      { role: 'user', content: `当前章节：\n编号：${sampleChapter.id}\n标题：${sampleChapter.title}\n描述：${sampleChapter.description}\n\n直接返回编写的正文内容，不要输出标题、Markdown 标题、解释、总结等任何其他内容。` },
+    ],
+    schema: 'Markdown 正文，不包含章节标题，不包含 Mermaid 或图片 Markdown。',
+    responseFormat: 'markdown',
+  },
+  {
+    id: 'original-plan-restore',
+    label: '原方案还原 - 段落归属 JSON',
+    description: '对齐已有方案扩写模式的原方案段落还原链路，观察原文段如何映射到目标章节。',
+    buildMessages: (): ChatMessage[] => [
+      {
+        role: 'system',
+        content: `你是严格的原方案段落归属分析助手。请把原方案中的可复用段落映射到当前技术方案目录的叶子章节。
+
+要求：
+1. 只返回 JSON，不要输出解释、总结或 Markdown。
+2. 每个原方案段落只能绑定到最相关的叶子章节。
+3. 不要生成正文，只输出段落归属、保留理由和置信度。
+4. 如果段落无法可靠归属，放入 unassigned_items。`,
+      },
+      { role: 'user', content: '项目概述信息：\n易标测试项目，软件服务类采购，预算 100 万元。' },
+      { role: 'user', content: `当前可还原叶子节点：\n${sampleChapter.id} ${sampleChapter.title}：${sampleChapter.description}` },
+      { role: 'user', content: `原方案段落：\n${sampleOriginalPlanContent}` },
+      { role: 'user', content: '请只返回 JSON，不要生成正文。' },
+    ],
+    schema: '{"bindings":[{"section_id":"","segment_indexes":[],"reason":"","confidence":0.9}],"unassigned_items":[{"segment_index":0,"reason":""}]}',
+    responseFormat: 'json_object',
+  },
+  {
+    id: 'duplicate-check-content',
+    label: '查重 - 正文重复规则观察',
+    description: '查重当前是确定性规则链路，本项展示正文重复句归一化、忽略规则和报告输出口径，便于调试规则输入。',
+    buildMessages: (): ChatMessage[] => [
+      {
+        role: 'system',
+        content: `标书查重正文链路是本地确定性分析，不调用文本模型。Prompt Lab 在这里展示进入规则链路的等价观察包：
+1. 按句切分投标文件正文。
+2. 对句子做 NFKC、空白、不可见字符和标点归一化。
+3. 过滤招标引用句、固定模板句和用户忽略规则命中的句子。
+4. 在不同投标文件之间聚合 normalized 文本相同或高度相近的正文句。
+5. 报告只输出未忽略或已确认需要处理的重复项。`,
+      },
+      { role: 'user', content: `投标文件 A：\n${sampleBidContent}` },
+      { role: 'user', content: '投标文件 B：\n## 技术方案\n本项目采用分阶段实施，覆盖需求调研、系统部署、联调测试、培训和运维服务。\n\n## 服务承诺\n提供 2 小时响应服务。' },
+      { role: 'user', content: '正文忽略规则：\n[{"category":"固定模板","text":"严格按照招标文件要求执行"}]' },
+      { role: 'user', content: '输出观察字段：normalized_text、source_files、status、ignore_rule_category、report_visible。' },
+    ],
+    schema: '{"duplicate_sentences":[{"normalized_text":"","source_files":[],"status":"pending","ignore_rule_category":"","report_visible":true}]}',
+    responseFormat: 'deterministic_report',
+  },
 ];
 
 function countChars(messages: ChatMessage[]) {
@@ -195,6 +302,8 @@ function buildDebugPackage(chain: typeof promptLabChains[number], messages: Chat
 function PromptLabPage() {
   const [activeChainId, setActiveChainId] = useState(promptLabChains[0].id);
   const [copied, setCopied] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('不包含 API Key、Base URL、本地路径或真实文件名。');
   const activeChain = promptLabChains.find((item) => item.id === activeChainId) || promptLabChains[0];
   const messages = useMemo(() => activeChain.buildMessages(), [activeChain]);
   const debugPackage = useMemo(() => buildDebugPackage(activeChain, messages), [activeChain, messages]);
@@ -205,8 +314,24 @@ function PromptLabPage() {
     setCopied(true);
   };
 
+  const saveDebugRecord = async () => {
+    setSaving(true);
+    setSaveMessage('正在保存调试记录...');
+    try {
+      const result = await window.yibiao?.ai.savePromptDebugRecord(debugPackage);
+      if (!result?.success) {
+        throw new Error(result?.message || '保存失败');
+      }
+      setSaveMessage(result.filePath ? `已保存到 ${result.filePath}` : '已保存到开发者日志');
+    } catch (error) {
+      setSaveMessage(error instanceof Error ? error.message : '保存调试记录失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="developer-secondary-demo-page prompt-lab-page">
+    <div className="developer-secondary-tools-page prompt-lab-page">
       <section className="panel developer-secondary-hero prompt-lab-hero">
         <div>
           <span className="section-kicker">Prompt Lab</span>
@@ -235,6 +360,7 @@ function PromptLabPage() {
                 onClick={() => {
                   setActiveChainId(chain.id);
                   setCopied(false);
+                  setSaveMessage('不包含 API Key、Base URL、本地路径或真实文件名。');
                 }}
               >
                 <strong>{chain.label}</strong>
@@ -268,7 +394,10 @@ function PromptLabPage() {
             <button type="button" className="secondary-action" onClick={() => { void copyDebugPackage(); }}>
               复制脱敏调试包
             </button>
-            {copied ? <span>已复制</span> : <span>不包含 API Key、Base URL、本地路径或真实文件名。</span>}
+            <button type="button" className="secondary-action" onClick={() => { void saveDebugRecord(); }} disabled={saving || !window.yibiao?.ai.savePromptDebugRecord}>
+              {saving ? '保存中...' : '保存到开发者日志'}
+            </button>
+            <span>{copied ? '已复制；' : ''}{saveMessage}</span>
           </div>
 
           <div className="prompt-lab-schema">
@@ -473,7 +602,7 @@ function ExportPreviewPage() {
   const report = useMemo(() => analyzeExportPreview(state), [state]);
 
   return (
-    <div className="developer-secondary-demo-page export-preview-page">
+    <div className="developer-secondary-tools-page export-preview-page">
       <section className="panel developer-secondary-hero export-preview-hero">
         <div>
           <span className="section-kicker">Export Preview</span>
@@ -607,15 +736,31 @@ function ExportPreviewPage() {
 
 const parserProviderOptions: Array<{ value: DeveloperParserProvider; label: string; description: string }> = [
   { value: 'local', label: '本地解析', description: '适合 txt、md、docx、pdf、doc、wps，速度快且不调用远程服务。' },
+  { value: 'local-ocr', label: '本地 OCR 解析', description: '适合扫描 PDF、OFD 和图片，优先调用本机 PaddleOCR，不需要 MinerU Token。' },
   { value: 'mineru-accurate-api', label: 'MinerU 精准解析 API', description: '适合复杂 PDF、图片和表格，需在设置中配置 MinerU Token。' },
   { value: 'mineru-agent-api', label: 'MinerU-Agent 轻量解析 API', description: '适合快速检查远程解析效果，按 MinerU Agent 接口轮询结果。' },
 ];
 
+function diffNumber(a?: number, b?: number) {
+  const left = Number(a || 0);
+  const right = Number(b || 0);
+  const diff = right - left;
+  if (diff === 0) return '一致';
+  return diff > 0 ? `+${diff}` : String(diff);
+}
+
+function getParserLabel(value?: DeveloperParserProvider) {
+  return parserProviderOptions.find((item) => item.value === value)?.label || value || '-';
+}
+
 function ParserSandboxPage() {
   const [provider, setProvider] = useState<DeveloperParserProvider>('local');
+  const [compareProvider, setCompareProvider] = useState<DeveloperParserProvider>('mineru-accurate-api');
   const [preserveImages, setPreserveImages] = useState(false);
   const [parsing, setParsing] = useState(false);
+  const [comparing, setComparing] = useState(false);
   const [result, setResult] = useState<DeveloperParserSampleResult | null>(null);
+  const [comparisonResult, setComparisonResult] = useState<DeveloperParserSampleResult | null>(null);
   const [capabilities, setCapabilities] = useState<DeveloperParserCapabilityReport | null>(null);
 
   useEffect(() => {
@@ -639,6 +784,7 @@ function ParserSandboxPage() {
       return;
     }
     setParsing(true);
+    setComparisonResult(null);
     try {
       setResult(await parser({ provider, preserveImages }));
     } catch (error) {
@@ -648,8 +794,25 @@ function ParserSandboxPage() {
     }
   };
 
+  const compareCurrentSample = async () => {
+    const parser = window.yibiao?.file?.parseDeveloperSample;
+    const filePath = result?.file?.file_path;
+    if (!parser || !filePath) {
+      setComparisonResult({ success: false, message: '请先选择并解析一个样本文件，再对比另一种解析器。' });
+      return;
+    }
+    setComparing(true);
+    try {
+      setComparisonResult(await parser({ provider: compareProvider, preserveImages, filePath }));
+    } catch (error) {
+      setComparisonResult({ success: false, message: error instanceof Error ? error.message : '解析器对比执行失败' });
+    } finally {
+      setComparing(false);
+    }
+  };
+
   return (
-    <div className="developer-secondary-demo-page parser-sandbox-page">
+    <div className="developer-secondary-tools-page parser-sandbox-page">
       <section className="panel developer-secondary-hero parser-sandbox-hero">
         <div>
           <span className="section-kicker">Parser Sandbox</span>
@@ -689,6 +852,29 @@ function ParserSandboxPage() {
           <button type="button" className="primary-action" onClick={() => { void parseSample(); }} disabled={parsing}>
             {parsing ? '解析中...' : '选择并解析样本'}
           </button>
+          <div className="parser-sandbox-compare-control">
+            <strong>对比解析器</strong>
+            <div className="parser-sandbox-provider-tabs">
+              {parserProviderOptions.map((option) => (
+                <button
+                  type="button"
+                  className={compareProvider === option.value ? 'is-active' : ''}
+                  key={`compare-${option.value}`}
+                  onClick={() => setCompareProvider(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => { void compareCurrentSample(); }}
+              disabled={comparing || !result?.file?.file_path}
+            >
+              {comparing ? '对比中...' : '用另一解析器对比当前样本'}
+            </button>
+          </div>
           {capabilities && (
             <div className="parser-capability-panel">
               <strong>样本覆盖矩阵</strong>
@@ -747,6 +933,48 @@ function ParserSandboxPage() {
                 <strong>Markdown 预览{result.truncated ? '（已截断）' : ''}</strong>
                 <pre>{result.markdown_preview || result.markdown || '暂无 Markdown 内容。'}</pre>
               </div>
+              <div className="parser-sandbox-comparison">
+                <div className="settings-section-title">
+                  <span />
+                  <strong>解析器对比</strong>
+                </div>
+                {comparisonResult ? (
+                  <div className="parser-sandbox-report">
+                    <div className={`parser-sandbox-status is-${comparisonResult.success ? 'success' : 'error'}`}>
+                      <strong>{comparisonResult.success ? '对比完成' : '对比未完成'}</strong>
+                      <span>{getParserLabel(result.parser_provider)} vs {getParserLabel(comparisonResult.parser_provider || comparisonResult.requested_provider)}：{comparisonResult.message}</span>
+                      {comparisonResult.error_stage ? <small>失败阶段：{comparisonResult.error_stage}</small> : null}
+                    </div>
+                    <div className="prompt-lab-metrics">
+                      <article>
+                        <span>字符差异</span>
+                        <strong>{diffNumber(result.markdown_chars, comparisonResult.markdown_chars)}</strong>
+                      </article>
+                      <article>
+                        <span>行数差异</span>
+                        <strong>{diffNumber(result.line_count, comparisonResult.line_count)}</strong>
+                      </article>
+                      <article>
+                        <span>图片差异</span>
+                        <strong>{diffNumber(result.image_count, comparisonResult.image_count)}</strong>
+                      </article>
+                      <article>
+                        <span>耗时差异</span>
+                        <strong>{diffNumber(result.duration_ms, comparisonResult.duration_ms)}ms</strong>
+                      </article>
+                    </div>
+                    <div className="parser-sandbox-markdown">
+                      <strong>对比解析 Markdown 预览{comparisonResult.truncated ? '（已截断）' : ''}</strong>
+                      <pre>{comparisonResult.markdown_preview || comparisonResult.markdown || '暂无 Markdown 内容。'}</pre>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="empty-panel">
+                    <strong>尚未运行解析器对比</strong>
+                    <span>首次解析成功后，可用另一解析器复跑同一个样本文件并查看字符、行数、图片数和耗时差异。</span>
+                  </div>
+                )}
+              </div>
               {capabilities && (
                 <div className="parser-capability-notes">
                   <strong>当前样本集提示</strong>
@@ -777,7 +1005,7 @@ function ParserSandboxPage() {
   );
 }
 
-function DeveloperDemoPage({ sectionId }: DeveloperDemoPageProps) {
+function DeveloperToolsPage({ sectionId }: DeveloperToolsPageProps) {
   if (sectionId === 'developer-prompt-lab') {
     return <PromptLabPage />;
   }
@@ -790,73 +1018,7 @@ function DeveloperDemoPage({ sectionId }: DeveloperDemoPageProps) {
     return <ExportPreviewPage />;
   }
 
-  const config: DeveloperDemoConfig = demoConfigs[sectionId as DeveloperDemoSectionId];
-
-  return (
-    <div className="developer-secondary-demo-page">
-      <section className="panel developer-secondary-hero">
-        <div>
-          <span className="section-kicker">{config.kicker}</span>
-          <h2>{config.title}</h2>
-          <p>{config.description}</p>
-        </div>
-        <div className="developer-secondary-accent-card">
-          <span>演示入口</span>
-          <strong>{config.accent}</strong>
-          <small>用于观察二级菜单页跳转后的页面承载效果。</small>
-        </div>
-      </section>
-
-      <div className="developer-secondary-grid">
-        <section className="panel developer-secondary-panel">
-          <div className="settings-section-title">
-            <span />
-            <strong>调试指标</strong>
-          </div>
-          <div className="developer-secondary-metrics">
-            {config.metrics.map((metric) => (
-              <article key={metric.label}>
-                <span>{metric.label}</span>
-                <strong>{metric.value}</strong>
-                <small>{metric.detail}</small>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="panel developer-secondary-panel">
-          <div className="settings-section-title">
-            <span />
-            <strong>预期流程</strong>
-          </div>
-          <div className="developer-secondary-steps">
-            {config.steps.map((step, index) => (
-              <article key={step.title}>
-                <span>{String(index + 1).padStart(2, '0')}</span>
-                <div>
-                  <strong>{step.title}</strong>
-                  <p>{step.text}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <aside className="panel developer-secondary-panel developer-secondary-preview">
-          <div className="settings-section-title">
-            <span />
-            <strong>结果预览</strong>
-          </div>
-          <div className="developer-secondary-preview-list">
-            {config.preview.map((item) => (
-              <span key={item}>{item}</span>
-            ))}
-          </div>
-          <p>此页当前只用于二级菜单效果演示，不接入真实业务执行。</p>
-        </aside>
-      </div>
-    </div>
-  );
+  return null;
 }
 
-export default DeveloperDemoPage;
+export default DeveloperToolsPage;

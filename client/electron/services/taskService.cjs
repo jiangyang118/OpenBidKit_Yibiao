@@ -762,6 +762,30 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
     emit(recoveredTask, buildSnapshot(getTaskDefinition('global-facts-generation'), state, recoveredTask));
   }
 
+  function recoverInterruptedOutlineGenerationTask() {
+    if (activeTasks.has('outline-generation')) {
+      return;
+    }
+
+    const technicalPlan = technicalPlanStore.loadTechnicalPlan() || {};
+    const outlineTask = technicalPlan.outlineGenerationTask;
+    if (!isActiveTaskStatus(outlineTask?.status)) {
+      return;
+    }
+
+    const message = '上次目录生成未完成，请重新生成';
+    const recoveredTask = {
+      ...outlineTask,
+      status: 'error',
+      progress: 100,
+      error: message,
+      logs: [...(Array.isArray(outlineTask.logs) ? outlineTask.logs : []), message],
+      updated_at: now(),
+    };
+    const state = technicalPlanStore.updateTechnicalPlan({ outlineGenerationTask: recoveredTask });
+    emit(recoveredTask, buildSnapshot(getTaskDefinition('outline-generation'), state, recoveredTask));
+  }
+
   function recoverInterruptedRejectionCheckTasks() {
     const staleExtractionMessage = '上次解析未完成，请重新解析';
     const staleCheckMessage = '上次检查未完成，请重新检查';
@@ -952,6 +976,7 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
     },
     getActiveTasks() {
       recoverInterruptedContentGenerationTask();
+      recoverInterruptedOutlineGenerationTask();
       recoverInterruptedGlobalFactsTask();
       recoverInterruptedRejectionCheckTasks();
       recoverInterruptedDuplicateCheckTask();

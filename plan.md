@@ -118,6 +118,8 @@
 - 2026-06-15 已完成第四阶段第四步：AI 评标新增 `ai-evaluation-batch-scoring` 后台任务，页面可一键“批量重评投标文件”，Main 侧读取已保存的投标文件 Markdown，逐份更新 `ai_evaluation_bid_scores`，刷新审计意见，并把 `batchScoringTask` 状态落到 `ai_evaluation_tasks` 供重启恢复和任务事件回放。
 - 2026-06-15 已完成第四阶段第五步：AI 评标投标文件证据定位增强为“章节 / 行号 / 命中关键词”，评分项证据字段会携带 Markdown 章节标题和原文行号，并自然进入 Markdown、Word、Excel 报告。
 - 2026-06-15 已完成第四阶段第六步：AI 评标新增 `ai_evaluation_expert_scores`，页面支持按评分项录入专家姓名、专家分和专家意见；Main 侧自动生成专家间分差、专家均分与当前最终分偏差的交叉审核意见，Markdown、Word、Excel 报告包含“专家打分交叉审核”。
+- 2026-06-15 已完成第四阶段第七步：AI 评标专家打分扩展专家角色、评审会议和签名确认字段；SQLite v32 自动迁移旧专家记录，页面可录入角色/会议/签名状态，Main 侧为未签名记录生成审计意见，Markdown、Word、Excel 正式报告同步展示评审会议、专家角色和签名确认。
+- 2026-06-15 已完成第四阶段第八步：AI 评标新增“导出会议纪要模板”，Main 侧基于当前评分表、投标文件、专家打分、签名状态和审计意见生成 `committee-minutes` 报告快照，并支持导出 Word `.docx` 评标委员会会议纪要模板；模板包含会议基本信息、委员会名单、评审对象、评分与复核摘要、会议审议事项、审计意见处理记录、会议纪要正文和签名确认表。
 
 目标：
 
@@ -129,11 +131,11 @@
 
 1. 已完成：增加 AI 评标独立投标文件导入，不只依赖技术方案招标文件。
 2. 已完成：将当前规则识别升级为 AI 结构化抽取任务，并写入后台任务状态。
-3. 已完成主要结构：扩展 `ai_evaluation_*` 表族，已落地投标文件、评分任务、逐投标文件评分结果、专家打分、审计意见和报告快照；后续如做正式评标委员会流程，可再追加专家角色、签名和评审会议表。
+3. 已完成主要结构：扩展 `ai_evaluation_*` 表族，已落地投标文件、评分任务、逐投标文件评分结果、专家打分、专家角色/评审会议/签名确认、审计意见、报告快照和评标委员会会议纪要模板；后续如做更完整正式评标委员会流程，可再追加独立会议表和专家权限。
 4. 复用文件解析和技术方案 Step02 评分项提取能力。
 5. 已完成主要流程：单份/多份投标文件可连续导入并保存评分结果；已升级为 Main 后台批量评分任务，支持基于已导入投标文件队列重评、进度、失败恢复和任务事件回放；后续如需要可再补取消/暂停。
-6. 已完成主要流程：已生成专家复核、客观分/报价核验、多投标文件横向分差和专家打分交叉审核意见；已增强证据定位粒度。后续可继续补专家角色权限、签名确认和正式评审会议流程。
-7. 已完成主要报告导出：已实现 UTF-8 Markdown 自评报告、Word `.docx` 正式报告和 Excel `.xlsx` 多工作表报告导出，包含多投标文件评分汇总和审计意见，并保存报告快照；后续可继续增强正式评标委员会模板和单位专属版式。
+6. 已完成主要流程：已生成专家复核、客观分/报价核验、多投标文件横向分差、专家打分交叉审核和专家签名待确认意见；已增强证据定位粒度，并支持记录专家角色、评审会议、签名状态和会议纪要模板。后续可继续补专家权限控制、独立会议表和正式评标委员会流程编排。
+7. 已完成主要报告导出：已实现 UTF-8 Markdown 自评报告、Word `.docx` 正式报告、Excel `.xlsx` 多工作表报告和 Word `.docx` 评标委员会会议纪要模板导出，包含多投标文件评分汇总、审计意见、专家角色、评审会议和签名确认，并保存报告快照；后续可继续增强单位专属版式。
 
 验收：
 
@@ -149,6 +151,7 @@
 - 已补充：aiEvaluationStore 测试覆盖投标文件证据命中的章节、行号和关键词提示。
 - 已补充：AiEvaluationPage 组件测试覆盖批量评分后台任务启动和状态展示；aiEvaluationStore 测试覆盖已导入投标文件批量重评；taskService 测试覆盖 `ai-evaluation-batch-scoring` managed task 状态落盘和完成快照。
 - 已补充：AiEvaluationPage 组件测试覆盖专家打分录入 bridge 调用；aiEvaluationStore 测试覆盖专家打分落库、专家分差审计意见、Markdown/Word/Excel 报告“专家打分交叉审核”内容。
+- 已补充：AiEvaluationPage 组件测试覆盖会议纪要模板导出 bridge 调用；aiEvaluationStore 测试覆盖评标委员会会议纪要 Markdown、Word docx 包内容和 `committee-minutes` 报告快照保存；Playwright 冒烟覆盖空状态下会议纪要模板导出入口禁用态。
 
 ### 1.4 投标机会 / 标讯
 
@@ -167,6 +170,7 @@
 - 2026-06-15 已完成第五阶段：投标机会新增 AI 结构化解析入口，Main 侧通过 `aiService.collectJsonResponse()` / `requestJson()` 解析公告字段，失败或未配置 AI 时自动回退规则解析并提示人工复核。
 - 2026-06-15 已完成第六阶段：投标机会保存时会读取 `knowledge_items`，按公告字段、资格要求、行业和关键词匹配企业知识库/历史项目资料，匹配结果保存到 `knowledge_matches_json` 并展示在页面详情和投标建议报告。
 - 2026-06-15 已完成第七阶段：投标机会评分扩展为基础维度与经营维度组合，新增竞争强度、利润空间、工期可控性和历史中标相似度，评分拆解进入页面详情和投标建议报告。
+- 2026-06-16 已完成第八阶段：投标机会新增多轮跟进记录和公告/沟通附件管理，SQLite schema 升级到 v31，页面、IPC/preload/types、报告导出和工作区附件复制/删除均已接入。
 
 目标：
 
@@ -175,7 +179,7 @@
 
 建议拆分：
 
-1. 已完成主要结构：扩展 `bid_opportunity_opportunities`，已落地负责人、提醒、跟进动作和知识库匹配结果；后续如需要可继续追加附件文件和多轮跟进记录表。
+1. 已完成主要结构：扩展 `bid_opportunity_opportunities`，已落地负责人、提醒、跟进动作和知识库匹配结果；已补充 `bid_opportunity_follow_ups` 与 `bid_opportunity_attachments`，支持多轮跟进和公告/沟通附件。
 2. 已完成：增加公告文件导入和网页/URL 导入。
 3. 已完成：将当前规则解析升级为 AI 结构化解析，并保留失败时的规则兜底。
 4. 已完成：接入企业知识库/历史项目资料进行资质和业绩匹配。
@@ -195,6 +199,7 @@
 - 已补充：BidOpportunityPage 组件测试覆盖 AI 解析保存调用；bidOpportunityStore 测试覆盖 AI 公告字段解析和 AI 失败时规则兜底。
 - 已补充：BidOpportunityPage 组件测试覆盖知识库匹配结果展示；bidOpportunityStore 测试覆盖机会保存时匹配 `knowledge_items` 和报告输出“知识库/历史项目匹配”。
 - 已补充：BidOpportunityPage 组件测试覆盖评分拆解维度展示；bidOpportunityStore 测试覆盖竞争强度、利润空间、工期可控性、历史中标相似度评分和报告输出。
+- 已补充：BidOpportunityPage 组件测试覆盖新增/删除多轮跟进记录、附件导入、附件类型/备注更新和附件删除；bidOpportunityStore 测试覆盖跟进记录更新/删除、附件复制入工作区、附件元数据更新、删除附件时清理复制文件，以及报告输出“跟进记录”和“公告/沟通附件”。
 
 ### 1.5 技术方案 Step06“扩写改写”
 
@@ -230,10 +235,11 @@
 - 2026-06-14 已完成第一阶段：`developer-prompt-lab` 从二级菜单 demo 改为真实 Prompt 调试台。
 - 已支持选择招标解析、目录生成、评分大类提取、废标项提取、废标项 JSON 定稿等真实 prompt builder 链路。
 - 已展示变量注入后的消息、消息数、字符规模、输出格式、输出约束，并支持复制不含 API Key、Base URL、本地路径和真实文件名的脱敏调试包。
+- 2026-06-15 已完成第二阶段：Prompt 调试台业务链路目录扩展到全局事实预设、正文编排、正文生成、原方案还原和查重规则观察；其中正文/全局事实链路按 Main 侧任务约束提供可观察样本，查重链路明确为确定性规则观察包，不误标为模型 Prompt。
 
 目标：
 
-- 可选择业务链路：招标解析、目录生成、全局事实、正文编排、正文生成、原方案还原、查重、废标项检查。
+- 已完成主要目录覆盖：可选择招标解析、目录生成、全局事实、正文编排、正文生成、原方案还原、查重、废标项检查等业务链路；后续可继续把 Main 侧正文/全局事实 builder 抽到 shared，减少调试样本与任务实现之间的重复维护。
 - 展示实际 Prompt 版本、变量注入结果、输入规模、截断策略、输出 schema、模型返回、JSON 修复结果。
 - 支持保存调试记录到开发者日志，不写入敏感 API Key。
 
@@ -242,6 +248,9 @@
 - 开发者模式下能复现一次真实 prompt 构建。
 - 能导出或复制脱敏调试包。
 - 第一阶段已用 Vitest 和 Playwright 覆盖页面渲染、链路切换和开发者模式入口。
+- 已补充：`DeveloperToolsPage.test.tsx` 覆盖 Prompt 调试台扩展链路目录，确认全局事实、正文编排、正文生成、原方案还原和查重规则观察入口可见，并能切换查看章节计划 JSON 与查重规则观察包。
+- 已补充：开发者工具页面代码已从 `DeveloperDemoPage` 命名清理为 `DeveloperToolsPage`，并删除不可达的二级菜单 demo shell，避免后续迭代误以为 Prompt 调试台、文件解析沙盘和导出链路预演仍是演示占位。
+- 已补充：Prompt 调试台支持把当前脱敏调试包保存到 Main 侧 `logs/developer-prompt-lab/debug-records.jsonl`；`aiServiceJsonFailureSamples.test.ts` 覆盖 JSONL 写入和 API Key/本地路径二次脱敏，`DeveloperToolsPage.test.tsx` 覆盖 UI 调用 bridge，Playwright E2E 覆盖开发者模式下保存入口可见。
 
 ### 2.2 文件解析沙盘
 
@@ -251,18 +260,20 @@
 - 2026-06-14 已完成第一阶段：`developer-parser-sandbox` 从二级菜单 demo 改为真实文件解析沙盘。
 - 已支持选择本地解析、MinerU 精准、MinerU Agent，选择是否保留图片引用，打开样本文件并通过 Main 侧 `fileService.parseDocumentWithConfig()` 解析。
 - 已展示文件信息、解析器、耗时、Markdown 字符数、行数、图片引用数量和 Markdown 预览。
+- 2026-06-15 已完成第二阶段：解析沙盘支持对当前样本复用同一 `filePath` 选择另一解析器进行对比，展示字符数、行数、图片数、耗时差异和第二份 Markdown 预览；Main 侧 `parseDeveloperSample()` 增加可选 `filePath`，用于跳过文件选择框复跑同一样本。
 
 目标：
 
 - 导入任意样本文件，选择本地解析 / MinerU 精准 / MinerU Agent。
 - 显示文件信息、解析耗时、Markdown、图片资产清单、页码/结构化摘要、错误阶段。
-- 支持对比不同解析器输出。
+- 已完成：支持对比不同解析器输出。
 
 验收：
 
-- 同一文件可分别跑至少两种解析方式并对比输出。
+- 已补充：同一文件可分别跑至少两种解析方式并对比输出，第二次解析通过首次结果的 `file.file_path` 复用同一样本。
 - 解析失败有明确阶段、日志路径和建议。
 - 第一阶段已用 Vitest 覆盖 file bridge 调用和解析结果展示。
+- 已补充：`DeveloperToolsPage.test.tsx` 覆盖解析沙盘首次解析后点击“用另一解析器对比当前样本”，确认 bridge payload 带 `filePath`、对比解析器、差异摘要和第二份 Markdown 预览。
 
 ### 2.3 导出链路预演
 
@@ -283,7 +294,7 @@
 - 不实际覆盖用户文件也能跑导出 dry-run。
 - 报告可定位到章节和资源。
 - 第一阶段已用 Vitest 覆盖真实技术方案状态读取和检查报告生成。
-- 已补充：`DeveloperDemoPage.test.tsx` 覆盖导出预演页调用 `export.previewWordExport()` 并展示真实 Word dry-run 结果；`exportServiceHeader.test.ts` 覆盖 Main 侧 dry-run 生成 docx buffer 统计、预检缺图和 warnings，但不写输出文件。
+- 已补充：`DeveloperToolsPage.test.tsx` 覆盖导出预演页调用 `export.previewWordExport()` 并展示真实 Word dry-run 结果；`exportServiceHeader.test.ts` 覆盖 Main 侧 dry-run 生成 docx buffer 统计、预检缺图和 warnings，但不写输出文件。
 
 ### 2.4 Json 请求测试增强
 
@@ -349,7 +360,8 @@
 - 已完成：侧边栏布局支持经典/紧凑，紧凑布局会默认收起侧边栏。
 - 已完成：`language`、`theme`、`sidebar_layout` 写入 `user_config.json`，旧配置会由 `configStore.cjs` 归一化补默认值。
 - 2026-06-15 已完成历史页面深色覆盖第一阶段：补充 `--yb-bg-subtle` / `--yb-surface-soft` 主题变量和深色主题兼容层，覆盖资源下载、标书查重、废标项检查、开发者实验室、图片知识库和导出格式等旧浅色面板。
-- `client/doc/设置页.md` 说明通用配置后续会放主题色、样式布局。
+- 2026-06-15 已完成原生主题同步：Electron Main 启动时按 `user_config.json.theme` 设置 `nativeTheme.themeSource`，配置保存后同步更新原生主题，不再固定为浅色。
+- `client/doc/设置页.md` 已同步当前通用配置状态，描述语言、主题、侧边栏布局和原生主题同步。
 
 目标：
 
@@ -357,11 +369,13 @@
 - 已完成：主题支持跟随系统、浅色、深色。
 - 已完成：侧边栏布局支持经典/紧凑。
 - 已完成第一阶段：审查并覆盖主要历史页面硬编码浅色卡片，资源、查重、废标和开发者实验室已进入 Playwright 回归；后续新增页面或遗漏页面继续按同一主题变量模式补齐。
+- 已完成：Electron 原生主题随应用主题配置同步，`system` 交给系统，`light` / `dark` 明确覆盖。
 
 验收：
 
 - 已通过：配置保存到 `user_config.json` 并可重新加载恢复。
 - 已通过：全局外壳、侧边栏、设置页按主题切换。
+- 已补充：Main 侧 `nativeTheme` 主题源归一化单测，覆盖 `system` / `light` / `dark` 和非法值回退。
 - 已补充：设置页 UI 单测、Main 配置 Store 单测、Playwright 主题/紧凑布局 smoke，以及深色主题下资源下载、标书查重、废标项检查和开发者实验室核心面板不回退白底的 E2E 断言。
 
 ### 3.3 模型列表与本地模型体验
@@ -471,7 +485,7 @@
 - 已完成第一阶段：在迁入统一任务系统前，先暴露现有 `activePreparations` / `activeMatches` 的文档级快照，补齐页面重载后的运行态可见性。
 - 2026-06-15 已完成第二阶段：`taskService` 新增 `knowledge-base-preparation` / `knowledge-base-matching` 任务定义，统一 active task 列表会合并知识库文档级任务，并保留 `scope_id=documentId` / `scope-exclusive`；内部 active task key 已支持同类型不同 scope，避免后续托管知识库任务时互相折叠。
 - 2026-06-15 已完成第三阶段第一步：技术方案正文编排前会按当前小节标题、描述、上级章节和项目概述对知识库轻量条目做本地相关性排序，只把强相关候选交给该小节 Prompt，并附带 `relevance_score`、`matched_terms` 和 `relevance_reason`；编排日志记录“知识库候选 x/y、选用 n 条”，减少无关条目进入模型上下文。
-- 优化知识库匹配算法，减少全文反复提交成本。
+- 2026-06-15 已完成第三阶段第二步：知识库段落匹配批次不再默认重复提交全文 block；Main 侧会按本批知识条目的 title/summary 对 block 做本地候选筛选，只把相关候选 block 交给 AI，日志记录候选 block 数、全文 block 数、是否预筛选和匹配词；遗漏恢复阶段仍基于未覆盖 block 兜底，降低预筛选漏召回风险。
 - 技术方案引用知识库时提供更强相关性筛选和可解释引用。
 - 图片资产管理与图片知识库打通。
 
@@ -482,6 +496,7 @@
 - 已补充：KnowledgeBasePage active task 快照单测。
 - 已补充：taskService 知识库文档级 active task 单测，覆盖 `scope-exclusive(documentId)` 和订阅事件快照。
 - 已补充：contentGenerationTask 单元测试覆盖章节相关性预筛选，确认售后服务章节只保留强相关知识条目，并在 Prompt JSON 中输出 `relevance_reason` / `matched_terms`，无关条目不进入该小节候选。
+- 已补充：knowledgeBaseService 单元测试覆盖批次级候选 block 预筛选，确认售后服务知识条目只把相关 block 放入匹配 Prompt，施工安全等无关 block 不进入该批次上下文。
 
 ### 3.8 标书查重：忽略规则、相似图片和报告导出
 
@@ -499,7 +514,13 @@
 - 2026-06-15 已完成相似图片复核视图第一阶段：查重 Markdown/Word/PDF 报告在图片表格后新增文本型“相似图片复核视图”，按图片组输出涉及文件、判断依据、复核建议、图序、目录和图片前文上下文。
 - 2026-06-15 已完成 PDF 图形化复核卡第一阶段：查重 PDF 会把相似图片复核视图中的图片组、图序和复核建议绘制为带边框和高亮背景的图形卡片，而不只是纯文本行。
 - 2026-06-15 已完成正文忽略规则第四阶段：规则新增分类字段（手动忽略、招标引用、固定模板、批量规则），查重结果页可导出/导入 JSON 规则包；导入时按 normalized 去重并写回 SQLite，当前和未来相同正文会自动标为已忽略，可用于不同项目之间迁移规则。
-- 当前相似图片检测已覆盖压缩、缩放后相似图、文本型复核上下文和 PDF 图形化复核卡第一阶段；真实原图裁剪、截图局部裁剪、旋转、加水印等更复杂视觉相似证据仍可继续增强。
+- 2026-06-15 已完成复杂相似图证据视图第一阶段：相似图片复核视图可读取图片组和单文件位置上的预览素材、尺寸、裁剪框、旋转角、水印提示、页码和截图区域等元数据，并进入 Markdown、Word 和 PDF；PDF 会把视觉证据行纳入图形化复核卡。
+- 2026-06-15 已完成相似图片旋转检测第一阶段：图片分析会为真实图片生成 0/90/180/270 度感知 hash 变体，相似图片分组按最佳旋转方向比较，支持宽高互换的 90/270 度旋转图成组，并在结果中记录 `rotation_degrees` 与旋转判断依据。
+- 2026-06-15 已完成相似图片水印提示第一阶段：图片分析会用 8x8 亮度网格识别右下角高对比水印/角标，将 `watermark_hint` 写入相似图片组并通过 SQLite v34 持久化，报告层复用已有视觉证据视图输出水印提示。
+- 2026-06-15 已完成相似图片内容裁剪框第一阶段：图片分析会基于真实图片 8x8 亮度网格估算非背景内容边界，生成 `crop` 内容裁剪框并通过 SQLite v35 持久化，报告视觉证据视图会输出裁剪框。
+- 2026-06-15 已完成更细粒度截图局部裁剪检测第一阶段：图片感知签名继续使用 8x8 pHash 保持相似度稳定，裁剪框检测额外采样 16x16 亮度网格，优先输出更贴近截图主体的局部裁剪框，检测不到时回退原 8x8 裁剪。
+- 当前相似图片检测已覆盖压缩、缩放、旋转、右下角水印/角标提示、主体内容裁剪框和 16x16 细粒度截图局部裁剪后的相似图，文本型复核上下文、视觉证据元数据卡和 PDF 图形化复核卡第一阶段也已完成。
+- 2026-06-16 已完成查重文档和页面占位清理：`client/doc/标书查重.md` 已从早期 mock/设计稿改为当前真实能力说明，`DuplicateCheckPage` 不再残留“后续接入查重任务”的过期占位文案。
 
 目标：
 
@@ -512,8 +533,13 @@
 - 已完成第三阶段：导出报告新增 Word `.docx` 版本。
 - 已完成第四阶段：导出报告新增文本型 PDF 版本。
 - 已完成相似图片检测第一阶段：增加感知 hash、尺寸比例约束和压缩/缩放图相似度提示。
+- 已完成相似图片旋转检测第一阶段：增加 0/90/180/270 度感知 hash 变体、宽高互换旋转比例判断和旋转角度提示。
+- 已完成相似图片水印提示第一阶段：增加右下角高对比水印/角标启发式检测、`watermark_hint` 持久化和报告视觉证据输出。
+- 已完成相似图片内容裁剪框第一阶段：增加基于 8x8 亮度网格的非背景内容边界估算、`crop` 持久化和报告视觉证据输出。
+- 已完成更细粒度截图局部裁剪检测第一阶段：在真实图片签名中额外采样 16x16 亮度网格，优先用细网格生成局部截图裁剪框并回退 8x8 检测。
 - 已完成相似图片复核视图第一阶段：导出 Markdown/Word/PDF 均包含文本型相似图片复核视图。
 - 已完成 PDF 图形化复核卡第一阶段：PDF 报告会用绘制矩形、边框和高亮背景呈现相似图片复核卡。
+- 已完成复杂相似图证据视图第一阶段：报告可承接并输出预览素材、尺寸、裁剪框、旋转、水印、页码和截图区域等视觉证据元数据。
 - 已完成第一阶段：增加结果人工处理状态：未处理、已确认、已忽略。
 
 验收：
@@ -530,7 +556,13 @@
 - 已通过：可导出文本型 PDF 查重报告。
 - 已补充：duplicateCheckService 单元测试覆盖不同原始 hash 的图片按感知 hash 距离聚合为“相似图片”；DuplicateCheckPage 组件测试覆盖相似图片、相似度和原因展示；duplicateCheckStore 报告测试覆盖 Markdown/Word/PDF 报告输出“重复/相似图片”、类型、相似度和相似原因。
 - 已补充：duplicateCheckStore 报告导出测试覆盖文本型“相似图片复核视图”进入 Markdown、Word `.docx` 和 PDF，且包含图片组、投标文件、图序、目录、前文、判断依据和人工复核建议；PDF 测试额外检查图形化复核卡的矩形绘制、高亮填充和边框指令。
+- 已补充：duplicateCheckStore 报告导出测试覆盖复杂相似图视觉证据元数据，确认 Markdown、Word 和 PDF 均包含图片预览引用、尺寸、裁剪框、旋转、水印提示、页码和截图区域。
+- 已补充：duplicateCheckService 单元测试覆盖 90 度旋转且宽高互换的相似图片成组，确认 `rotation_degrees` 和旋转判断依据进入结果，并保持旧无旋转元数据的感知 hash 比对不误召回无关图片。
+- 已补充：duplicateCheckService 单元测试覆盖右下角高对比水印/角标启发式检测，以及水印提示随相似图片组成组进入 `watermark_hint`。
+- 已补充：duplicateCheckService 单元测试覆盖基于 8x8 亮度网格估算主体内容裁剪框，以及裁剪框随相似图片组成组进入 `crop`。
+- 已补充：duplicateCheckService 单元测试覆盖基于 16x16 亮度网格估算更细粒度截图局部裁剪框。
 - 已补充：DuplicateCheckPage 组件测试覆盖正文忽略规则分类保存、分类展示、导出规则和导入规则；duplicateCheckStore 测试覆盖分类规则 JSON 导出后在另一个临时工作区导入并恢复分类；Playwright 冒烟覆盖查重结果页规则导入/导出 bridge 调用。
+- 已补充：DuplicateCheckPage 组件测试覆盖当前查重结果页不再展示“后续接入查重任务”过期占位文案；`client/doc/标书查重.md` 已同步元数据、目录、正文、图片、人工处理、忽略规则和 Markdown/Word/PDF 报告现状。
 
 ### 3.9 废标项检查：报告导出与证据定位增强
 
@@ -548,7 +580,15 @@
 - 2026-06-15 已完成报告导出第五阶段：检查结果页新增 PDF 导出按钮，`rejectionCheck.exportReport({ format: 'pdf' })` 复用同一份 Markdown 报告内容生成文本型 PDF，保留证据定位明细、索引表和未忽略结果口径。
 - 2026-06-15 已完成报告证据视图第六阶段第一步：Markdown 证据明细新增“证据截图视图”文本型区块，按同一证据编号输出目标行、前后文和目标行标记，并随同一份 Markdown 进入 Word `.docx` 和文本型 PDF。
 - 2026-06-15 已完成 PDF 图形化证据卡第二步：废标项检查 PDF 会把“证据截图视图”的目标行和上下文绘制为带边框、背景和目标行高亮的图形化证据卡。
-- 当前仍需要增强真实原文页面图片截屏和页面截图裁剪。
+- 2026-06-15 已完成页面截图候选接入第一阶段：废标报告证据明细会读取投标文档上的页面截图候选元数据，按证据行号匹配页图，输出页码、素材路径、裁剪框/裁剪状态和说明，并随 Markdown、Word、PDF 导出；PDF 会把页面截图候选行纳入图形化证据卡。
+- 2026-06-15 已完成页面截图候选导入和持久化第一阶段：废标文件导入会以保留图片模式解析 Markdown，从 Markdown 图片和 HTML `<img>` 引用提取页面截图候选，正文仍清理图片后用于检查；`rejection_check_documents.page_screenshots_json` 持久化候选元数据，重启后报告层可继续使用。
+- 2026-06-15 已完成页面截图候选自动裁剪第一阶段：导入阶段会为页面截图候选推断覆盖正文行号范围，报告定位到证据行后在无现成裁剪框时自动生成页内估算裁剪框，并明确标注为“自动生成裁剪框”。
+- 2026-06-15 已完成 PDF 原文页面像素级截图生成第一阶段：废标项检查导入本地 PDF 时，会用 `pdf-parse` 同版本 `pdfjs-dist` 和 `@napi-rs/canvas` 渲染每页 PNG，保存为 `yibiao-asset://imported-images/...` 页面截图候选，并携带页码、宽高和自动行号范围；Markdown 图片候选仍作为补充。
+- 2026-06-15 已完成 Office 原文页面截图生成第一阶段：废标项检查导入 DOCX/DOC/WPS 时，会 best-effort 调用本地 LibreOffice/Office 转 PDF，再复用 PDF 页渲染生成页面 PNG 候选；转换失败不阻断导入，会继续保留 Markdown 图片候选。
+- 2026-06-15 已完成 MinerU 返回图片候选第一阶段：MinerU 精准 / MinerU Agent 解析后的 Markdown 或 zip 图片会被重写为本地 `yibiao-asset://imported-images/...`，废标导入会标记为 `mineru-remote-image` 页面截图候选，并从“第 N 页”或 `page-N` 图片说明中恢复页码；离线单测覆盖该候选结构。
+- 2026-06-16 已完成真实原文截图裁剪第一阶段：废标报告导出时会从页面截图候选源图生成 `rejection-check-evidence-crops` 裁剪 PNG，Markdown 报告引用裁剪图，Word 报告嵌入裁剪图，PDF 报告保留裁剪图资产引用并继续输出图形化证据卡。
+- 2026-06-16 已完成废标项检查文档占位清理：`client/doc/废标项检查.md` 已从早期页面草稿改为当前真实能力和后续开发约束，`projectDocs.test.ts` 防止“占位/可删除”旧口径回流。
+- MinerU-Agent 真实网络解析回归已通过，确认远程 Markdown 可返回样本文本；MinerU 精准解析真实端到端回归保留为可选增强，可在具备 MinerU Token 和网络的环境中补跑并固化真实返回 zip 中的页图命名、Markdown 引用和候选元数据。
 
 目标：
 
@@ -556,7 +596,15 @@
 - 已完成第四阶段：导出 Word `.docx` 废标项检查报告，复用 Markdown 报告内容并包含证据定位索引和明细。
 - 已完成第五阶段：导出 PDF 废标项检查文本报告，复用 Markdown 报告内容并包含证据定位索引和明细。
 - 已完成报告证据视图第六阶段第一步：导出 Markdown/Word/PDF 均包含文本型证据截图视图。
-- 已完成报告证据视图第六阶段第二步：PDF 中的目标行和上下文会绘制为图形化证据卡；真实原文截图裁剪仍为后续增强。
+- 已完成报告证据视图第六阶段第二步：PDF 中的目标行和上下文会绘制为图形化证据卡。
+- 已完成真实原文截图裁剪第一阶段：导出报告时按已有裁剪框或自动裁剪框生成真实裁剪 PNG；Markdown 引用裁剪图，Word 嵌入裁剪图，PDF 保留裁剪图资产引用。
+- 已完成页面截图候选接入第一阶段：当投标文档状态携带 `pageScreenshots` / `pageImages` 等页面截图候选时，证据截图视图会输出匹配页、素材路径、裁剪框或待裁剪状态，并进入 Markdown、Word 和 PDF。
+- 已完成页面截图候选导入和持久化第一阶段：废标项检查导入投标/招标文件时会保留解析图片资产、生成 `pageScreenshots` 候选并写入 SQLite，检查正文继续使用去图片 Markdown。
+- 已完成页面截图候选自动裁剪第一阶段：`pageScreenshots` 候选会携带自动推断的正文行号范围；报告层按证据行号匹配候选页，在没有精确裁剪框时生成页内估算裁剪框，供 Markdown、Word 和 PDF 复核。
+- 已完成 PDF 原文页面像素级截图生成第一阶段：本地 PDF 导入时会渲染 PDF 页为 PNG 资产并生成页面截图候选。
+- 已完成 Office 原文页面截图生成第一阶段：DOCX/DOC/WPS 导入时会通过本地 Office/LibreOffice 转 PDF 后生成页面 PNG 截图候选；无法转换时不影响导入和 Markdown 图片候选。
+- 已完成 MinerU 返回图片候选第一阶段：远程解析返回的 Markdown 图片会进入页面截图候选，并带有 `mineru-remote-image` 来源、页码恢复和自动行号范围。
+- MinerU-Agent 真实网络解析回归已通过；MinerU 精准解析真实网络端到端回归作为可选增强，可在具备 Token 和网络后补跑固化。
 - 已完成第一阶段：支持按投标文件筛选、单项删除、单项忽略和恢复。
 - 已完成第二阶段：增加批量删除、批量忽略和批量恢复。
 - 已完成证据定位第一阶段：废标风险、错别字和逻辑问题支持复制带投标文件、位置线索、原文/证据、原因和建议的证据文本；错别字列表直接展示位置线索。
@@ -566,7 +614,8 @@
 - 已完成报告导出第四阶段：导出 Word 报告包含证据定位索引和证据明细。
 - 已完成报告导出第五阶段：导出 PDF 文本报告包含证据定位索引和证据明细。
 - 已完成报告证据视图第六阶段第一步：导出 Markdown/Word/PDF 均包含文本型“证据截图视图”，标记目标行和前后文。
-- 已完成报告证据视图第六阶段第二步：PDF 中的目标行和上下文会绘制为图形化证据卡；真实原文截图裁剪仍为后续增强。
+- 已完成报告证据视图第六阶段第二步：PDF 中的目标行和上下文会绘制为图形化证据卡。
+- 已完成真实原文截图裁剪第一阶段：导出报告时按页面截图候选源图和裁剪框生成裁剪 PNG，并进入 Markdown / Word / PDF 报告证据区。
 - 已完成第一阶段：增加“重新检查单个投标文件”能力，按当前结果类型和当前投标文件筛选启动后台任务。
 
 验收：
@@ -576,8 +625,15 @@
 - 已补充：RejectionCheckPage 组件测试覆盖批量忽略、批量删除调用 `rejectionCheck.batchHandleFindings()`；Main/preload/IPC 语法检查通过。
 - 已补充：rejectionCheckStore 单元测试覆盖 Markdown 证据定位明细和 Word `.docx` 包内容，解压检查 `word/document.xml` 包含报告标题、证据定位明细、风险项、原文证据和逻辑问题，并排除已忽略证据。
 - 已补充：rejectionCheckStore 单元测试覆盖 PDF 文本报告，确认 `%PDF-` 文件头、CJK 字体声明、报告标题、证据定位明细、风险项和原文证据进入 PDF 字节，且不包含已忽略证据。
+- 已补充：fileService 解析能力单测覆盖废标导入阶段从 Markdown 图片和 HTML `<img>` 提取页面截图候选；rejectionCheckStore 单元测试覆盖页面截图候选元数据持久化，以及 Markdown、Word 和 PDF 均包含匹配页码、页面图片素材路径和裁剪框状态。
+- 已补充：fileService 解析能力单测覆盖页面截图候选自动行号范围；rejectionCheckStore 单元测试覆盖无现成裁剪框时按证据行号自动生成裁剪框。
+- 已补充：fileService 解析回归测试覆盖本地 PDF 页面渲染为 imported-images PNG 资产，并确认页面截图候选包含页码、行号范围、宽高和 PNG 文件头。
+- 已补充：rejectionCheckStore 单元测试覆盖真实页面截图裁剪 PNG 生成、Markdown 裁剪图引用和 Word `.docx` 嵌入裁剪图 media。
+- 已补充：fileService 解析回归测试覆盖 DOCX/DOC/WPS 走转换后 PDF 页面渲染链路生成 imported-images PNG 资产，并确认候选标注 `office-rendered-pdf` 来源。
+- 已补充：fileService 解析能力单测覆盖 MinerU 返回图片说明中的页码恢复、`mineru-remote-image` 来源标记和候选说明。
 - 已补充：Playwright smoke 覆盖从二级菜单进入“废标项检查”工作台。
 - 已补充：Playwright smoke 通过 mock bridge 覆盖检查结果页“导出 PDF”按钮调用 `rejectionCheck.exportReport({ format: 'pdf' })`。
+- 已补充：`client/doc/废标项检查.md` 已同步当前导入、解析、检查、人工处理、单文件重查、Markdown/Word/PDF 报告、截图候选和真实裁剪图状态；`projectDocs.test.ts` 覆盖旧占位口径不再出现。
 - 已补充：RejectionCheckPage 组件测试覆盖废标风险、错别字和逻辑问题的证据复制内容，确认包含投标文件、位置线索、原文/证据和原因。
 - 已补充：RejectionCheckPage 组件测试覆盖当前投标文件重查，确认 `tasks.startRejectionCheck()` payload 带 `targetBidDocumentIds` 且只运行当前结果类型；Main 侧任务语法检查通过。
 - 已补充：rejectionCheckStore 报告导出测试覆盖“证据定位明细”，确认废标项、错别字和逻辑问题均包含投标文件、位置线索、原文/证据、原因和建议，且已忽略项不进入交付明细。
@@ -595,6 +651,7 @@
 - 已完成客户端离线体验第一阶段：成功读取资源后缓存到 Renderer `localStorage`；资源接口失败时优先显示本地缓存并按搜索词本地过滤，没有缓存时展示明确友好空态。
 - Analytics Dashboard 已有 `resources.js`，Worker 已有 resources routes。
 - 已完成端到端验收和离线/失败体验增强；管理端列表渲染已有纯函数测试覆盖。
+- 2026-06-16 已完成资源下载文档占位清理：`client/doc/资源下载.md` 已从静态样式草稿改为当前 Analytics 接口、离线缓存、资源点击埋点、Dashboard/Worker 管理端和隐私约束说明，`projectDocs.test.ts` 防止旧静态假数据口径回流。
 
 目标：
 
@@ -618,6 +675,7 @@
 - 已补充：`cd analytics/worker; npm run test` 可在本地验证资源 API 主流程。
 - 已通过：Worker/Dashboard `npm run deploy` 前会先运行 `npm run check`，当前 `node --check` 验证通过。
 - 已补充：Worker/Dashboard 累计点击统计闭环测试，覆盖当天点击实时合并、Cron 历史累加和管理端累计点击展示。
+- 已补充：`client/doc/资源下载.md` 已同步当前真实资源接口、离线缓存、无图占位、点击埋点、Dashboard 资源管理和 Worker 资源 API 状态；`projectDocs.test.ts` 覆盖旧静态数据/未来接口占位口径不再出现。
 
 ## 4. P2：文档解析、导出、发布与跨平台硬化
 
@@ -625,22 +683,32 @@
 
 目标：
 
-- 对本地解析、MinerU 精准、MinerU Agent 三种路径建立统一样本集。
+- 对本地解析、本地 OCR、MinerU 精准、MinerU Agent 四种路径建立统一样本集。
 - 覆盖 pdf、docx、doc、wps、ofd、jpeg、png。
-- 明确扫描件不支持或走 MinerU 的提示。
+- 明确扫描件优先走本地 OCR，复杂版面再走 MinerU 的提示。
 - 解析沙盘落地后，沉淀失败样本和回归集。
 - 已补充：Main 侧 `createDeveloperParserCapabilityReport()` 作为解析样本支持矩阵，覆盖 pdf、docx、doc、wps、ofd、jpeg、png。
 - 已补充：开发者文件解析沙盘展示样本覆盖矩阵、扫描件策略、中文路径 smoke 要求和每种格式的处理提示。
-- 已补充：OFD 当前明确标记为未接入，提示先转换为 PDF/DOCX；JPEG/PNG 和扫描件 PDF 明确建议走 MinerU OCR。
+- 已补充：OFD 不走普通本地文本解析，但已接入本地 OCR 兜底；系统会优先通过本机 OFD 转 PDF 工具或支持 OFD 的 LibreOffice/WPS 转为 PDF，再按页面截图调用 PaddleOCR，转换工具不可用时提示先另存为 PDF。JPEG/PNG 和扫描件 PDF 明确建议先走本地 OCR，复杂版面再尝试 MinerU。
 - 2026-06-15 已完成本地真实样本回归第一阶段：新增 `client/test/fixtures/parser-regression/` 样本清单和文本/Markdown 固定样本，Vitest 运行时在中文路径 `投标项目/样本文档` 动态生成 TXT、Markdown、DOCX、PDF、PNG、OFD 样本；TXT/Markdown/DOCX/PDF 走真实 `parseDocumentWithConfig()` 本地解析。
-- 2026-06-15 已完成远程回归环境门控第一阶段：PNG/OFD 保持能力矩阵和本地不支持断言；MinerU 精准 / MinerU Agent 端到端网络回归需要显式 `YIBIAO_RUN_MINERU_E2E=1`，精准解析还需要 `YIBIAO_MINERU_TOKEN`，未设置时测试明确输出 skipped 缺口而不触发网络。
+- 2026-06-15 已完成远程回归环境门控第一阶段：PNG 保持普通本地解析不支持断言，OFD 保持普通本地解析不支持但允许本地 OCR 兜底；MinerU 精准 / MinerU Agent 端到端网络回归需要显式 `YIBIAO_RUN_MINERU_E2E=1`，精准解析还需要 `YIBIAO_MINERU_TOKEN`，未设置时测试明确输出 skipped 缺口而不触发网络。
+- 2026-06-15 已完成远程回归门控执行入口第二阶段：`fileServiceParserRegression.test.ts` 在 gate 开启后会生成中文路径、带图片的 DOCX 样本；MinerU-Agent 真实调用验证 Markdown 非空和样本文本返回，MinerU 精准解析在配置 Token 后继续验证图片资产重写为 `yibiao-asset://imported-images/...`、页面截图候选 `mineru-remote-image` 元数据和本地资产文件存在；默认 CI 未设置 gate 时不触发网络。
+- 2026-06-16 已完成 MinerU-Agent 真实网络回归：在无 `YIBIAO_MINERU_TOKEN` 的联网环境中运行 `YIBIAO_RUN_MINERU_E2E=1 YIBIAO_MINERU_E2E_TIMEOUT_MS=240000 npm run test:unit -- fileServiceParserRegression.test.ts`，MinerU-Agent live 用例通过，MinerU 精准解析用例因未配置 Token 按门控跳过。
+- 2026-06-16 已确认本机配置缺口：已检查 Electron 配置 `/Users/jack/Library/Application Support/yibiao-client/user_config.json`，`file_parser.mineru_token` 为空；因此 MinerU 精准解析真实网络回归保留为可选增强，不再作为扫描件解析交付阻塞。
+- 2026-06-16 已完成本地 OCR 替代第一阶段：新增 `local-ocr` 文件解析方式，使用本机 `pdftoppm` 渲染扫描 PDF 页面并调用本机 OCR；图片文件可直接 OCR。保留图片时会把页面图写入 `yibiao-asset://imported-images/...`，废标页面截图候选可继续从 Markdown 图片引用提取。
+- 2026-06-16 已完成本地 OCR PaddleOCR 接入：`local-ocr` 默认优先调用共享 PaddleOCR wrapper（`~/.codex/skills/paddleocr-local/scripts/ocr_local.py`），共享运行时不可用或执行失败时回退到 Tesseract；测试通过 fake PaddleOCR runner 固化优先路径，通过真实 Tesseract 回归固化兜底路径。
+- 2026-06-16 已完成本地 OCR UI/沙盘接入：设置页、开发者解析沙盘和共享 IPC/配置类型已新增“本地 OCR 解析”，扫描件默认推荐从 MinerU 改为本地 OCR；MinerU 精准解析变为复杂版面和云端增强的可选路径。
+- 2026-06-16 已完成本地 OCR OFD 兜底接入：`.ofd` 纳入 `local-ocr` 支持矩阵，解析时先用本机 `ofd2pdf` / `ofdconv` / LibreOffice 转 PDF，再复用 PDF 页面渲染和 PaddleOCR/Tesseract OCR；转换工具缺失时返回明确安装或另存 PDF 提示。
 
 验收：
 
 - Windows 中文路径、中文文件名、WPS/Word/LibreOffice 转换链路均有 smoke。
-- 已补充：`fileServiceParserCapabilities.test.ts` 覆盖样本扩展名矩阵、扫描件/OFD 提示、中文路径示例和 MinerU 到本地解析的 WPS 回退。
-- 已补充：`fileServiceParserRegression.test.ts` 覆盖中文路径真实文件回归，TXT、Markdown、DOCX、PDF 通过本地真实解析链路，PNG/OFD 明确不走本地解析。
-- 待完成：在具备网络和 MinerU Token 的环境中开启 `YIBIAO_RUN_MINERU_E2E=1`，补跑并固化 MinerU 精准 / MinerU Agent 的真实端到端回归结果。
+- 已补充：`fileServiceParserCapabilities.test.ts` 覆盖样本扩展名矩阵、扫描件/OFD 提示、中文路径示例、图片推荐本地 OCR 和 MinerU 到本地解析的 WPS 回退。
+- 已补充：`fileServiceParserRegression.test.ts` 覆盖中文路径真实文件回归，TXT、Markdown、DOCX、PDF 通过本地真实解析链路，扫描 PDF 通过本地 OCR 解析并生成页面图片候选，且覆盖 PaddleOCR 优先路径和 Tesseract 兜底路径；PNG/OFD 明确不走普通本地解析，OFD 额外覆盖“转 PDF 后本地 OCR”的兜底链路。
+- 已补充：`SettingsPage.test.tsx` 覆盖文件解析配置能力表，确认普通本地解析只展示文本型格式，本地 OCR 明确展示 PDF/OFD/图片和 PaddleOCR 优先策略，避免用户把扫描件/OFD 误选到普通本地解析。
+- 已补充：`DeveloperToolsPage.test.tsx` 覆盖文件解析沙盘的本地 OCR 入口文案，确认扫描 PDF、OFD 和图片都指向 PaddleOCR 优先的本地 OCR 路径，并防止旧的“扫描件建议 MinerU OCR”口径回流。
+- 已补充：Playwright E2E 覆盖开发者模式进入“文件解析沙盘”，确认本地 OCR 入口、PaddleOCR 优先策略、扫描 PDF/JPEG/PNG 建议和 OFD 本地 OCR 提示在真实路由中可见。
+- 可选增强：在具备网络和 MinerU Token 的环境中运行 `YIBIAO_RUN_MINERU_E2E=1 YIBIAO_MINERU_TOKEN=<token> npm run test:unit -- fileServiceParserRegression.test.ts`，可继续固化 MinerU 精准解析真实端到端回归结果。
 
 ### 4.2 Word 导出高级能力
 
@@ -651,11 +719,25 @@
 - 已补充：Main 侧 Word 导出预检报告，统计叶子章节、Mermaid、图片来源类型、缺失本地图片，并把预检提示并入导出 warnings。
 - 已补充：`exportWord()` / `buildDocxResult()` 返回结构化 `preflight`，导出完成日志同步记录预检摘要。
 - 已补充：缺失本地图片不会中断 Word 生成，会在文档中保留“图片无法导出”占位，并通过 warnings 提醒用户核对。
+- 2026-06-15 已完成水印第一阶段：导出格式配置新增文字水印开关、内容、字体、字号、颜色和透明度；`configStore` 会为旧配置补默认值并归一化；`exportService.cjs` 通过 Word header 层写入 VML 水印，未启用文本页眉时也可单独输出水印。
+- 2026-06-15 已完成表格样式第一阶段：导出格式配置新增 `table` 样式块，支持表头底色、外框线颜色、内框线颜色和单元格留白；`configStore` 会为旧配置补默认值并归一化；`exportService.cjs` 会把同一套表格样式应用到 Markdown 表格和可信 HTML 表格。
+- 2026-06-15 已完成封面第一阶段：导出格式配置新增封面页开关、标题、副标题、投标单位和日期；`configStore` 会为旧配置补默认值并归一化；`exportService.cjs` 会在正文前写入封面页并通过分页符进入正文首页，默认关闭以保持旧导出行为。
+- 2026-06-15 已完成 Mermaid 失败替代图第一阶段：Mermaid 联网转图失败时不再只写入错误文本，`exportService.cjs` 会插入可见替代图、保留失败说明文字并同步 warnings，普通 Markdown 图片失败行为不变。
+- 2026-06-15 已完成图片压缩策略第一阶段：导出格式配置新增 `image.max_width_px`，支持配置 Word 图片最大宽度；`configStore` 会为旧配置补默认值并归一化到 160-960 像素；`exportService.cjs` 会按该宽度等比缩小 Markdown 图片、HTML 图片和本地素材图片的 Word 输出尺寸。
+- 2026-06-15 已完成目录页第一阶段：导出格式配置新增目录页开关、目录标题和收录层级；`configStore` 会为旧配置补默认值并归一化目录层级到 1-6；`exportService.cjs` 会在封面后、正文前写入 Word TOC 字段并用分页符进入正文首页，默认关闭。
+- 2026-06-15 已完成分节符第一阶段：导出格式配置新增“一级章节分节”开关；`configStore` 会为旧配置补默认值；`exportService.cjs` 启用后按一级章节拆分 Word sections，从第二个一级章节开始写入 `nextPage` 分节符，默认关闭以保持旧导出行为。
 
 验收：
 
 - 大文档导出不崩溃，失败资源不阻断整体导出。
 - 已补充：`exportServiceHeader.test.ts` 覆盖缺失本地图片时 docx 仍生成、预检统计缺失图片、warnings 同时包含预检提示和导出占位提示。
+- 已补充：`exportServiceHeader.test.ts` 覆盖水印写入 `word/header*.xml`，包含水印文本、字号、颜色和透明度；`ExportFormatPage.test.tsx` 覆盖水印配置 UI；`configStoreAppearance.test.ts` 覆盖旧配置水印字段归一化。
+- 已补充：`exportServiceHeader.test.ts` 覆盖 Markdown 表格导出后的 `word/document.xml` 包含配置的表头底色、边框颜色和单元格留白；`ExportFormatPage.test.tsx` 覆盖表格样式 UI；`configStoreAppearance.test.ts` 覆盖旧配置表格字段归一化。
+- 已补充：`exportServiceHeader.test.ts` 覆盖封面标题、副标题、投标单位、日期和分页符写入 `word/document.xml`；`ExportFormatPage.test.tsx` 覆盖封面配置 UI；`configStoreAppearance.test.ts` 覆盖旧配置封面字段归一化。
+- 已补充：`exportServiceHeader.test.ts` mock Mermaid 转图网络失败，覆盖 `word/document.xml` 中的替代图片 drawing、失败说明文字和 warnings。
+- 已补充：`exportServiceHeader.test.ts` 覆盖配置图片最大宽度后 `word/document.xml` 的 drawing 尺寸按比例缩小；`ExportFormatPage.test.tsx` 覆盖图片导出策略 UI；`configStoreAppearance.test.ts` 覆盖旧配置图片字段归一化。
+- 已补充：`exportServiceHeader.test.ts` 覆盖目录标题、TOC 字段 `TOC \h \o "1-n"`、dirty 刷新标记、目录后分页和正文顺序；`ExportFormatPage.test.tsx` 覆盖目录页配置 UI；`configStoreAppearance.test.ts` 覆盖旧配置目录字段归一化。
+- 已补充：`exportServiceHeader.test.ts` 覆盖启用一级章节分节后 `word/document.xml` 包含多个 `sectPr` 和 `nextPage` 分节符；`ExportFormatPage.test.tsx` 覆盖一级章节分节 UI；`configStoreAppearance.test.ts` 覆盖旧配置分节开关归一化。
 
 ### 4.3 发布与自动更新硬化
 
@@ -698,11 +780,12 @@
 
 - 2026-06-15 已完成第一阶段：Main 侧新增 `projectWorkspaceStore.cjs` 和 `project-workspace:*` IPC/preload bridge，维护 `userData/projects/projects.json` 项目注册表。
 - 默认项目继续指向旧版 `userData/workspace`，保证现有单例工作区兼容；新建项目使用 `userData/projects/<projectId>/workspace`。
-- 已支持项目列表、创建、设为当前项目、归档/恢复、删除、复制项目、导出项目包和导入项目包；切换当前项目会返回 `restart_required`，提示需要重启后重新初始化业务 Store。
+- 已支持项目列表、创建、设为当前项目、归档/恢复、删除、复制项目、导出项目包和导入项目包；切换当前项目会在 Main 侧热重建 project-scoped `aiService`、`fileService`、SQLite、业务 Store、后台任务服务和工作区 IPC。
 - 2026-06-15 已完成第二阶段：`getWorkspaceDir(app)` 支持项目工作区覆盖，主进程启动时会读取 active project，并用 project-scoped app 初始化 `aiService`、`fileService`、`createSqliteDatabase()` 和各业务 Store；默认项目仍兼容旧 `userData/workspace`。
-- 2026-06-15 已完成第三阶段第一步：设置页通用配置区新增项目工作区 UI，支持查看当前项目、刷新项目列表、新建并设为当前项目、切换项目确认、归档/恢复和删除项目；切换/删除前会检查 `tasks.getActiveTasks()`，后台任务运行中会阻止操作；切换后仍按 `restart_required` 提示重启加载新项目工作区。
-- 2026-06-15 已完成第三阶段第二步：Playwright E2E 覆盖设置页项目工作区列表、后台任务运行时阻止切换、清空任务后打开切换确认弹窗、确认切换调用 `projectWorkspace.setActive()` 并展示重启后加载新工作区提示。
+- 2026-06-15 已完成第三阶段第一步：设置页通用配置区新增项目工作区 UI，支持查看当前项目、刷新项目列表、新建并设为当前项目、切换项目确认、归档/恢复和删除项目；切换/删除前会检查 `tasks.getActiveTasks()`，后台任务运行中会阻止操作。
+- 2026-06-15 已完成第三阶段第二步：Playwright E2E 覆盖设置页项目工作区列表、后台任务运行时阻止切换、清空任务后打开切换确认弹窗、确认切换调用 `projectWorkspace.setActive()` 并展示新工作区已热刷新。
 - 2026-06-15 已完成第三阶段第三步：设置页项目工作区 UI 补齐复制项目、导出项目包和导入项目包入口；复制、导出、导入前复用后台任务运行保护，避免项目数据流转时后台任务仍在写工作区。
+- 2026-06-15 已完成第四阶段：项目切换和“新建并切换”会在当前 Electron 会话内刷新工作区服务；Main 侧补齐工作区 IPC 通道清理清单，关闭旧 SQLite 连接，重建 project-scoped app、AI/文件服务、业务 Store、`taskService` 和工作区 IPC，并通过 `workspace-database:status` 回放 checking/ready 状态；设置页不再提示必须重启。
 
 目标：
 
@@ -710,8 +793,9 @@
 - 已完成第一阶段：项目注册表和 workspace 目录管理基础设施。
 - 已完成第二阶段：应用启动时按 active project 初始化 SQLite、文件目录和业务 Store。
 - 已完成第三阶段第一步：项目切换 UI、切换确认和任务运行中保护。
-- 已完成第三阶段第二步：补充重启作用域的项目切换 E2E 验收；运行时跨项目热刷新仍作为后续可选增强，不作为当前默认工作流。
+- 已完成第三阶段第二步：补充项目切换 E2E 验收。
 - 已完成第三阶段第三步：补齐复制、导出项目包和导入项目包的设置页入口。
+- 已完成第四阶段：运行时项目热刷新，切换当前项目后无需重启即可让后续业务 IPC 读取新项目工作区。
 
 验收：
 
@@ -719,8 +803,9 @@
 - 已补充：`projectWorkspaceStore.test.ts` 覆盖 scoped app 下 `getWorkspaceDir()` 和 `getWorkspaceDatabasePath()` 解析到 active project workspace，默认项目路径仍保持旧 `userData/workspace`。
 - 已补充：`SettingsPage.test.tsx` 覆盖项目工作区列表加载、新建并切换、切换确认调用 `projectWorkspace.setActive()`，以及后台任务运行时阻止项目切换。
 - 已补充：`SettingsPage.test.tsx` 覆盖复制项目、导出项目包和导入项目包 bridge 调用。
-- 已补充：Playwright E2E 覆盖设置页项目工作区列表加载、运行中任务阻止切换、复制/导出/导入项目包入口、确认切换和重启提示；通用 Radix Dialog 层级已修复，确认按钮不再被 overlay 拦截。
-- 不同项目之间技术方案、知识引用、查重、废标检查状态隔离由 project-scoped `getWorkspaceDir()` / `getWorkspaceDatabasePath()` 单测和设置页重启作用域 E2E 共同验证；运行时热刷新隔离仍保留为后续增强。
+- 已补充：Playwright E2E 覆盖设置页项目工作区列表加载、运行中任务阻止切换、复制/导出/导入项目包入口、确认切换和热刷新提示；通用 Radix Dialog 层级已修复，确认按钮不再被 overlay 拦截。
+- 已补充：Main 侧运行时切换通过 `projectWorkspace.setActive()` 回调重建工作区服务，`node --check electron/ipc/index.cjs` / `node --check electron/ipc/projectWorkspaceIpc.cjs` 覆盖热重载注册语法，设置页组件测试和 Playwright E2E 覆盖用户侧热刷新语义。
+- 不同项目之间技术方案、知识引用、查重、废标检查状态隔离由 project-scoped `getWorkspaceDir()` / `getWorkspaceDatabasePath()` 单测、Main 侧 runtime reload 和设置页 E2E 共同验证。
 
 ### 5.2 Agent 原生操作接口
 
@@ -731,6 +816,9 @@
 - 已补充：CLI 支持默认 REPL、`--json status`、`--json plan-summary`、`--json smoke`、`--json list-smoke`，读取真实仓库文件、用户 workspace 状态，并通过 subprocess 调用真实 Node/npm 检查。
 - 已补充：CLI 支持 `--json export-report --kind duplicate|rejection --state-json <path> --output <path> --format md|docx|pdf`，通过包内 Node helper 调用真实 Electron Main 报告 builder 生成 Markdown、Word `.docx` 或文本型 PDF，不重写报告业务逻辑。
 - 2026-06-15 已补充：CLI 支持 `--json list-tasks` 和 `--json start-task --type <task-type> --payload-json <path> --dry-run`，通过真实 `taskService.cjs` 枚举 Electron Main 任务定义，并生成 side-effect-free 的任务启动计划、scope key 和 payload signature。
+- 2026-06-15 已补充：CLI 的 `export-report` 扩展到 `business-bid`、`ai-evaluation`、`bid-opportunity`，继续通过真实 Electron Main Store builder 生成报告；商务标和 AI 评标支持 Markdown、Word `.docx`、Excel `.xlsx`，投标机会支持 Markdown，并按报告类型拒绝不支持的格式组合。
+- 2026-06-15 已补充：CLI 支持 `--json project-workspace --action list|create|set-active|archive|restore|duplicate|export-package|import-package|get-workspace-path`，通过 Node helper 复用真实 Electron Main `projectWorkspaceStore.cjs` 管理项目注册表和项目包；测试可用 `--user-data <path>` 指向临时目录，避免污染用户默认工作区。
+- 2026-06-16 已补充：CLI `plan-summary` 不再把“后续/待增强/可选增强”粗略计为必做 pending，新增 `required_pending_markers`、`optional_enhancement_markers`、`completion_status` 和外部依赖提示，便于后续 Codex 判断当前计划只剩可选 MinerU Token 回归等外部增强。
 - 已补充：生成 package-local `skills/SKILL.md`，并保留原有一次性生成脚本和输出产物。
 
 目标：
@@ -740,13 +828,17 @@
 - 已完成导出报告 headless 包装第二阶段：Duplicate Check / Rejection Check 可通过状态 JSON 调用真实 Main 报告 builder 导出 Markdown 和 Word `.docx`。
 - 2026-06-15 已完成导出报告 headless 包装第三阶段：Duplicate Check / Rejection Check 可通过同一命令追加 `--format pdf` 导出文本型 PDF，并继续复用真实 Electron Main PDF builder。
 - 2026-06-15 已完成任务启动 headless 包装第一阶段：可枚举真实后台任务定义，并对 `duplicate-analysis`、`knowledge-base-preparation` 等任务生成 dry-run 启动计划；真实执行仍需 Electron Main 桌面会话承载 runner、IPC、Store 和任务事件。
+- 2026-06-15 已完成项目工作区 headless 包装第一阶段：Codex/Agent 可在 JSON 模式下读取项目列表、创建/切换/归档/恢复/复制项目、导出/导入项目包和解析项目工作区路径，底层复用真实 Main 侧项目工作区 Store。
 
 验收：
 
 - 支持 JSON 输出。
 - 有 E2E 测试覆盖真实后端能力或明确环境缺口。
 - 已补充：`agent-harness/TEST.md`、`test_core.py`、`test_full_e2e.py` 覆盖 repo 状态读取、plan 摘要、smoke 命令定义、已安装 CLI JSON 输出、真实 `node --check` smoke、duplicate/rejection Markdown/Word/PDF 报告导出、真实任务定义枚举和任务 dry-run 启动计划。
-- 已通过：在 `agent-harness/.venv` 中 editable install 后，17 个 unittest 全部通过。
+- 已补充：`test_core.py` 覆盖商务标 Markdown/Excel、AI 评标 Word/Excel、投标机会 Markdown 报告导出，以及不支持的报告格式拒绝；`test_full_e2e.py` 覆盖已安装 CLI 导出商务标 Excel。
+- 已补充：`test_core.py` 覆盖真实 `projectWorkspaceStore.cjs` 在临时 `userData` 下的项目列表、创建并切换、工作区路径、复制、导出项目包、导入项目包、归档/恢复和切换；`test_full_e2e.py` 覆盖已安装 CLI 的项目列表、创建并切换、切回默认项目和工作区路径解析。
+- 已补充：`test_core.py` 和 `test_full_e2e.py` 覆盖 `plan-summary` 必做未完成项为 0、`completion_status=required-complete`，并保留可选增强和 MinerU 外部依赖提示。
+- 已通过：在 `agent-harness/.venv` 中 editable install 后，24 个 unittest 全部通过。
 
 ### 5.3 文档与官网同步
 
@@ -754,20 +846,34 @@
 
 - 2026-06-15 已完成第一阶段：中文 README 和英文 README 已同步当前功能状态，不再把商务标、图片知识库、AI 评标、投标机会、标书查重、废标项检查等已落地能力描述为预留或开发中。
 - 2026-06-15 已新增 `client/doc/用户手册与故障排查.md`，按技术方案、商务标、AI 评标、投标机会、知识库、图片知识库、标书查重、废标项检查、设置、资源和开发者工具梳理入口、交付物、常见问题和验证命令。
-- README 已明确仍在演进的边界：多项目工作区、真实图片截屏证据、复杂相似图证据视图、真实样本文档集三路径端到端回归。
+- README 已明确仍在演进的可选增强：MinerU 精准解析真实网络回归。
+- 2026-06-15 已完成第二阶段：中文 README、英文 README 和用户手册已同步废标页面截图候选自动裁剪、查重复杂相似图视觉证据、旋转/水印/16x16 细粒度局部裁剪检测状态。
+- 2026-06-15 已完成第三阶段：中文 README、英文 README 和用户手册已同步废标本地 PDF 页面 PNG 截图候选状态；当时文档中保留非本地 PDF 精确页图生成、运行时项目热刷新和 MinerU 真实网络回归作为后续边界。
+- 2026-06-15 已完成第四阶段：中文 README、英文 README 和用户手册已同步多项目运行时热刷新状态；当时文档中保留非本地 PDF 精确页图生成和 MinerU 真实网络回归作为后续边界。
+- 2026-06-15 已完成第五阶段：中文 README、英文 README 和用户手册已同步本地 DOCX/DOC/WPS 通过 Office 转 PDF 生成页面 PNG 截图候选状态；当时文档中仅保留 MinerU 远程解析精确页图生成和 MinerU 真实网络回归作为后续边界。
+- 2026-06-15 已完成第六阶段：中文 README、英文 README 和用户手册已同步 MinerU 返回图片候选离线回归状态；文档中仅保留 MinerU 真实网络回归作为后续边界。
+- 2026-06-15 已完成第七阶段：中文 README、英文 README、用户手册和解析回归 manifest 已同步 MinerU 门控真实网络回归命令；默认测试不触发网络，具备 Token 和网络时同一测试文件会真实验证 MinerU-Agent / MinerU 精准解析、图片资产重写和页面截图候选。
+- 2026-06-16 已完成第八阶段：中文 README、英文 README、用户手册和解析回归 manifest 已同步 MinerU-Agent 真实网络解析回归已通过；当前文档仅保留 MinerU 精准解析 Token 回归和 zip 图片候选固化作为可选增强。
+- 2026-06-16 已完成第九阶段：中文 README、英文 README、用户手册和 `plan.md` 已同步本地 OCR 改为 PaddleOCR 优先、Tesseract 兜底；MinerU 精准解析继续作为具备 Token 后的可选增强。
+- 2026-06-16 已完成第十阶段：中文 README、英文 README、用户手册和 `plan.md` 已同步投标机会多轮跟进记录、公告/沟通附件和报告输出状态。
+- 2026-06-16 已完成第十一阶段：`design.md` 项目知识基线已同步 AI 评标会议纪要模板、投标机会多轮跟进和附件、项目工作区运行时热刷新、SQLite v35、废标真实裁剪图、本地 OCR PaddleOCR 优先路径和知识库 scope task 现状。
+- 2026-06-16 已完成第十二阶段：`client/doc/资源下载.md` 和 `client/doc/废标项检查.md` 已从早期需求/占位草稿改为当前已落地能力、后续约束和验证索引；`projectDocs.test.ts` 防止静态资源、未来接口、废标占位和可删除旧口径回流。
 
 目标：
 
 - 已完成第一阶段：README 中“更多功能还在开发中”的泛化承诺已随真实功能状态更新。
 - 已完成第一阶段：英文 README 同步。
 - 已完成第一阶段：对核心功能补用户手册和故障排查索引。
-- 待持续维护：后续每完成截图定位、多项目、复杂相似图证据视图和真实样本文档集等能力后，同步 README、英文 README 和用户手册。
+- 待持续维护：后续如完成 MinerU 精准解析真实网络回归并记录通过结果，再同步 README、英文 README 和用户手册。
 
 验收：
 
-- 已补充：README 不再把已完成能力描述为“预留/开发中”，也不把未完成的多项目、截图定位、复杂相似图证据视图和真实样本文档集描述成已完成。
+- 已补充：README 不再把已完成能力描述为“预留/开发中”，也不把当时尚未落地的能力提前描述成已完成；当前文档仅保留 MinerU 精准解析真实网络回归作为可选增强。
 - 已补充：英文 README 与中文 README 的功能状态保持一致。
 - 已补充：核心功能用户手册与故障排查入口已落到 `client/doc/用户手册与故障排查.md`。
+- 已补充：README、英文 README 和用户手册不再把查重复杂相似图视觉证据、旋转/水印/局部裁剪或废标页面截图候选自动裁剪描述成未完成。
+- 已补充：`design.md` 不再把 AI 评标会议纪要模板、项目工作区热刷新、废标真实裁剪图、本地 OCR PaddleOCR 路径或投标机会多轮跟进/附件描述成未完成或过期状态。
+- 已补充：`client/doc/资源下载.md` 和 `client/doc/废标项检查.md` 不再保留静态样式草稿或页面占位草稿；`projectDocs.test.ts` 作为文档状态防回归测试。
 
 ## 6. 执行顺序建议
 
@@ -775,7 +881,7 @@
 2. 再做 P1 基础缺口：页眉导出、设置页主题/布局、模型列表、本地模型体验。
 3. 然后做 P1 已有功能增强：已有方案扩写覆盖审计、知识库任务统一、查重忽略规则、废标报告导出。
 4. 再做 P2 跨平台硬化：解析样本集、Word 高级导出、发布更新、Analytics。
-5. 最后做 P3 多项目和 Agent 原生接口。
+5. 后续可选增强：MinerU 精准解析真实网络回归。
 
 ## 7. 每个任务的固定交付要求
 
@@ -787,3 +893,22 @@
 - 涉及 Analytics：Worker/Dashboard 对应目录运行语法检查或部署前检查，不能引入密钥。
 - 涉及用户可见文案：中文、清晰、可操作。
 - 涉及长任务：Main 后台任务执行，Renderer 只启动、订阅、读取 Store。
+
+## 8. 当前全量验证快照
+
+2026-06-16 本轮收口补跑了客户端、Analytics、agent-harness 和发布配置验证，作为后续继续迭代前的基线：
+
+- `cd client; npm run test:unit -- projectDocs.test.ts`：通过，覆盖资源下载和废标项检查文档旧占位口径不回流。
+- `cd client; npm run test:unit -- planCompletionAudit.test.ts`：通过，覆盖计划内产品/开发者入口均在菜单中可达、无开发中 notice，并确认开发者工具保持在 `DeveloperToolsPage` 真实实现而非旧 demo shell。
+- `cd client; npm run test:unit`：通过，38 个测试文件、206 个单测通过。
+- `cd client; npm run build`：通过，仅保留既有 Vite chunk 体积警告。
+- `cd client; npm run test:e2e`：通过，19 个 Playwright E2E 用例通过。
+- `cd analytics/worker; npm run test`：通过，语法检查 28 个 JavaScript 文件，7 个 Node 测试通过，覆盖埋点隐私、商务标动作枚举、资源 API、R2 图片和点击汇总。
+- `cd analytics/dashboard; npm run test`：通过，语法检查 15 个 JavaScript 文件，8 个 Node 测试通过，覆盖页面中文映射、商务标动作展示和资源管理表格。
+- `agent-harness/.venv/bin/python -m unittest discover -s agent-harness/cli_anything/openbidkit_yibiao/tests -v`：通过，24 个 unittest/E2E 通过，覆盖 CLI 状态、计划摘要必做/可选分类、真实 Node smoke、任务定义枚举、任务 dry-run、项目工作区管理和多类报告导出。
+- `cd client; npm run smoke:release-config`：通过，确认 electron-builder / GitHub Release / Cloudflare 更新源配置基线。
+- `git diff --check`：通过。
+
+仍需注意的外部条件：
+
+- MinerU 精准解析真实网络端到端回归依赖 `YIBIAO_MINERU_TOKEN` 和外网，当前计划中保持为可选增强；扫描 PDF、图片和 OFD 的默认本地路径已由 PaddleOCR 优先、Tesseract 兜底覆盖。

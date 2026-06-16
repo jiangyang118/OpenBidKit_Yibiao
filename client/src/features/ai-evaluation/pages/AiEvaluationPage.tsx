@@ -19,6 +19,9 @@ const emptyState: AiEvaluationState = {
   expertReviewSummary: {
     expertCount: 0,
     scoreCount: 0,
+    signedCount: 0,
+    pendingSignatureCount: 0,
+    reviewSessionCount: 0,
     conflictCount: 0,
     maxDeviation: 0,
     conclusion: '尚未录入专家打分。',
@@ -45,7 +48,10 @@ const riskLabels: Record<AiEvaluationRiskLevel, string> = {
 
 type ExpertScoreDraft = {
   expertName: string;
+  expertRole: string;
+  reviewSession: string;
   score: string;
+  signatureConfirmed: boolean;
   opinion: string;
 };
 
@@ -66,6 +72,16 @@ function formatTaskStatus(status?: string) {
   if (status === 'success') return '已完成';
   if (status === 'error') return '失败';
   return '未启动';
+}
+
+function formatExpertSignature(score: AiEvaluationExpertScore) {
+  if (!score.signatureConfirmed) return '未签名';
+  return score.signedAt ? `已签名 ${score.signedAt}` : '已签名';
+}
+
+function formatExpertRecord(score: AiEvaluationExpertScore) {
+  const meta = [score.reviewSession, score.expertRole, formatExpertSignature(score)].filter(Boolean).join('，');
+  return `${score.expertName}${meta ? `（${meta}）` : ''}：${score.score} 分${score.opinion ? `，${score.opinion}` : ''}`;
 }
 
 function AiEvaluationPage() {
@@ -252,6 +268,24 @@ function AiEvaluationPage() {
     }
   };
 
+  const exportCommitteeReport = async () => {
+    if (!state.items.length) {
+      showToast('请先生成 AI 评标评分表，再导出会议纪要模板', 'info');
+      return;
+    }
+    const exporter = window.yibiao?.aiEvaluation?.exportCommitteeReport;
+    if (!exporter) {
+      showToast('当前环境不支持导出 AI 评标委员会会议纪要，请在桌面客户端中使用', 'error');
+      return;
+    }
+    try {
+      const result = await exporter({ format: 'docx' });
+      showToast(result.message || (result.success ? 'AI 评标委员会会议纪要已导出' : '已取消导出'), result.success ? 'success' : 'info');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'AI 评标委员会会议纪要导出失败', 'error');
+    }
+  };
+
   const patchLocalItem = (id: string, patch: AiEvaluationItemPatch) => {
     setState((prev) => ({
       ...prev,
@@ -282,7 +316,10 @@ function AiEvaluationPage() {
     setExpertDrafts((prev) => {
       const current = prev[itemId] || {
         expertName: '',
+        expertRole: '',
+        reviewSession: '',
         score: '',
+        signatureConfirmed: false,
         opinion: '',
       };
       return {
@@ -316,11 +353,14 @@ function AiEvaluationPage() {
       const nextState = await saver({
         itemId: item.id,
         expertName,
+        expertRole: draft?.expertRole.trim() || '',
+        reviewSession: draft?.reviewSession.trim() || '',
         score,
+        signatureConfirmed: Boolean(draft?.signatureConfirmed),
         opinion: draft?.opinion || '',
       });
       if (nextState) setState(nextState);
-      updateExpertDraft(item.id, { score: '', opinion: '' });
+      updateExpertDraft(item.id, { score: '', signatureConfirmed: false, opinion: '' });
       showToast('专家打分已保存，交叉审核已刷新', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : '专家打分保存失败', 'error');
@@ -357,9 +397,13 @@ function AiEvaluationPage() {
           <button type="button" className="secondary-action" onClick={() => { void exportOfficePackage('xlsx'); }} disabled={!state.items.length}>
             导出 Excel 报告
           </button>
+          <button type="button" className="secondary-action" onClick={exportCommitteeReport} disabled={!state.items.length}>
+            导出会议纪要模板
+          </button>
           <small>{state.source ? `来源：${state.source.fileName}` : '请先在技术方案中导入招标文件'}</small>
           <small>已导入投标文件：{state.bidDocuments?.length || 0} 份</small>
           <small>专家打分：{state.expertReviewSummary?.scoreCount || 0} 条</small>
+          <small>签名确认：{state.expertReviewSummary?.signedCount || 0}/{state.expertReviewSummary?.scoreCount || 0}</small>
           <small>审计意见：{state.auditOpinions?.length || 0} 条</small>
           {state.latestReport ? <small>最近报告：{state.latestReport.generatedAt}</small> : null}
           {state.aiExtractionTask ? (
@@ -468,7 +512,9 @@ function AiEvaluationPage() {
                   </div>
                   <div className="ai-evaluation-expert-metrics">
                     <span>专家 {state.expertReviewSummary?.expertCount || 0} 人</span>
+                    <span>会议 {state.expertReviewSummary?.reviewSessionCount || 0} 场</span>
                     <span>记录 {state.expertReviewSummary?.scoreCount || 0} 条</span>
+                    <span>签名 {state.expertReviewSummary?.signedCount || 0}/{state.expertReviewSummary?.scoreCount || 0}</span>
                     <span>最大偏差 {state.expertReviewSummary?.maxDeviation || 0}</span>
                   </div>
                 </section>
@@ -516,7 +562,7 @@ function AiEvaluationPage() {
                   {expertScoresByItem.get(item.id)?.length ? (
                     <div className="ai-evaluation-expert-list" aria-label={`${item.title} 专家打分记录`}>
                       {expertScoresByItem.get(item.id)?.map((score) => (
-                        <span key={score.id}>{score.expertName}：{score.score} 分{score.opinion ? `，${score.opinion}` : ''}</span>
+                        <span key={score.id}>{formatExpertRecord(score)}</span>
                       ))}
                     </div>
                   ) : null}
@@ -565,6 +611,24 @@ function AiEvaluationPage() {
                       />
                     </label>
                     <label>
+                      <span>专家角色</span>
+                      <input
+                        type="text"
+                        value={expertDrafts[item.id]?.expertRole || ''}
+                        placeholder="例如：技术专家"
+                        onChange={(event) => updateExpertDraft(item.id, { expertRole: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <span>评审会议</span>
+                      <input
+                        type="text"
+                        value={expertDrafts[item.id]?.reviewSession || ''}
+                        placeholder="例如：第一次评审会"
+                        onChange={(event) => updateExpertDraft(item.id, { reviewSession: event.target.value })}
+                      />
+                    </label>
+                    <label>
                       <span>专家分</span>
                       <input
                         type="number"
@@ -584,6 +648,14 @@ function AiEvaluationPage() {
                         placeholder="评分口径、分差原因或复核说明"
                         onChange={(event) => updateExpertDraft(item.id, { opinion: event.target.value })}
                       />
+                    </label>
+                    <label className="ai-evaluation-signature-check">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(expertDrafts[item.id]?.signatureConfirmed)}
+                        onChange={(event) => updateExpertDraft(item.id, { signatureConfirmed: event.target.checked })}
+                      />
+                      <span>签名确认</span>
                     </label>
                     <button type="button" className="secondary-action" onClick={() => { void saveExpertScore(item); }}>
                       保存专家打分

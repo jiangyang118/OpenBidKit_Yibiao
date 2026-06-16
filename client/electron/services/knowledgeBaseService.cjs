@@ -380,6 +380,132 @@ function renderBlocksForPrompt(blocks) {
   }).join('\n\n');
 }
 
+const MATCH_BLOCK_PREFILTER_LIMIT = 80;
+const MATCH_BLOCK_PREFILTER_CONTEXT = 1;
+const matchBlockStopTerms = new Set([
+  '项目',
+  '方案',
+  '技术',
+  '服务',
+  '管理',
+  '工作',
+  '实施',
+  '内容',
+  '要求',
+  '系统',
+  '建设',
+  '提供',
+  '进行',
+  '相关',
+  '措施',
+]);
+
+function normalizeMatchSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\ufeff]/g, '')
+    .replace(/[^\p{L}\p{N}\u4e00-\u9fff]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function addMatchTerm(terms, term, weight) {
+  const normalized = normalizeMatchSearchText(term).replace(/\s+/g, '');
+  if (!normalized || normalized.length < 2 || matchBlockStopTerms.has(normalized)) return;
+  terms.set(normalized, Math.max(terms.get(normalized) || 0, weight));
+}
+
+function collectMatchTerms(value, weight) {
+  const terms = new Map();
+  const text = normalizeMatchSearchText(value);
+  for (const match of text.matchAll(/[a-z0-9][a-z0-9_-]{1,}/gi)) {
+    addMatchTerm(terms, match[0], weight);
+  }
+  for (const match of text.matchAll(/[\u4e00-\u9fff]{2,}/g)) {
+    const phrase = match[0];
+    addMatchTerm(terms, phrase.slice(0, 12), weight + Math.min(phrase.length, 8) / 3);
+    for (const size of [2, 3, 4, 5, 6]) {
+      if (phrase.length < size) continue;
+      for (let index = 0; index <= phrase.length - size; index += 1) {
+        addMatchTerm(terms, phrase.slice(index, index + size), weight + size / 10);
+      }
+    }
+  }
+  return terms;
+}
+
+function mergeMatchTerms(target, source) {
+  for (const [term, weight] of source.entries()) {
+    target.set(term, Math.max(target.get(term) || 0, weight));
+  }
+}
+
+function scoreBlockForTerms(block, terms) {
+  const headingText = normalizeMatchSearchText((block.heading_path || []).join(' ')).replace(/\s+/g, '');
+  const contentText = normalizeMatchSearchText(block.content).replace(/\s+/g, '');
+  let score = 0;
+  const matchedTerms = [];
+  for (const [term, weight] of terms.entries()) {
+    const inHeading = headingText.includes(term);
+    const inContent = contentText.includes(term);
+    if (!inHeading && !inContent) continue;
+    const termScore = weight * (inHeading ? 2.2 : 1) + Math.min(term.length, 8) / 3;
+    score += termScore;
+    matchedTerms.push(term);
+  }
+  return { score, matchedTerms };
+}
+
+function selectCandidateBlocksForMatchBatch(blocks, batchItems, options = {}) {
+  const normalizedBlocks = Array.isArray(blocks) ? blocks : [];
+  const normalizedItems = Array.isArray(batchItems) ? batchItems : [];
+  const limit = Math.max(1, Math.floor(Number(options.limit || MATCH_BLOCK_PREFILTER_LIMIT)));
+  const context = Math.max(0, Math.floor(Number(options.context ?? MATCH_BLOCK_PREFILTER_CONTEXT)));
+  if (!normalizedBlocks.length || !normalizedItems.length || normalizedBlocks.length <= limit) {
+    return { blocks: normalizedBlocks, prefiltered: false, selected_count: normalizedBlocks.length, total_count: normalizedBlocks.length, matched_terms: [] };
+  }
+
+  const selectedIndexes = new Set();
+  const allMatchedTerms = new Set();
+  for (const item of normalizedItems) {
+    const terms = new Map();
+    mergeMatchTerms(terms, collectMatchTerms(item?.title, 8));
+    mergeMatchTerms(terms, collectMatchTerms(item?.summary, 4));
+    if (!terms.size) continue;
+
+    const scored = normalizedBlocks.map((block, index) => {
+      const result = scoreBlockForTerms(block, terms);
+      result.matchedTerms.forEach((term) => allMatchedTerms.add(term));
+      return { index, score: result.score };
+    }).filter((item) => item.score > 0).sort((left, right) => (right.score - left.score) || (left.index - right.index));
+
+    const topScore = scored[0]?.score || 0;
+    const minScore = topScore >= 30 ? Math.max(12, topScore * 0.18) : 0;
+    const itemLimit = Math.max(8, Math.ceil(limit / Math.max(1, normalizedItems.length)));
+    for (const candidate of scored.filter((item) => item.score >= minScore).slice(0, itemLimit)) {
+      for (let offset = -context; offset <= context; offset += 1) {
+        const nextIndex = candidate.index + offset;
+        if (nextIndex >= 0 && nextIndex < normalizedBlocks.length) {
+          selectedIndexes.add(nextIndex);
+        }
+      }
+    }
+  }
+
+  if (!selectedIndexes.size) {
+    return { blocks: normalizedBlocks.slice(0, limit), prefiltered: true, selected_count: Math.min(limit, normalizedBlocks.length), total_count: normalizedBlocks.length, matched_terms: [] };
+  }
+
+  const selected = [...selectedIndexes].sort((left, right) => left - right).slice(0, limit).map((index) => normalizedBlocks[index]);
+  return {
+    blocks: selected,
+    prefiltered: true,
+    selected_count: selected.length,
+    total_count: normalizedBlocks.length,
+    matched_terms: [...allMatchedTerms].slice(0, 20),
+  };
+}
+
 function normalizeCandidateItems(parsed) {
   const items = Array.isArray(parsed) ? parsed : parsed?.items;
   if (!Array.isArray(items)) return [];
@@ -411,11 +537,14 @@ function mergeCandidateItems(firstItems, supplementItems) {
   return merged;
 }
 
-function buildDocumentBlocksUserMessage(blockText) {
+function buildDocumentBlocksUserMessage(blockText, options = {}) {
+  const prefiltered = Boolean(options.prefiltered);
   return {
     role: 'user',
     content: [
-      '以下是同一份文档的完整 block 列表。',
+      prefiltered
+        ? `以下是同一份文档中与本批知识条目最相关的候选 block 列表（${options.selected_count || 0}/${options.total_count || 0}）。`
+        : '以下是同一份文档的完整 block 列表。',
       '<document_blocks>',
       blockText,
       '</document_blocks>',
@@ -460,11 +589,13 @@ function buildSupplementItemMessages(documentName, blockText, firstItems) {
   ];
 }
 
-function buildMatchMessages(documentName, blockText, batchItems) {
+function buildMatchMessages(documentName, blockText, batchItems, blockSelection = {}) {
   const taskPrompt = [
     `文档名：${documentName}`,
     '你是投标知识库段落匹配助手。你只根据知识条目的标题和摘要，为其匹配强相关 block 范围。',
-    '你将收到同一份文档的完整 block 列表，以及本次需要匹配的一小批知识条目。',
+    blockSelection.prefiltered
+      ? '你将收到同一份文档中与本批知识条目最相关的候选 block 列表，以及本次需要匹配的一小批知识条目。候选列表已由本地规则预筛选，不代表全文全部内容。'
+      : '你将收到同一份文档的完整 block 列表，以及本次需要匹配的一小批知识条目。',
     '规则：',
     '1. 只处理本次给出的知识条目。',
     '2. 只匹配与条目强相关、可直接支撑该条目的 block。',
@@ -479,7 +610,7 @@ function buildMatchMessages(documentName, blockText, batchItems) {
   ].join('\n');
 
   return [
-    buildDocumentBlocksUserMessage(blockText),
+    buildDocumentBlocksUserMessage(blockText, blockSelection),
     {
       role: 'user',
       content: taskPrompt,
@@ -1065,7 +1196,6 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
         normalized_batch_size: normalizedBatchSize,
       });
 
-      const blockText = renderBlocksForPrompt(blocks);
       const blockOrder = getBlockOrder(blocks);
       const candidateItemIds = new Set(initialItems.map((item) => item.id));
       const batches = [];
@@ -1092,11 +1222,17 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
         const progress = Math.min(88, 66 + Math.round(((index + 1) / batches.length) * 22));
         updateDocument(documentId, { status: 'matching', progress, message: `AI 正在匹配段落 ${batchIndex}/${batches.length}` }, webContents);
         knowledgeBaseStore.saveMatchBatch(documentId, batchIndex, { status: 'running', itemIds: batchItemIds, matches: [] });
-        const matchMessages = buildMatchMessages(document.file_name, blockText, batches[index]);
+        const blockSelection = selectCandidateBlocksForMatchBatch(blocks, batches[index]);
+        const batchBlockOrder = getBlockOrder(blockSelection.blocks);
+        const matchMessages = buildMatchMessages(document.file_name, renderBlocksForPrompt(blockSelection.blocks), batches[index], blockSelection);
         debugLog(documentId, 'ai:match-batch:start', {
           batch_index: batchIndex,
           batch_count: batches.length,
           item_ids: batchItemIds,
+          block_count: blockSelection.selected_count,
+          total_block_count: blockSelection.total_count,
+          prefiltered: blockSelection.prefiltered,
+          matched_terms: blockSelection.matched_terms,
           prompt: getPromptSummary(matchMessages),
         });
         try {
@@ -1105,7 +1241,7 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
             temperature: 0.1,
             response_format: { type: 'json_object' },
             logTitle: `知识库段落匹配-${document.file_name}-第${batchIndex}批`,
-            normalizer: (value) => normalizeMatchResult(value, candidateItemIds, blocks, blockOrder),
+            normalizer: (value) => normalizeMatchResult(value, candidateItemIds, blockSelection.blocks, batchBlockOrder),
             validator: validateMatchResult,
             failureMessage: '知识库段落匹配失败，AI 未返回有效 JSON',
             progressLabel: '知识库段落匹配',
@@ -1514,6 +1650,8 @@ module.exports = {
     mergeSemanticBlocks,
     filterBlocks,
     renderBlocksForPrompt,
+    selectCandidateBlocksForMatchBatch,
+    buildMatchMessages,
     normalizeCandidateItems,
     normalizeMatchResult,
     normalizeRecoveryResult,

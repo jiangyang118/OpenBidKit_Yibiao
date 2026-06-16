@@ -54,10 +54,14 @@ const workspaceDatabaseChannels = [
   'technical-plan:read-original-plan-markdown',
   'technical-plan:update-step',
   'technical-plan:set-workflow-kind',
+  'technical-plan:switch-workflow-kind',
+  'technical-plan:save-bid-analysis-config',
   'technical-plan:save-outline-config',
   'technical-plan:save-outline',
   'technical-plan:save-global-facts',
   'technical-plan:save-content-generation-options',
+  'technical-plan:resolve-consistency-audit-item',
+  'technical-plan:handle-original-coverage-unassigned-segment',
   'technical-plan:save-chapter-content',
   'technical-plan:clear',
   'duplicate-check:load-state',
@@ -78,17 +82,23 @@ const workspaceDatabaseChannels = [
   'rejection-check:remove-document',
   'rejection-check:save-ui-state',
   'rejection-check:update-state',
+  'rejection-check:resolve-finding',
+  'rejection-check:batch-handle-findings',
+  'rejection-check:export-report',
   'rejection-check:clear',
   'ai-evaluation:load-state',
   'ai-evaluation:generate-from-technical-plan',
   'ai-evaluation:import-bid-document',
   'ai-evaluation:update-item',
+  'ai-evaluation:save-expert-score',
   'ai-evaluation:export-report',
   'ai-evaluation:export-office-package',
+  'ai-evaluation:export-committee-report',
   'ai-evaluation:clear',
   'business-bid:load-state',
   'business-bid:import-from-technical-plan',
   'business-bid:import-tender-document',
+  'business-bid:enhance-with-ai',
   'business-bid:update-clause',
   'business-bid:import-attachments',
   'business-bid:update-attachment',
@@ -98,9 +108,16 @@ const workspaceDatabaseChannels = [
   'business-bid:clear',
   'bid-opportunity:load-state',
   'bid-opportunity:save-opportunity',
+  'bid-opportunity:save-opportunity-with-ai',
   'bid-opportunity:import-document',
   'bid-opportunity:import-url',
   'bid-opportunity:update-follow-up',
+  'bid-opportunity:add-follow-up-record',
+  'bid-opportunity:update-follow-up-record',
+  'bid-opportunity:delete-follow-up-record',
+  'bid-opportunity:import-attachments',
+  'bid-opportunity:update-attachment',
+  'bid-opportunity:delete-attachment',
   'bid-opportunity:update-status',
   'bid-opportunity:delete-opportunity',
   'bid-opportunity:export-report',
@@ -109,11 +126,15 @@ const workspaceDatabaseChannels = [
   'knowledge-base:get-migration-status',
   'knowledge-base:migrate-legacy',
   'knowledge-base:list',
+  'knowledge-base:get-active-tasks',
   'knowledge-base:create-folder',
   'knowledge-base:rename-folder',
+  'knowledge-base:reorder-folder',
   'knowledge-base:delete-folder',
   'knowledge-base:delete-document',
+  'knowledge-base:move-document',
   'knowledge-base:upload-documents',
+  'knowledge-base:retry-document',
   'knowledge-base:start-matching',
   'knowledge-base:read-markdown',
   'knowledge-base:read-items',
@@ -208,7 +229,7 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, fileSe
   const rejectionCheckStore = createRejectionCheckStore({ app, db: sqliteDatabase.db, fileService, technicalPlanStore });
   const aiEvaluationStore = createAiEvaluationStore({ app, db: sqliteDatabase.db, technicalPlanStore, fileService, aiService });
   const businessBidStore = createBusinessBidStore({ db: sqliteDatabase.db, technicalPlanStore, fileService, aiService, app });
-  const bidOpportunityStore = createBidOpportunityStore({ db: sqliteDatabase.db, fileService, aiService });
+  const bidOpportunityStore = createBidOpportunityStore({ db: sqliteDatabase.db, fileService, aiService, app });
   const duplicateCheckService = createDuplicateCheckService({ app, configStore, workspaceStore: duplicateCheckStore });
   const taskService = createTaskService({ aiService, technicalPlanStore, rejectionCheckStore, duplicateCheckStore, knowledgeBaseService, imageKnowledgeBaseStore, duplicateCheckService, businessBidStore, aiEvaluationStore });
 
@@ -242,17 +263,33 @@ function createProjectScopedApp(app, activeProject) {
   });
 }
 
-function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerUpdateDownload, quitAndInstall, getLatestVersion, getUpdateDownloadUrl, gpuStartupState = {}, gpuTrialArg = '--yibiao-trial-hardware-acceleration', forceDisableGpuArgs = [] }) {
+function createMutableServiceProxy(getService, serviceName) {
+  return new Proxy({}, {
+    get(_target, prop) {
+      const service = getService();
+      const value = service?.[prop];
+      if (typeof value === 'function') return value.bind(service);
+      if (value !== undefined) return value;
+      throw new Error(`${serviceName} 尚未初始化`);
+    },
+  });
+}
+
+function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerUpdateDownload, quitAndInstall, getLatestVersion, getUpdateDownloadUrl, gpuStartupState = {}, gpuTrialArg = '--yibiao-trial-hardware-acceleration', forceDisableGpuArgs = [], nativeTheme }) {
   const configStore = createConfigStore(app);
   const projectWorkspaceStore = createProjectWorkspaceStore({ app });
-  const activeProject = projectWorkspaceStore.getActiveProject();
-  const projectApp = createProjectScopedApp(app, activeProject);
-  const aiService = createAiService({ app: projectApp, configStore });
-  const fileService = createFileService({ app: projectApp, configStore });
+  let activeProject = projectWorkspaceStore.getActiveProject();
+  let projectApp = createProjectScopedApp(app, activeProject);
+  let aiService = createAiService({ app: projectApp, configStore });
+  let fileService = createFileService({ app: projectApp, configStore });
+  let workspaceDatabase = null;
   const exportService = createExportService({ configStore });
   const databaseStatus = registerWorkspaceDatabaseStatusIpc({ mainWindow });
   let workspaceDatabaseStarted = false;
+  let workspaceDatabaseGeneration = 0;
   let gpuTrialRelaunchStarted = false;
+  const aiServiceProxy = createMutableServiceProxy(() => aiService, 'AI 服务');
+  const fileServiceProxy = createMutableServiceProxy(() => fileService, '文件服务');
 
   const saveGpuHardwareAccelerationPreference = (enabled) => {
     const nextEnabled = Boolean(enabled);
@@ -286,26 +323,39 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
       .concat('--disable-gpu');
   };
 
-  registerConfigIpc({ configStore, aiService });
-  registerAiIpc({ aiService });
-  registerFileIpc({ fileService });
+  registerConfigIpc({ configStore, aiService: aiServiceProxy, nativeTheme });
+  registerAiIpc({ aiService: aiServiceProxy });
+  registerFileIpc({ fileService: fileServiceProxy });
   registerExportIpc({ exportService });
-  registerProjectWorkspaceIpc({ projectWorkspaceStore });
-  registerPendingWorkspaceDatabaseIpc(databaseStatus.getStatus);
+  const rebuildProjectServices = (nextActiveProject) => {
+    activeProject = nextActiveProject || projectWorkspaceStore.getActiveProject();
+    projectApp = createProjectScopedApp(app, activeProject);
+    aiService = createAiService({ app: projectApp, configStore });
+    fileService = createFileService({ app: projectApp, configStore });
+  };
 
-  const startWorkspaceDatabase = () => {
-    if (workspaceDatabaseStarted) return;
-    workspaceDatabaseStarted = true;
+  const initializeWorkspaceDatabase = (reason = 'startup') => {
+    const generation = workspaceDatabaseGeneration + 1;
+    workspaceDatabaseGeneration = generation;
+    registerPendingWorkspaceDatabaseIpc(databaseStatus.getStatus);
     databaseStatus.updateStatus({
       phase: 'checking',
       ready: false,
-      message: `正在检查本地数据库：${activeProject.project?.name || '默认项目'}`,
+      message: reason === 'project-switch'
+        ? `正在切换项目工作区：${activeProject.project?.name || '默认项目'}`
+        : `正在检查本地数据库：${activeProject.project?.name || '默认项目'}`,
       activeProjectId: activeProject.project?.id,
       workspacePath: activeProject.workspace_path,
     });
     setTimeout(() => {
+      if (generation !== workspaceDatabaseGeneration) return;
       try {
-        registerWorkspaceDatabaseServices({ app: projectApp, configStore, aiService, fileService, updateStatus: databaseStatus.updateStatus });
+        if (workspaceDatabase?.close) {
+          workspaceDatabase.close();
+          workspaceDatabase = null;
+        }
+        const result = registerWorkspaceDatabaseServices({ app: projectApp, configStore, aiService, fileService, updateStatus: databaseStatus.updateStatus });
+        workspaceDatabase = result.sqliteDatabase;
       } catch (error) {
         databaseStatus.updateStatus({
           phase: 'error',
@@ -315,6 +365,24 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
         registerUnavailableWorkspaceDatabaseIpc(error);
       }
     }, 120);
+  };
+
+  const switchActiveProjectRuntime = async (projectId) => {
+    const state = projectWorkspaceStore.listProjects();
+    const project = state.projects.find((item) => item.id === projectId && item.status === 'active');
+    if (!project) throw new Error('项目不存在或已归档');
+    rebuildProjectServices({ project, workspace_path: project.workspace_path });
+    initializeWorkspaceDatabase('project-switch');
+    return { success: true };
+  };
+
+  registerProjectWorkspaceIpc({ projectWorkspaceStore, onActiveProjectChanged: switchActiveProjectRuntime });
+  registerPendingWorkspaceDatabaseIpc(databaseStatus.getStatus);
+
+  const startWorkspaceDatabase = () => {
+    if (workspaceDatabaseStarted) return;
+    workspaceDatabaseStarted = true;
+    initializeWorkspaceDatabase('startup');
   };
 
   if (mainWindow.webContents.isLoading()) {

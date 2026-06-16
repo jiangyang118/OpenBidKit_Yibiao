@@ -1,5 +1,7 @@
 const { buildSectionContextHint } = require('../utils/bidSectionDetector.cjs');
 
+const BID_ANALYSIS_CONCURRENCY = 3;
+
 const stableSystemPrompt = `你是专业的招标文件分析助手。请严格基于用户提供的招标文件原文完成提取和总结。
 
 通用要求：
@@ -185,6 +187,19 @@ async function runSingleBidAnalysisPromptTask({ aiService, fileContent, task, se
   });
 }
 
+async function runWithConcurrency(items, concurrency, worker) {
+  const queue = [...items];
+  const workerCount = Math.max(1, Math.min(concurrency, queue.length));
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (queue.length) {
+      const item = queue.shift();
+      if (item) {
+        await worker(item);
+      }
+    }
+  }));
+}
+
 function runInvalidBidAndRejectionItemsExtraction({ aiService, fileContent, sectionHint }) {
   const task = getBidAnalysisTaskById('discardedBids');
   if (!task) {
@@ -257,6 +272,13 @@ async function runBidAnalysisTask({ aiService, workspaceStore, updateTask, paylo
   let technicalPlan = workspaceStore.updateTechnicalPlan(initialPartial);
   const currentTasks = technicalPlan.bidAnalysisTasks || {};
   const tasksToRun = requestedTaskIds || forceRerun ? scopedTasks : scopedTasks.filter((task) => currentTasks[task.id]?.status !== 'success');
+  const queuedLogs = [
+    ...initialLogs,
+    tasksToRun.length > 0
+      ? `已启动 ${tasksToRun.length} 个解析项，最多同时解析 ${BID_ANALYSIS_CONCURRENCY} 项；单次 AI 请求最长等待 300 秒。`
+      : '当前所选解析项已有结果，无需重复解析。',
+  ];
+  updateTask({ status: 'running', progress: technicalPlan.bidAnalysisProgress || 0, logs: queuedLogs }, technicalPlan);
 
   async function runOne(task) {
     const runningPrev = workspaceStore.loadTechnicalPlan() || {};
@@ -280,15 +302,31 @@ async function runBidAnalysisTask({ aiService, workspaceStore, updateTask, paylo
     updateTask({ status: 'running', progress: technicalPlan.bidAnalysisProgress || 0 }, technicalPlan);
   }
 
-  await Promise.all(tasksToRun.map((task) => runOne(task).catch((error) => {
+  await runWithConcurrency(tasksToRun, BID_ANALYSIS_CONCURRENCY, async (task) => runOne(task).catch((error) => {
     const prev = workspaceStore.loadTechnicalPlan() || {};
     const nextTasks = { ...(prev.bidAnalysisTasks || {}), [task.id]: { id: task.id, label: task.label, status: 'error', content: prev.bidAnalysisTasks?.[task.id]?.content || '', error: error.message || '解析失败' } };
     technicalPlan = workspaceStore.updateTechnicalPlan({ bidAnalysisTasks: nextTasks, bidAnalysisProgress: doneProgress(nextTasks) });
     updateTask({ status: 'running', progress: technicalPlan.bidAnalysisProgress || 0, logs: [`${task.label}解析失败：${error.message || '未知错误'}`] }, technicalPlan);
-  })));
+  }));
 
-  technicalPlan = workspaceStore.updateTechnicalPlan({ bidAnalysisTask: updateTask({ status: 'success', progress: 100, logs: ['招标文件解析完成。'] }) });
-  updateTask({ status: 'success', progress: 100 }, technicalPlan);
+  const latestPlan = workspaceStore.loadTechnicalPlan() || {};
+  const latestTasks = latestPlan.bidAnalysisTasks || {};
+  const failedTasks = selectedTasks.filter((task) => latestTasks[task.id]?.status === 'error');
+  const requiredFailedTasks = getBidAnalysisTasks('key').filter((task) => selectedTaskIdSet.has(task.id) && latestTasks[task.id]?.status === 'error');
+  const succeededTasks = selectedTasks.filter((task) => latestTasks[task.id]?.status === 'success');
+  const finalProgress = doneProgress(latestTasks);
+  const finalLogs = failedTasks.length
+    ? [
+      `招标文件解析结束：成功 ${succeededTasks.length} 项，失败 ${failedTasks.length} 项。`,
+      ...failedTasks.slice(0, 5).map((task) => `${task.label}失败：${latestTasks[task.id]?.error || '解析失败'}`),
+    ]
+    : ['招标文件解析完成。'];
+  const finalError = requiredFailedTasks.length
+    ? `关键解析项失败 ${requiredFailedTasks.length} 项，请检查文本模型配置后重试。`
+    : '';
+  const finalStatus = finalError ? 'error' : 'success';
+  technicalPlan = workspaceStore.updateTechnicalPlan({ bidAnalysisProgress: finalProgress });
+  updateTask({ status: finalStatus, progress: finalProgress, logs: finalLogs, error: finalError }, technicalPlan);
 }
 
 module.exports = {

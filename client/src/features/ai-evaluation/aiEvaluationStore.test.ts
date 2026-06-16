@@ -9,7 +9,9 @@ import type { AiEvaluationState } from './types';
 
 const require = createRequire(import.meta.url);
 const AdmZip = require('adm-zip');
-const { buildAiEvaluationExcelBuffer, buildAiEvaluationReportMarkdown, buildAiEvaluationWordBuffer, createAiEvaluationStore, evaluateItemsAgainstBidDocument, normalizeAiEvaluationItems } = require('../../../electron/services/aiEvaluationStore.cjs') as {
+const { buildAiEvaluationCommitteeMarkdown, buildAiEvaluationCommitteeWordBuffer, buildAiEvaluationExcelBuffer, buildAiEvaluationReportMarkdown, buildAiEvaluationWordBuffer, createAiEvaluationStore, evaluateItemsAgainstBidDocument, normalizeAiEvaluationItems } = require('../../../electron/services/aiEvaluationStore.cjs') as {
+  buildAiEvaluationCommitteeMarkdown: (state: AiEvaluationState) => string;
+  buildAiEvaluationCommitteeWordBuffer: (state: AiEvaluationState) => Promise<Buffer>;
   buildAiEvaluationExcelBuffer: (state: AiEvaluationState) => Buffer;
   buildAiEvaluationReportMarkdown: (state: AiEvaluationState) => string;
   buildAiEvaluationWordBuffer: (state: AiEvaluationState) => Promise<Buffer>;
@@ -22,9 +24,18 @@ const { buildAiEvaluationExcelBuffer, buildAiEvaluationReportMarkdown, buildAiEv
     generateFromTechnicalPlan: () => AiEvaluationState;
     importBidDocument: () => Promise<{ success: boolean; message: string; state: AiEvaluationState }>;
     scoreImportedBidDocuments: () => Promise<{ success: boolean; message: string; state: AiEvaluationState; stats: Record<string, unknown> }>;
-    saveExpertScore: (payload: { itemId: string; expertName: string; score: number; opinion?: string }) => AiEvaluationState;
+    saveExpertScore: (payload: {
+      itemId: string;
+      expertName: string;
+      expertRole?: string;
+      reviewSession?: string;
+      score: number;
+      signatureConfirmed?: boolean;
+      opinion?: string;
+    }) => AiEvaluationState;
     exportReport: (options: { filePath: string }) => Promise<{ success: boolean; message: string; reportId?: string; filePath: string; markdownChars: number }>;
     exportOfficePackage: (options: { format: 'docx' | 'xlsx'; filePath: string }) => Promise<{ success: boolean; message: string; reportId?: string; filePath: string; bytes: number; format: string }>;
+    exportCommitteeReport: (options: { format: 'docx' | 'md'; filePath: string }) => Promise<{ success: boolean; message: string; reportId?: string; filePath: string; bytes: number; markdownChars: number; format: string }>;
     clear: () => AiEvaluationState;
   };
   evaluateItemsAgainstBidDocument: (items: AiEvaluationState['items'], bidMarkdown: string) => AiEvaluationState['items'];
@@ -463,11 +474,35 @@ describe('aiEvaluationStore report export', () => {
     expect(secondResult.state.bidScoreSummaries?.map((item) => item.fileName)).toEqual(['投标文件A.docx', '投标文件B.docx']);
 
     const targetItem = secondResult.state.items[0];
-    store.saveExpertScore({ itemId: targetItem.id, expertName: '专家A', score: targetItem.maxScore, opinion: '证据响应充分。' });
-    const expertState = store.saveExpertScore({ itemId: targetItem.id, expertName: '专家B', score: 30, opinion: '技术章节仍需复核。' });
+    store.saveExpertScore({
+      itemId: targetItem.id,
+      expertName: '专家A',
+      expertRole: '技术专家',
+      reviewSession: '第一次评审会',
+      score: targetItem.maxScore,
+      signatureConfirmed: true,
+      opinion: '证据响应充分。',
+    });
+    const expertState = store.saveExpertScore({
+      itemId: targetItem.id,
+      expertName: '专家B',
+      expertRole: '商务专家',
+      reviewSession: '第一次评审会',
+      score: 30,
+      signatureConfirmed: false,
+      opinion: '技术章节仍需复核。',
+    });
     expect(expertState.expertScores).toHaveLength(2);
+    expect(expertState.expertScores?.[0].expertRole).toBe('技术专家');
+    expect(expertState.expertScores?.[0].reviewSession).toBe('第一次评审会');
+    expect(expertState.expertScores?.[0].signatureConfirmed).toBe(true);
+    expect(expertState.expertScores?.[0].signedAt).toBeTruthy();
+    expect(expertState.expertReviewSummary?.signedCount).toBe(1);
+    expect(expertState.expertReviewSummary?.pendingSignatureCount).toBe(1);
+    expect(expertState.expertReviewSummary?.reviewSessionCount).toBe(1);
     expect(expertState.expertReviewSummary?.conflictCount).toBeGreaterThan(0);
     expect(expertState.auditOpinions?.some((item) => item.type === 'expert-cross-review' || item.type === 'expert-score-deviation')).toBe(true);
+    expect(expertState.auditOpinions?.some((item) => item.type === 'expert-signature')).toBe(true);
 
     const documentRows = db.prepare('SELECT * FROM ai_evaluation_bid_documents ORDER BY sort_order ASC').all?.() as Array<{ markdown_path: string }>;
     const scoreRows = db.prepare('SELECT * FROM ai_evaluation_bid_scores ORDER BY document_id ASC, item_id ASC').all?.() as Array<Record<string, unknown>>;
@@ -491,9 +526,14 @@ describe('aiEvaluationStore report export', () => {
     expect(exportResult.reportId).toMatch(/^report-/);
     expect(reportMarkdown).toContain('## 投标文件评分汇总');
     expect(reportMarkdown).toContain('## 专家打分交叉审核');
+    expect(reportMarkdown).toContain('专家签名确认：1 / 2');
     expect(reportMarkdown).toContain('## 审计意见');
     expect(reportMarkdown).toContain('专家A');
     expect(reportMarkdown).toContain('专家B');
+    expect(reportMarkdown).toContain('技术专家');
+    expect(reportMarkdown).toContain('商务专家');
+    expect(reportMarkdown).toContain('第一次评审会');
+    expect(reportMarkdown).toContain('未签名');
     expect(reportMarkdown).toContain('投标文件A.docx');
     expect(reportMarkdown).toContain('投标文件B.docx');
     const reportCountStatement = db.prepare('SELECT COUNT(*) AS count FROM ai_evaluation_reports') as { get: () => { count: number } };
@@ -506,6 +546,8 @@ describe('aiEvaluationStore report export', () => {
     expect(documentXml).toContain('专家打分交叉审核');
     expect(documentXml).toContain('审计意见');
     expect(documentXml).toContain('技术方案完整性');
+    expect(documentXml).toContain('技术专家');
+    expect(documentXml).toContain('未签名');
 
     const excelBuffer = buildAiEvaluationExcelBuffer(expertState);
     const excelZip = new AdmZip(excelBuffer);
@@ -518,6 +560,8 @@ describe('aiEvaluationStore report export', () => {
     expect(workbookXml).toContain('审计意见');
     expect(workbookXml).toContain('评分明细');
     expect(expertSheetXml).toContain('专家A');
+    expect(expertSheetXml).toContain('技术专家');
+    expect(expertSheetXml).toContain('未签名');
     expect(auditSheetXml).toContain('审计意见');
     expect(detailSheetXml).toContain('技术方案完整性');
 
@@ -527,6 +571,29 @@ describe('aiEvaluationStore report export', () => {
     expect(officeResult.format).toBe('xlsx');
     expect(fs.existsSync(officePath)).toBe(true);
     expect(reportCountStatement.get().count).toBe(2);
+
+    const committeeMarkdown = buildAiEvaluationCommitteeMarkdown(expertState);
+    expect(committeeMarkdown).toContain('# AI 评标委员会会议纪要模板');
+    expect(committeeMarkdown).toContain('## 二、评标委员会名单');
+    expect(committeeMarkdown).toContain('专家A');
+    expect(committeeMarkdown).toContain('商务专家');
+    expect(committeeMarkdown).toContain('## 八、会议纪要正文');
+    expect(committeeMarkdown).toContain('会议结论：__________');
+    const committeeWordBuffer = await buildAiEvaluationCommitteeWordBuffer(expertState);
+    const committeeWordZip = new AdmZip(committeeWordBuffer);
+    const committeeDocumentXml = committeeWordZip.readAsText('word/document.xml');
+    expect(committeeDocumentXml).toContain('AI 评标委员会会议纪要模板');
+    expect(committeeDocumentXml).toContain('评标委员会名单');
+    expect(committeeDocumentXml).toContain('签名确认');
+    expect(committeeDocumentXml).toContain('专家A');
+
+    const committeePath = path.join(userDataDir, 'ai-evaluation-committee.docx');
+    const committeeResult = await store.exportCommitteeReport({ format: 'docx', filePath: committeePath });
+    expect(committeeResult.success).toBe(true);
+    expect(committeeResult.format).toBe('docx');
+    expect(committeeResult.message).toContain('评标委员会会议纪要');
+    expect(fs.existsSync(committeePath)).toBe(true);
+    expect(reportCountStatement.get().count).toBe(3);
 
     store.clear();
     expect(fs.existsSync(path.join(userDataDir, 'workspace', 'ai-evaluation'))).toBe(false);

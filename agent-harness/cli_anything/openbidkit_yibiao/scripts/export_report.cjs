@@ -14,9 +14,55 @@ function parseArgs(argv) {
 
 function usage(message) {
   if (message) console.error(message);
-  console.error('Usage: node export_report.cjs --kind duplicate|rejection --state-json <path> --output <path> [--format md|docx|pdf]');
+  console.error('Usage: node export_report.cjs --kind duplicate|rejection|business-bid|ai-evaluation|bid-opportunity --state-json <path> --output <path> [--format md|docx|pdf|xlsx]');
   process.exit(2);
 }
+
+const reportDefinitions = {
+  duplicate: {
+    service: 'client/electron/services/duplicateCheckStore.cjs',
+    formats: ['md', 'docx', 'pdf'],
+    builders: {
+      md: 'buildDuplicateCheckReportMarkdown',
+      docx: 'buildDuplicateCheckReportDocxBuffer',
+      pdf: 'buildDuplicateCheckReportPdfBuffer',
+    },
+  },
+  rejection: {
+    service: 'client/electron/services/rejectionCheckStore.cjs',
+    formats: ['md', 'docx', 'pdf'],
+    builders: {
+      md: 'buildRejectionCheckReportMarkdown',
+      docx: 'buildRejectionCheckReportDocxBuffer',
+      pdf: 'buildRejectionCheckReportPdfBuffer',
+    },
+  },
+  'business-bid': {
+    service: 'client/electron/services/businessBidStore.cjs',
+    formats: ['md', 'docx', 'xlsx'],
+    builders: {
+      md: 'buildBusinessBidReportMarkdown',
+      docx: 'buildBusinessBidWordBuffer',
+      xlsx: 'buildBusinessBidExcelBuffer',
+    },
+  },
+  'ai-evaluation': {
+    service: 'client/electron/services/aiEvaluationStore.cjs',
+    formats: ['md', 'docx', 'xlsx'],
+    builders: {
+      md: 'buildAiEvaluationReportMarkdown',
+      docx: 'buildAiEvaluationWordBuffer',
+      xlsx: 'buildAiEvaluationExcelBuffer',
+    },
+  },
+  'bid-opportunity': {
+    service: 'client/electron/services/bidOpportunityStore.cjs',
+    formats: ['md'],
+    builders: {
+      md: 'buildBidOpportunityReportMarkdown',
+    },
+  },
+};
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
@@ -26,8 +72,9 @@ async function main() {
   const outputPath = String(options.output || '').trim();
   const repoRoot = String(process.env.OPENBIDKIT_REPO_ROOT || '').trim();
 
-  if (!['duplicate', 'rejection'].includes(kind)) usage('Invalid --kind.');
-  if (!['md', 'docx', 'pdf'].includes(format)) usage('Invalid --format.');
+  const definition = reportDefinitions[kind];
+  if (!definition) usage('Invalid --kind.');
+  if (!definition.formats.includes(format)) usage(`Invalid --format for ${kind}. Supported formats: ${definition.formats.join(', ')}.`);
   if (!statePath) usage('Missing --state-json.');
   if (!outputPath) usage('Missing --output.');
   if (!repoRoot) usage('Missing OPENBIDKIT_REPO_ROOT.');
@@ -35,40 +82,24 @@ async function main() {
   const absoluteStatePath = path.resolve(statePath);
   const absoluteOutputPath = path.resolve(outputPath);
   const state = JSON.parse(fs.readFileSync(absoluteStatePath, 'utf-8'));
-  const servicePath = kind === 'duplicate'
-    ? path.join(repoRoot, 'client/electron/services/duplicateCheckStore.cjs')
-    : path.join(repoRoot, 'client/electron/services/rejectionCheckStore.cjs');
+  const servicePath = path.join(repoRoot, definition.service);
   const service = require(servicePath);
-  const buildMarkdown = kind === 'duplicate'
-    ? service.buildDuplicateCheckReportMarkdown
-    : service.buildRejectionCheckReportMarkdown;
-  const buildDocxBuffer = kind === 'duplicate'
-    ? service.buildDuplicateCheckReportDocxBuffer
-    : service.buildRejectionCheckReportDocxBuffer;
-  const buildPdfBuffer = kind === 'duplicate'
-    ? service.buildDuplicateCheckReportPdfBuffer
-    : service.buildRejectionCheckReportPdfBuffer;
+  const buildMarkdown = service[definition.builders.md];
+  const buildOutput = service[definition.builders[format]];
 
   if (typeof buildMarkdown !== 'function') {
     throw new Error(`Markdown report builder is not exported by ${servicePath}`);
   }
-  if (format === 'docx' && typeof buildDocxBuffer !== 'function') {
-    throw new Error(`Word report builder is not exported by ${servicePath}`);
-  }
-  if (format === 'pdf' && typeof buildPdfBuffer !== 'function') {
-    throw new Error(`PDF report builder is not exported by ${servicePath}`);
+  if (typeof buildOutput !== 'function') {
+    throw new Error(`${format} report builder is not exported by ${servicePath}`);
   }
 
   const markdown = buildMarkdown(state);
   fs.mkdirSync(path.dirname(absoluteOutputPath), { recursive: true });
 
   let bytes = Buffer.byteLength(markdown, 'utf-8');
-  if (format === 'docx') {
-    const buffer = await buildDocxBuffer(state);
-    bytes = buffer.length;
-    fs.writeFileSync(absoluteOutputPath, buffer);
-  } else if (format === 'pdf') {
-    const buffer = buildPdfBuffer(state);
+  if (format !== 'md') {
+    const buffer = await buildOutput(state);
     bytes = buffer.length;
     fs.writeFileSync(absoluteOutputPath, buffer);
   } else {

@@ -150,8 +150,11 @@ function createAuditOpinionId(type, targetId, title) {
   return `audit-${hash}`;
 }
 
-function createExpertScoreId(itemId, expertName) {
-  const hash = stableHash(`${itemId}\n${expertName}`).slice(0, 16);
+function createExpertScoreId(itemId, expertName, reviewSession = '') {
+  const signature = reviewSession
+    ? `${itemId}\n${expertName}\n${reviewSession}`
+    : `${itemId}\n${expertName}`;
+  const hash = stableHash(signature).slice(0, 16);
   return `expert-${hash}`;
 }
 
@@ -499,7 +502,11 @@ function rowToExpertScore(row) {
     id: row.score_id,
     itemId: row.item_id,
     expertName: row.expert_name || '',
+    expertRole: row.expert_role || '',
+    reviewSession: row.review_session || '',
     score: Number(row.expert_score || 0),
+    signatureConfirmed: Boolean(row.signature_confirmed),
+    signedAt: row.signed_at || undefined,
     opinion: row.opinion || '',
     createdAt: row.created_at || row.updated_at || '',
     updatedAt: row.updated_at || row.created_at || '',
@@ -523,13 +530,16 @@ function rowToReportSnapshot(row) {
 function summarizeExpertReview(expertScores = [], items = []) {
   const itemById = new Map(items.map((item) => [item.id, item]));
   const expertNames = new Set();
+  const reviewSessions = new Set();
   const grouped = new Map();
   for (const score of expertScores) {
     if (score.expertName) expertNames.add(score.expertName);
+    if (score.reviewSession) reviewSessions.add(score.reviewSession);
     if (!grouped.has(score.itemId)) grouped.set(score.itemId, []);
     grouped.get(score.itemId).push(score);
   }
 
+  const signedCount = expertScores.filter((score) => score.signatureConfirmed).length;
   let conflictCount = 0;
   let maxDeviation = 0;
   for (const [itemId, scores] of grouped.entries()) {
@@ -550,14 +560,29 @@ function summarizeExpertReview(expertScores = [], items = []) {
   return {
     expertCount: expertNames.size,
     scoreCount: expertScores.length,
+    signedCount,
+    pendingSignatureCount: Math.max(0, expertScores.length - signedCount),
+    reviewSessionCount: reviewSessions.size,
     conflictCount,
     maxDeviation: Math.round(maxDeviation * 10) / 10,
     conclusion: !expertScores.length
       ? '尚未录入专家打分。'
+      : signedCount < expertScores.length
+        ? '存在专家打分未完成签名确认，请补齐正式评审留痕。'
       : conflictCount > 0
         ? '存在专家打分偏差，建议组织交叉复核。'
         : '专家打分暂未发现明显偏差。',
   };
+}
+
+function normalizeBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes', 'y', '已签名', '已确认'].includes(normalized)) return true;
+  if (['false', '0', 'no', 'n', '未签名', '未确认'].includes(normalized)) return false;
+  return fallback;
 }
 
 function summarize(items) {
@@ -601,6 +626,11 @@ function escapeMarkdownTableCell(value) {
 function formatScore(value) {
   const number = Number(value || 0);
   return Number.isFinite(number) ? String(Math.round(number * 10) / 10) : '0';
+}
+
+function formatSignatureStatus(score) {
+  if (!score?.signatureConfirmed) return '未签名';
+  return score.signedAt ? `已签名（${score.signedAt}）` : '已签名';
 }
 
 function formatEvaluationRow(item, index) {
@@ -657,11 +687,23 @@ function buildAuditOpinions(state) {
   const expertScores = Array.isArray(state?.expertScores) ? state.expertScores : [];
   const itemById = new Map(items.map((item) => [item.id, item]));
   const expertScoresByItem = new Map();
+  const opinions = [];
   for (const score of expertScores) {
     if (!expertScoresByItem.has(score.itemId)) expertScoresByItem.set(score.itemId, []);
     expertScoresByItem.get(score.itemId).push(score);
+    if (!score.signatureConfirmed) {
+      const item = itemById.get(score.itemId);
+      opinions.push({
+        type: 'expert-signature',
+        severity: 'medium',
+        title: `专家签名待确认：${item?.title || score.itemId}`,
+        targetType: 'expert-score',
+        targetId: score.id,
+        evidence: `${score.expertName || '未命名专家'}${score.expertRole ? `（${score.expertRole}）` : ''}尚未完成签名确认。`,
+        recommendation: '正式评审报告归档前，请确认专家角色、评审会议和签名状态，确保评审留痕完整。',
+      });
+    }
   }
-  const opinions = [];
 
   for (const item of items) {
     if (item.riskLevel === 'high') {
@@ -823,17 +865,159 @@ function buildExpertScoreTable(expertScores = [], items = []) {
     return `| ${[
       index + 1,
       item?.title || score.itemId,
+      score.reviewSession || '未记录',
       score.expertName,
+      score.expertRole || '未记录',
       formatScore(score.score),
       item ? `${formatScore(item.finalScore)} / ${formatScore(item.maxScore)}` : '-',
+      formatSignatureStatus(score),
       score.opinion,
       score.updatedAt,
     ].map(escapeMarkdownTableCell).join(' | ')} |`;
   });
   return [
-    '| 序号 | 评分项 | 专家 | 专家分 | 当前最终分/满分 | 专家意见 | 更新时间 |',
+    '| 序号 | 评分项 | 评审会议 | 专家 | 专家角色 | 专家分 | 当前最终分/满分 | 签名确认 | 专家意见 | 更新时间 |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    ...rows,
+  ].join('\n');
+}
+
+function collectCommitteeMembers(expertScores = []) {
+  const grouped = new Map();
+  for (const score of expertScores) {
+    const key = `${score.expertName || '未命名专家'}\n${score.expertRole || '未记录'}`;
+    const current = grouped.get(key) || {
+      expertName: score.expertName || '未命名专家',
+      expertRole: score.expertRole || '未记录',
+      reviewSessions: new Set(),
+      scoreCount: 0,
+      signedCount: 0,
+      opinions: [],
+    };
+    if (score.reviewSession) current.reviewSessions.add(score.reviewSession);
+    current.scoreCount += 1;
+    if (score.signatureConfirmed) current.signedCount += 1;
+    if (score.opinion) current.opinions.push(score.opinion);
+    grouped.set(key, current);
+  }
+  return [...grouped.values()].map((member) => ({
+    ...member,
+    reviewSessions: [...member.reviewSessions],
+    signatureStatus: member.scoreCount > 0 && member.signedCount >= member.scoreCount ? '已全部签名' : `待签名 ${member.scoreCount - member.signedCount} 条`,
+    opinionSummary: member.opinions.slice(0, 3).join('；'),
+  }));
+}
+
+function buildCommitteeMemberTable(expertScores = []) {
+  const members = collectCommitteeMembers(expertScores);
+  if (!members.length) {
+    return '暂无专家名单。请先录入专家姓名、角色、会议和签名确认状态。';
+  }
+  const rows = members.map((member, index) => `| ${[
+    index + 1,
+    member.expertName,
+    member.expertRole,
+    member.reviewSessions.join('、') || '未记录',
+    member.scoreCount,
+    member.signatureStatus,
+    member.opinionSummary || '暂无意见摘要',
+  ].map(escapeMarkdownTableCell).join(' | ')} |`);
+  return [
+    '| 序号 | 专家 | 角色 | 参与会议 | 打分记录 | 签名状态 | 意见摘要 |',
     '| --- | --- | --- | --- | --- | --- | --- |',
     ...rows,
+  ].join('\n');
+}
+
+function buildCommitteeResolutionTable(state) {
+  const items = Array.isArray(state?.items) ? state.items : [];
+  const auditOpinions = Array.isArray(state?.auditOpinions) ? state.auditOpinions : buildAuditOpinions(state);
+  const rows = [
+    ['评分项复核', `${items.filter((item) => item.confirmed).length} / ${items.length}`, items.some((item) => !item.confirmed) ? '仍有评分项待复核，会议需明确责任人和完成时间。' : '评分项均已复核，可形成会议结论。'],
+    ['高风险项处理', `${items.filter((item) => item.riskLevel === 'high').length} 项`, items.some((item) => item.riskLevel === 'high') ? '高风险项需逐项记录复核意见。' : '暂无高风险评分项。'],
+    ['专家签名确认', `${state?.expertReviewSummary?.signedCount || 0} / ${state?.expertReviewSummary?.scoreCount || 0}`, state?.expertReviewSummary?.pendingSignatureCount ? '存在未签名记录，归档前需补齐。' : '专家打分签名已确认或暂无专家打分。'],
+    ['审计意见处理', `${auditOpinions.length} 条`, auditOpinions.length ? '会议需确认审计意见处理结论。' : '暂无额外审计意见。'],
+  ].map((row, index) => `| ${[index + 1, ...row].map(escapeMarkdownTableCell).join(' | ')} |`);
+  return [
+    '| 序号 | 事项 | 当前状态 | 会议处理要求 |',
+    '| --- | --- | --- | --- |',
+    ...rows,
+  ].join('\n');
+}
+
+function buildAiEvaluationCommitteeMarkdown(state) {
+  const source = state?.source;
+  const items = Array.isArray(state?.items) ? state.items : [];
+  const summary = state?.summary || summarize(items);
+  const bidDocuments = Array.isArray(state?.bidDocuments) ? state.bidDocuments : [];
+  const bidScoreSummaries = Array.isArray(state?.bidScoreSummaries) ? state.bidScoreSummaries : [];
+  const expertScores = Array.isArray(state?.expertScores) ? state.expertScores : [];
+  const expertReviewSummary = state?.expertReviewSummary || summarizeExpertReview(expertScores, items);
+  const auditOpinions = Array.isArray(state?.auditOpinions) ? state.auditOpinions : buildAuditOpinions(state);
+  return [
+    '# AI 评标委员会会议纪要模板',
+    '',
+    '## 一、会议基本信息',
+    '',
+    `- 项目/来源文件：${source?.fileName || '未记录'}`,
+    `- 来源类型：${source?.type || '未记录'}`,
+    `- 模板生成时间：${now()}`,
+    '- 会议名称：__________',
+    '- 会议时间：__________',
+    '- 会议地点：__________',
+    '- 评标委员会主任：__________',
+    '- 监督/记录人员：__________',
+    '',
+    '## 二、评标委员会名单',
+    '',
+    buildCommitteeMemberTable(expertScores),
+    '',
+    '## 三、评审对象',
+    '',
+    bidDocuments.length
+      ? bidDocuments.map((document, index) => `- ${index + 1}. ${document.fileName}（${document.parserLabel || '未记录解析器'}，${document.contentChars || 0} 字）`).join('\n')
+      : '- 暂无已导入投标文件。',
+    '',
+    '## 四、评分与复核摘要',
+    '',
+    `- 评分项数量：${summary.itemCount || items.length}`,
+    `- 自评总分：${formatScore(summary.totalFinalScore)} / ${formatScore(summary.totalMaxScore)}`,
+    `- 已复核评分项：${summary.confirmedCount || 0}`,
+    `- 高风险评分项：${summary.highRiskCount || 0}`,
+    `- 专家人数：${expertReviewSummary.expertCount || 0}`,
+    `- 专家打分记录：${expertReviewSummary.scoreCount || 0}`,
+    `- 专家签名确认：${expertReviewSummary.signedCount || 0} / ${expertReviewSummary.scoreCount || 0}`,
+    `- 专家打分冲突：${expertReviewSummary.conflictCount || 0}`,
+    `- 评审结论建议：${summary.conclusion || '待评估'}`,
+    '',
+    '## 五、投标文件评分汇总',
+    '',
+    buildBidScoreSummaryTable(bidScoreSummaries),
+    '',
+    '## 六、会议审议事项',
+    '',
+    buildCommitteeResolutionTable({ ...state, auditOpinions, expertReviewSummary }),
+    '',
+    '## 七、审计意见处理记录',
+    '',
+    buildAuditOpinionTable(auditOpinions),
+    '',
+    '## 八、会议纪要正文',
+    '',
+    '1. 评标委员会听取项目评分办法、投标文件导入情况和 AI 自评结果说明。',
+    '2. 各专家围绕资格、商务、技术、报价、客观分和主观分评分项进行复核。',
+    '3. 对高风险项、专家打分分差、客观分证明材料和报价核验事项形成如下处理意见：',
+    '   - 处理意见一：__________',
+    '   - 处理意见二：__________',
+    '   - 处理意见三：__________',
+    '4. 会议结论：__________',
+    '',
+    '## 九、签名确认',
+    '',
+    buildCommitteeMemberTable(expertScores),
+    '',
+    '> 本模板由 AI 评标工作台根据当前评分表、投标文件、专家打分和审计意见自动生成，归档前请由评标委员会人工复核并补齐签名。',
+    '',
   ].join('\n');
 }
 
@@ -863,7 +1047,9 @@ function buildAiEvaluationReportMarkdown(state) {
     `- 高风险：${summary.highRiskCount || highRiskItems.length}`,
     `- 已导入投标文件：${bidDocuments.length}`,
     `- 专家人数：${expertReviewSummary.expertCount || 0}`,
+    `- 评审会议：${expertReviewSummary.reviewSessionCount || 0}`,
     `- 专家打分记录：${expertReviewSummary.scoreCount || 0}`,
+    `- 专家签名确认：${expertReviewSummary.signedCount || 0} / ${expertReviewSummary.scoreCount || 0}`,
     `- 专家打分冲突：${expertReviewSummary.conflictCount || 0}`,
     `- 结论：${summary.conclusion || '待评估'}`,
     '',
@@ -901,7 +1087,7 @@ function buildAiEvaluationReportMarkdown(state) {
 
 const evaluationTableHeaders = ['序号', '分类', '评分项', '满分', '规则自评', '人工分', '最终分', '风险', '复核状态', '证据摘录', '扣分原因/复核意见'];
 const bidSummaryTableHeaders = ['序号', '投标文件', '评分项', '自评总分', '高风险', '结论'];
-const expertScoreTableHeaders = ['序号', '评分项', '专家', '专家分', '当前最终分/满分', '专家意见', '更新时间'];
+const expertScoreTableHeaders = ['序号', '评分项', '评审会议', '专家', '专家角色', '专家分', '当前最终分/满分', '签名确认', '专家意见', '更新时间'];
 const auditOpinionTableHeaders = ['序号', '风险', '类型', '审计意见', '证据', '建议', '状态'];
 
 function getAiEvaluationWorkbookTables(state) {
@@ -929,7 +1115,9 @@ function getAiEvaluationWorkbookTables(state) {
         ['高风险', summary.highRiskCount || highRiskItems.length],
         ['已导入投标文件', bidDocuments.length],
         ['专家人数', expertReviewSummary.expertCount || 0],
+        ['评审会议', expertReviewSummary.reviewSessionCount || 0],
         ['专家打分记录', expertReviewSummary.scoreCount || 0],
+        ['专家签名确认', `${expertReviewSummary.signedCount || 0} / ${expertReviewSummary.scoreCount || 0}`],
         ['专家打分冲突', expertReviewSummary.conflictCount || 0],
         ['专家最大偏差', expertReviewSummary.maxDeviation || 0],
         ['审计意见', auditOpinions.length],
@@ -956,9 +1144,12 @@ function getAiEvaluationWorkbookTables(state) {
         return [
           index + 1,
           item?.title || score.itemId,
+          score.reviewSession || '未记录',
           score.expertName,
+          score.expertRole || '未记录',
           formatScore(score.score),
           item ? `${formatScore(item.finalScore)} / ${formatScore(item.maxScore)}` : '-',
+          formatSignatureStatus(score),
           score.opinion,
           score.updatedAt,
         ];
@@ -1061,6 +1252,89 @@ async function buildAiEvaluationWordBuffer(state) {
   children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun({ text: '处理建议', font: '宋体', size: 26, bold: true })] }));
   children.push(createDocxParagraph(Number(summary.highRiskCount || 0) > 0 ? '存在高风险评分项，提交前需要补充证据并复核扣分原因。' : '暂未发现高风险评分项。'));
   children.push(createDocxParagraph(auditOpinions.length > 0 ? '请逐条处理审计意见后再形成最终评标结论。' : '当前未生成额外审计意见。'));
+
+  const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: '宋体', size: 21 },
+          paragraph: { spacing: { line: 360, after: 120 } },
+        },
+      },
+    },
+    sections: [{ children }],
+  });
+  return Packer.toBuffer(doc);
+}
+
+async function buildAiEvaluationCommitteeWordBuffer(state) {
+  const items = Array.isArray(state?.items) ? state.items : [];
+  const summary = state?.summary || summarize(items);
+  const expertScores = Array.isArray(state?.expertScores) ? state.expertScores : [];
+  const expertReviewSummary = state?.expertReviewSummary || summarizeExpertReview(expertScores, items);
+  const auditOpinions = Array.isArray(state?.auditOpinions) ? state.auditOpinions : buildAuditOpinions(state);
+  const committeeMembers = collectCommitteeMembers(expertScores);
+  const memberRows = committeeMembers.map((member, index) => [
+    index + 1,
+    member.expertName,
+    member.expertRole,
+    member.reviewSessions.join('、') || '未记录',
+    member.scoreCount,
+    member.signatureStatus,
+  ]);
+  const children = [
+    new Paragraph({
+      heading: HeadingLevel.TITLE,
+      alignment: AlignmentType.CENTER,
+      children: [new TextRun({ text: 'AI 评标委员会会议纪要模板', font: '宋体', size: 32, bold: true })],
+    }),
+    createDocxParagraph(`项目/来源文件：${state?.source?.fileName || '未记录'}`),
+    createDocxParagraph(`模板生成时间：${now()}`),
+    createDocxParagraph('会议名称：__________'),
+    createDocxParagraph('会议时间：__________'),
+    createDocxParagraph('会议地点：__________'),
+    createDocxParagraph('评标委员会主任：__________'),
+    new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun({ text: '评标委员会名单', font: '宋体', size: 26, bold: true })] }),
+    createDocxTable(['序号', '专家', '角色', '参与会议', '打分记录', '签名状态'], memberRows),
+    new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun({ text: '评分与复核摘要', font: '宋体', size: 26, bold: true })] }),
+    createDocxTable(['指标', '值'], [
+      ['评分项数量', summary.itemCount || items.length],
+      ['自评总分', `${formatScore(summary.totalFinalScore)} / ${formatScore(summary.totalMaxScore)}`],
+      ['已复核评分项', summary.confirmedCount || 0],
+      ['高风险评分项', summary.highRiskCount || 0],
+      ['专家人数', expertReviewSummary.expertCount || 0],
+      ['专家打分记录', expertReviewSummary.scoreCount || 0],
+      ['专家签名确认', `${expertReviewSummary.signedCount || 0} / ${expertReviewSummary.scoreCount || 0}`],
+      ['专家打分冲突', expertReviewSummary.conflictCount || 0],
+      ['评审结论建议', summary.conclusion || '待评估'],
+    ]),
+    new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun({ text: '投标文件评分汇总', font: '宋体', size: 26, bold: true })] }),
+    createDocxTable(bidSummaryTableHeaders, (state?.bidScoreSummaries || []).map((item, index) => [
+      index + 1,
+      item.fileName,
+      item.itemCount,
+      `${formatScore(item.totalFinalScore)} / ${formatScore(item.totalMaxScore)}`,
+      item.highRiskCount,
+      item.conclusion,
+    ])),
+    new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun({ text: '审计意见处理记录', font: '宋体', size: 26, bold: true })] }),
+    createDocxTable(auditOpinionTableHeaders, auditOpinions.map((item, index) => [
+      index + 1,
+      item.severity,
+      item.type,
+      item.title,
+      item.evidence,
+      item.recommendation,
+      item.status === 'closed' ? '已关闭' : '待处理',
+    ])),
+    new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun({ text: '会议纪要正文', font: '宋体', size: 26, bold: true })] }),
+    createDocxParagraph('1. 评标委员会听取项目评分办法、投标文件导入情况和 AI 自评结果说明。'),
+    createDocxParagraph('2. 各专家围绕资格、商务、技术、报价、客观分和主观分评分项进行复核。'),
+    createDocxParagraph('3. 高风险项、专家打分分差、客观分证明材料和报价核验事项处理意见：__________'),
+    createDocxParagraph('4. 会议结论：__________'),
+    new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun({ text: '签名确认', font: '宋体', size: 26, bold: true })] }),
+    createDocxTable(['专家', '角色', '签名', '日期'], committeeMembers.length ? committeeMembers.map((member) => [member.expertName, member.expertRole, '__________', '__________']) : [['__________', '__________', '__________', '__________']]),
+  ];
 
   const doc = new Document({
     styles: {
@@ -1261,7 +1535,7 @@ function createAiEvaluationStore({ app, db, technicalPlanStore, fileService, aiS
     return loadState();
   }
 
-  function saveReportSnapshot({ state, markdown, filePath }) {
+  function saveReportSnapshot({ state, markdown, filePath, reportType = 'self-evaluation', title = 'AI 评标自评报告' }) {
     const timestamp = now();
     const reportId = createReportId(markdown);
     db.prepare(`
@@ -1272,8 +1546,8 @@ function createAiEvaluationStore({ app, db, technicalPlanStore, fileService, aiS
       )
     `).run({
       report_id: reportId,
-      report_type: 'self-evaluation',
-      title: 'AI 评标自评报告',
+      report_type: reportType,
+      title,
       markdown: String(markdown || ''),
       summary_json: JSON.stringify({
         summary: state?.summary || null,
@@ -1685,29 +1959,46 @@ function createAiEvaluationStore({ app, db, technicalPlanStore, fileService, aiS
     if (!existingItem) throw new Error('评分项不存在');
     const expertName = String(payload.expertName || payload.expert_name || '').trim();
     if (!expertName) throw new Error('专家姓名不能为空');
+    const expertRole = String(payload.expertRole || payload.expert_role || '').trim();
+    const reviewSession = String(payload.reviewSession || payload.review_session || payload.meetingName || payload.meeting_name || '').trim();
     const maxScore = Number(existingItem.max_score || 0);
     const rawScore = Number(payload.score ?? payload.expertScore ?? payload.expert_score);
     if (!Number.isFinite(rawScore)) throw new Error('专家分必须是有效数字');
     const expertScore = Math.max(0, Math.min(maxScore || rawScore, Math.round(rawScore * 10) / 10));
-    const scoreId = String(payload.id || payload.scoreId || payload.score_id || createExpertScoreId(itemId, expertName));
+    const scoreId = String(payload.id || payload.scoreId || payload.score_id || createExpertScoreId(itemId, expertName, reviewSession));
     const existingScore = db.prepare('SELECT * FROM ai_evaluation_expert_scores WHERE score_id = ?').get(scoreId);
     const timestamp = now();
+    const signatureConfirmed = normalizeBoolean(
+      payload.signatureConfirmed ?? payload.signature_confirmed,
+      Boolean(existingScore?.signature_confirmed),
+    );
+    const signedAt = signatureConfirmed ? (existingScore?.signed_at || timestamp) : null;
     db.prepare(`
       INSERT INTO ai_evaluation_expert_scores (
-        score_id, item_id, expert_name, expert_score, opinion, created_at, updated_at
+        score_id, item_id, expert_name, expert_role, review_session, expert_score,
+        signature_confirmed, signed_at, opinion, created_at, updated_at
       ) VALUES (
-        @score_id, @item_id, @expert_name, @expert_score, @opinion, @created_at, @updated_at
+        @score_id, @item_id, @expert_name, @expert_role, @review_session, @expert_score,
+        @signature_confirmed, @signed_at, @opinion, @created_at, @updated_at
       ) ON CONFLICT(score_id) DO UPDATE SET
         item_id = excluded.item_id,
         expert_name = excluded.expert_name,
+        expert_role = excluded.expert_role,
+        review_session = excluded.review_session,
         expert_score = excluded.expert_score,
+        signature_confirmed = excluded.signature_confirmed,
+        signed_at = excluded.signed_at,
         opinion = excluded.opinion,
         updated_at = excluded.updated_at
     `).run({
       score_id: scoreId,
       item_id: itemId,
       expert_name: expertName,
+      expert_role: expertRole,
+      review_session: reviewSession,
       expert_score: expertScore,
+      signature_confirmed: signatureConfirmed ? 1 : 0,
+      signed_at: signedAt,
       opinion: String(payload.opinion || ''),
       created_at: existingScore?.created_at || timestamp,
       updated_at: timestamp,
@@ -1767,6 +2058,52 @@ function createAiEvaluationStore({ app, db, technicalPlanStore, fileService, aiS
     };
   }
 
+  async function exportCommitteeReport(options = {}) {
+    const format = String(options.format || '').toLowerCase() === 'md' ? 'md' : 'docx';
+    const state = refreshAuditOpinions();
+    const markdown = buildAiEvaluationCommitteeMarkdown(state);
+    const requestedPath = String(options.filePath || options.file_path || '').trim();
+    let filePath = requestedPath;
+    if (!filePath) {
+      const result = await dialog.showSaveDialog({
+        title: format === 'md' ? '导出 AI 评标委员会会议纪要 Markdown' : '导出 AI 评标委员会会议纪要 Word',
+        defaultPath: `AI评标委员会会议纪要模板-${new Date().toISOString().slice(0, 10)}.${format}`,
+        filters: format === 'md'
+          ? [{ name: 'Markdown', extensions: ['md'] }]
+          : [{ name: 'Word 文档', extensions: ['docx'] }],
+      });
+      if (result.canceled || !result.filePath) {
+        return { success: false, message: '已取消导出' };
+      }
+      filePath = result.filePath;
+    }
+    let bytes = 0;
+    if (format === 'md') {
+      fs.writeFileSync(filePath, markdown, 'utf-8');
+      bytes = Buffer.byteLength(markdown, 'utf-8');
+    } else {
+      const buffer = await buildAiEvaluationCommitteeWordBuffer(state);
+      fs.writeFileSync(filePath, buffer);
+      bytes = buffer.length;
+    }
+    const reportId = saveReportSnapshot({
+      state,
+      markdown,
+      filePath,
+      reportType: 'committee-minutes',
+      title: 'AI 评标委员会会议纪要模板',
+    });
+    return {
+      success: true,
+      message: format === 'md' ? 'AI 评标委员会会议纪要 Markdown 已导出' : 'AI 评标委员会会议纪要 Word 已导出',
+      reportId,
+      filePath,
+      bytes,
+      markdownChars: markdown.length,
+      format,
+    };
+  }
+
   async function exportOfficePackage(options = {}) {
     const format = String(options.format || '').toLowerCase() === 'xlsx' ? 'xlsx' : 'docx';
     const state = refreshAuditOpinions();
@@ -1812,12 +2149,15 @@ function createAiEvaluationStore({ app, db, technicalPlanStore, fileService, aiS
     saveExpertScore,
     exportReport,
     exportOfficePackage,
+    exportCommitteeReport,
     clear,
   };
 }
 
 module.exports = {
   createAiEvaluationStore,
+  buildAiEvaluationCommitteeMarkdown,
+  buildAiEvaluationCommitteeWordBuffer,
   buildAiEvaluationExcelBuffer,
   buildAiEvaluationReportMarkdown,
   buildAiEvaluationWordBuffer,

@@ -10,6 +10,8 @@ import type {
   HeadingStyleConfig,
   BodyTextStyleConfig,
   PageSetupConfig,
+  TableStyleConfig,
+  ImageExportConfig,
 } from '../../../shared/types/exportFormat';
 import {
   FONT_OPTIONS,
@@ -33,6 +35,23 @@ function createDefaultExportFormat(): ExportFormatConfig {
     page: { ...DEFAULT_EXPORT_FORMAT.page },
     headings: DEFAULT_EXPORT_FORMAT.headings.map((heading) => ({ ...heading })),
     body_text: { ...DEFAULT_EXPORT_FORMAT.body_text },
+    table: { ...DEFAULT_EXPORT_FORMAT.table },
+    image: { ...DEFAULT_EXPORT_FORMAT.image },
+  };
+}
+
+function normalizeExportFormatConfig(source?: Partial<ExportFormatConfig> | null): ExportFormatConfig {
+  const defaults = createDefaultExportFormat();
+  if (!source || typeof source !== 'object') return defaults;
+  return {
+    page: { ...defaults.page, ...(source.page || {}) },
+    headings: DEFAULT_EXPORT_FORMAT.headings.map((heading, index) => ({
+      ...heading,
+      ...(Array.isArray(source.headings) ? source.headings[index] || {} : {}),
+    })),
+    body_text: { ...defaults.body_text, ...(source.body_text || {}) },
+    table: { ...defaults.table, ...(source.table || {}) },
+    image: { ...defaults.image, ...(source.image || {}) },
   };
 }
 
@@ -91,7 +110,7 @@ function ExportFormatPage() {
       try {
         const clientConfig = await window.yibiao?.config.load();
         if (cancelled) return;
-        const fmt = clientConfig?.export_format || DEFAULT_EXPORT_FORMAT;
+        const fmt = normalizeExportFormatConfig(clientConfig?.export_format);
         setConfig(fmt);
         setSavedConfig(fmt);
       } catch (error) {
@@ -124,6 +143,14 @@ function ExportFormatPage() {
   // 正文样式更新
   const updateBodyText = useCallback((updates: Partial<BodyTextStyleConfig>) => {
     setConfig(prev => ({ ...prev, body_text: { ...prev.body_text, ...updates } }));
+  }, []);
+
+  const updateTable = useCallback((updates: Partial<TableStyleConfig>) => {
+    setConfig(prev => ({ ...prev, table: { ...prev.table, ...updates } }));
+  }, []);
+
+  const updateImage = useCallback((updates: Partial<ImageExportConfig>) => {
+    setConfig(prev => ({ ...prev, image: { ...prev.image, ...updates } }));
   }, []);
 
   // 保存
@@ -252,6 +279,105 @@ function ExportFormatPage() {
                 </div>
               </label>
               <label className="settings-row">
+                <div className="settings-row-copy"><strong>封面页</strong><span>启用后会在正文前插入独立封面，并自动分页到正文首页。</span></div>
+                <div className="export-format-switch-row">
+                  <label className="settings-switch-control">
+                    <input type="checkbox" checked={config.page.cover_enabled} onChange={e => updatePage({ cover_enabled: e.target.checked })} />
+                    <span className="settings-switch-track" aria-hidden="true"><span className="settings-switch-thumb" /></span>
+                  </label>
+                  <input
+                    type="text"
+                    value={config.page.cover_title}
+                    disabled={!config.page.cover_enabled}
+                    onChange={e => updatePage({ cover_title: e.target.value })}
+                    style={{ minWidth: 220 }}
+                    placeholder="投标技术文件"
+                  />
+                </div>
+              </label>
+              {config.page.cover_enabled && (
+                <div className="settings-row">
+                  <div className="settings-row-copy"><strong>封面信息</strong><span>副标题、投标单位和日期会写入封面页，可按项目留空。</span></div>
+                  <div className="export-format-heading-grid">
+                    <label>
+                      <span>副标题</span>
+                      <input
+                        aria-label="封面副标题"
+                        type="text"
+                        value={config.page.cover_subtitle}
+                        onChange={e => updatePage({ cover_subtitle: e.target.value })}
+                        placeholder="技术标"
+                      />
+                    </label>
+                    <label>
+                      <span>投标单位</span>
+                      <input
+                        aria-label="封面投标单位"
+                        type="text"
+                        value={config.page.cover_company}
+                        onChange={e => updatePage({ cover_company: e.target.value })}
+                        placeholder="投标单位名称"
+                      />
+                    </label>
+                    <label>
+                      <span>日期</span>
+                      <input
+                        aria-label="封面日期"
+                        type="text"
+                        value={config.page.cover_date}
+                        onChange={e => updatePage({ cover_date: e.target.value })}
+                        placeholder="2026年6月15日"
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+              <label className="settings-row">
+                <div className="settings-row-copy"><strong>目录页</strong><span>启用后会在正文前插入 Word 目录字段，打开 Word/WPS 后可刷新页码。</span></div>
+                <div className="export-format-switch-row">
+                  <label className="settings-switch-control">
+                    <input type="checkbox" checked={config.page.toc_enabled} onChange={e => updatePage({ toc_enabled: e.target.checked })} />
+                    <span className="settings-switch-track" aria-hidden="true"><span className="settings-switch-thumb" /></span>
+                  </label>
+                  <input
+                    type="text"
+                    value={config.page.toc_title}
+                    disabled={!config.page.toc_enabled}
+                    onChange={e => updatePage({ toc_title: e.target.value })}
+                    style={{ minWidth: 160 }}
+                    placeholder="目录"
+                  />
+                </div>
+              </label>
+              {config.page.toc_enabled && (
+                <div className="settings-row">
+                  <div className="settings-row-copy"><strong>目录层级</strong><span>控制 Word 目录收录的标题级别，默认收录 1-3 级标题。</span></div>
+                  <div className="export-format-heading-grid">
+                    <label>
+                      <span>收录到第几级</span>
+                      <input
+                        aria-label="目录收录层级"
+                        type="number"
+                        min={1}
+                        max={6}
+                        step={1}
+                        value={config.page.toc_depth}
+                        onChange={e => updatePage({ toc_depth: Number(e.target.value) })}
+                      />
+                    </label>
+                  </div>
+                </div>
+              )}
+              <label className="settings-row">
+                <div className="settings-row-copy"><strong>一级章节分节</strong><span>启用后每个一级标题从新的 Word 节开始，便于后续按章设置页眉、页码或页面方向。</span></div>
+                <div className="export-format-switch-row">
+                  <label className="settings-switch-control">
+                    <input type="checkbox" checked={config.page.chapter_section_break_enabled} onChange={e => updatePage({ chapter_section_break_enabled: e.target.checked })} />
+                    <span className="settings-switch-track" aria-hidden="true"><span className="settings-switch-thumb" /></span>
+                  </label>
+                </div>
+              </label>
+              <label className="settings-row">
                 <div className="settings-row-copy"><strong>页眉</strong><span>启用后会写入 Word 页眉，可用于项目名称、投标单位或文档密级。</span></div>
                 <div className="export-format-switch-row">
                   <label className="settings-switch-control">
@@ -319,6 +445,57 @@ function ExportFormatPage() {
                     </div>
                   </div>
                 </>
+              )}
+              <label className="settings-row">
+                <div className="settings-row-copy"><strong>文字水印</strong><span>启用后会写入 Word 水印层，适合标记内部资料、保密文件或草稿版本。</span></div>
+                <div className="export-format-switch-row">
+                  <label className="settings-switch-control">
+                    <input type="checkbox" checked={config.page.watermark_enabled} onChange={e => updatePage({ watermark_enabled: e.target.checked })} />
+                    <span className="settings-switch-track" aria-hidden="true"><span className="settings-switch-thumb" /></span>
+                  </label>
+                  <input
+                    type="text"
+                    value={config.page.watermark_text}
+                    disabled={!config.page.watermark_enabled}
+                    onChange={e => updatePage({ watermark_text: e.target.value })}
+                    style={{ minWidth: 180 }}
+                    placeholder="内部资料"
+                  />
+                </div>
+              </label>
+              {config.page.watermark_enabled && (
+                <div className="settings-row">
+                  <div className="settings-row-copy"><strong>水印样式</strong><span>字体、字号、颜色和透明度会进入导出的 Word 文件。</span></div>
+                  <div className="export-format-margin-grid">
+                    <select value={config.page.watermark_font} onChange={e => updatePage({ watermark_font: e.target.value })}>
+                      {FONT_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                    <input
+                      type="number"
+                      min={12}
+                      max={120}
+                      step={1}
+                      value={config.page.watermark_size_pt}
+                      onChange={e => updatePage({ watermark_size_pt: Number(e.target.value) })}
+                      aria-label="水印字号"
+                    />
+                    <input
+                      type="color"
+                      value={`#${config.page.watermark_color || 'D9D9D9'}`}
+                      onChange={e => updatePage({ watermark_color: e.target.value.replace(/^#/, '').toUpperCase() })}
+                      aria-label="水印颜色"
+                    />
+                    <input
+                      type="range"
+                      min={0.05}
+                      max={0.8}
+                      step={0.01}
+                      value={config.page.watermark_opacity}
+                      onChange={e => updatePage({ watermark_opacity: Number(e.target.value) })}
+                      aria-label="水印透明度"
+                    />
+                  </div>
+                </div>
               )}
           </div>
         </section>
@@ -462,6 +639,89 @@ function ExportFormatPage() {
                 <span>行距（倍）</span>
                 <input type="number" min={0.5} max={5} step={0.1} value={config.body_text.line_spacing_multiple} onChange={e => updateBodyText({ line_spacing_multiple: Number(e.target.value) })} />
               </label>
+            </div>
+          </section>
+
+          {/* ── 图片导出策略 ── */}
+          <section className="settings-page-section">
+            <div className="settings-section-title">
+              <span />
+              <strong>图片导出策略</strong>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>Word 图片最大宽度</strong>
+                <span>用于 Markdown 图片、HTML 图片和图片知识库素材导出，超过该宽度会按比例缩小写入 Word。</span>
+              </div>
+              <div className="export-format-heading-grid">
+                <label>
+                  <span>最大宽度（px）</span>
+                  <input
+                    aria-label="Word 图片最大宽度"
+                    type="number"
+                    min={160}
+                    max={960}
+                    step={10}
+                    value={config.image.max_width_px}
+                    onChange={e => updateImage({ max_width_px: Number(e.target.value) })}
+                  />
+                </label>
+              </div>
+            </div>
+          </section>
+
+          {/* ── 表格样式 ── */}
+          <section className="settings-page-section">
+            <div className="settings-section-title">
+              <span />
+              <strong>表格样式</strong>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-copy">
+                <strong>Word 表格</strong>
+                <span>用于 Markdown 表格和可信 HTML 表格导出，统一控制表头底色、边框和单元格留白。</span>
+              </div>
+              <div className="export-format-heading-grid">
+                <label>
+                  <span>表头底色</span>
+                  <input
+                    aria-label="表头底色"
+                    type="color"
+                    value={`#${config.table.header_fill_color || 'F1F6FF'}`}
+                    onChange={e => updateTable({ header_fill_color: e.target.value.replace(/^#/, '').toUpperCase() })}
+                  />
+                </label>
+                <label>
+                  <span>外框线颜色</span>
+                  <input
+                    aria-label="表格外框线颜色"
+                    type="color"
+                    value={`#${config.table.border_color || 'DCDFF6'}`}
+                    onChange={e => updateTable({ border_color: e.target.value.replace(/^#/, '').toUpperCase() })}
+                  />
+                </label>
+                <label>
+                  <span>内框线颜色</span>
+                  <input
+                    aria-label="表格内框线颜色"
+                    type="color"
+                    value={`#${config.table.inside_border_color || 'E8EDF6'}`}
+                    onChange={e => updateTable({ inside_border_color: e.target.value.replace(/^#/, '').toUpperCase() })}
+                  />
+                </label>
+                <label>
+                  <span>单元格留白（twip）</span>
+                  <input
+                    aria-label="表格单元格留白"
+                    type="number"
+                    min={60}
+                    max={360}
+                    step={10}
+                    value={config.table.cell_margin_twips}
+                    onChange={e => updateTable({ cell_margin_twips: Number(e.target.value) })}
+                  />
+                </label>
+              </div>
             </div>
           </section>
         </div>

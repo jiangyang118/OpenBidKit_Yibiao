@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '../../../shared/ui';
-import type { ImageKnowledgeState, ImageKnowledgeUploadResult } from '../types';
+import type { ImageKnowledgeArchiveImportResult, ImageKnowledgeState, ImageKnowledgeUploadResult } from '../types';
 import ImageKnowledgeBasePage from './ImageKnowledgeBasePage';
 
 const imageState: ImageKnowledgeState = {
@@ -39,6 +39,14 @@ const uploadResult: ImageKnowledgeUploadResult = {
   message: '已导入 1 张图片',
 };
 
+const archiveImportResult: ImageKnowledgeArchiveImportResult = {
+  ...imageState,
+  imported: 2,
+  skipped: 0,
+  archives: 1,
+  message: '已导入 2 张图片素材图示图片',
+};
+
 function renderPage() {
   return render(
     <ToastProvider>
@@ -53,6 +61,7 @@ describe('ImageKnowledgeBasePage', () => {
       imageKnowledgeBase: {
         list: vi.fn().mockResolvedValue(imageState),
         uploadImages: vi.fn().mockResolvedValue(uploadResult),
+        importHistoricalArchives: vi.fn().mockResolvedValue(archiveImportResult),
         updateAsset: vi.fn().mockResolvedValue(imageState),
         batchUpdateAssets: vi.fn().mockResolvedValue({ ...imageState, affected: 1, message: '已批量更新 1 张图片' }),
         renameTag: vi.fn().mockResolvedValue({
@@ -107,6 +116,22 @@ describe('ImageKnowledgeBasePage', () => {
 
     await waitFor(() => {
       expect(window.yibiao?.imageKnowledgeBase.uploadImages).toHaveBeenCalled();
+    });
+  });
+
+  it('imports historical archives into the selected image knowledge section', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '导入图片素材图示' }));
+
+    await waitFor(() => {
+      expect(window.yibiao?.imageKnowledgeBase.importHistoricalArchives).toHaveBeenCalledWith('图片素材图示');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '导入资质扫描管理' }));
+
+    await waitFor(() => {
+      expect(window.yibiao?.imageKnowledgeBase.importHistoricalArchives).toHaveBeenCalledWith('资质扫描管理');
     });
   });
 
@@ -182,14 +207,22 @@ describe('ImageKnowledgeBasePage', () => {
     const tagSelect = await screen.findByLabelText('选择标签');
     fireEvent.change(tagSelect, { target: { value: '证书' } });
     fireEvent.change(screen.getByLabelText('新标签名'), { target: { value: '荣誉证书' } });
-    fireEvent.click(screen.getByRole('button', { name: '重命名标签' }));
+    const renameButton = screen.getByRole('button', { name: '重命名标签' });
+    await waitFor(() => {
+      expect(renameButton).not.toBeDisabled();
+    });
+    fireEvent.click(renameButton);
 
     await waitFor(() => {
       expect(window.yibiao?.imageKnowledgeBase.renameTag).toHaveBeenCalledWith('证书', '荣誉证书');
     });
 
     fireEvent.change(tagSelect, { target: { value: '荣誉证书' } });
-    fireEvent.click(screen.getByRole('button', { name: '删除标签' }));
+    const deleteTagButton = screen.getByRole('button', { name: '删除标签' });
+    await waitFor(() => {
+      expect(deleteTagButton).not.toBeDisabled();
+    });
+    fireEvent.click(deleteTagButton);
 
     await waitFor(() => {
       expect(window.yibiao?.imageKnowledgeBase.deleteTag).toHaveBeenCalledWith('荣誉证书');

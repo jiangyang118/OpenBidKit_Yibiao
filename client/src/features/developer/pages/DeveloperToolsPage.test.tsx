@@ -1,15 +1,15 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import DeveloperDemoPage from './DeveloperDemoPage';
+import DeveloperToolsPage from './DeveloperToolsPage';
 
-describe('DeveloperDemoPage', () => {
+describe('DeveloperToolsPage', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     delete (window as Partial<typeof window>).yibiao;
   });
 
   it('renders a real prompt lab instead of the old demo shell', () => {
-    render(<DeveloperDemoPage sectionId="developer-prompt-lab" />);
+    render(<DeveloperToolsPage sectionId="developer-prompt-lab" />);
 
     expect(screen.getByRole('heading', { name: 'Prompt调试台' })).toBeInTheDocument();
     expect(screen.getAllByText('招标解析 - 项目信息 JSON').length).toBeGreaterThan(0);
@@ -18,12 +18,59 @@ describe('DeveloperDemoPage', () => {
   });
 
   it('switches prompt chains and displays the selected schema', () => {
-    render(<DeveloperDemoPage sectionId="developer-prompt-lab" />);
+    render(<DeveloperToolsPage sectionId="developer-prompt-lab" />);
 
     fireEvent.click(screen.getByRole('button', { name: /废标项检查 - JSON 定稿/ }));
 
     expect(screen.getByText('{"findings":[{"type":"invalidBid","severity":"high","title":"","summary":"","requirement":"","bidEvidence":"","riskReason":"","suggestion":""}]}')).toBeInTheDocument();
     expect(screen.getByText(/资格材料可通过电子文件正文判断/)).toBeInTheDocument();
+  });
+
+  it('saves a sanitized prompt debug record through the AI bridge', async () => {
+    const savePromptDebugRecord = vi.fn().mockResolvedValue({
+      success: true,
+      message: 'Prompt 调试记录已保存',
+      filePath: '/tmp/yibiao/logs/developer-prompt-lab/debug-records.jsonl',
+    });
+    window.yibiao = ({
+      ai: { savePromptDebugRecord },
+    } as unknown) as typeof window.yibiao;
+
+    render(<DeveloperToolsPage sectionId="developer-prompt-lab" />);
+
+    fireEvent.click(screen.getByRole('button', { name: '保存到开发者日志' }));
+
+    expect(await screen.findByText(/已保存到 .*debug-records\.jsonl/)).toBeInTheDocument();
+    expect(savePromptDebugRecord).toHaveBeenCalledWith(expect.objectContaining({
+      chainId: 'bid-analysis-project-info',
+      chainLabel: '招标解析 - 项目信息 JSON',
+      responseFormat: 'json_object',
+      messageCount: expect.any(Number),
+      charCount: expect.any(Number),
+      messages: expect.any(Array),
+      redaction: expect.objectContaining({
+        apiKey: 'not included',
+        baseUrl: 'not included',
+      }),
+    }));
+  });
+
+  it('shows the expanded prompt lab chain catalogue for technical plan and duplicate check workflows', () => {
+    render(<DeveloperToolsPage sectionId="developer-prompt-lab" />);
+
+    expect(screen.getAllByText('全局事实预设').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('正文编排 - 章节计划 JSON').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('正文生成 - 单章节 Markdown').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('原方案还原 - 段落归属 JSON').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('查重 - 正文重复规则观察').length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: /正文编排 - 章节计划 JSON/ }));
+    expect(screen.getByText(/knowledge.item_ids 只能从本小节已筛选的参考知识库条目 id 中选择/)).toBeInTheDocument();
+    expect(screen.getAllByText(/项目团队配置/).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole('button', { name: /查重 - 正文重复规则观察/ }));
+    expect(screen.getAllByText(/查重当前是确定性规则链路/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/normalized_text/).length).toBeGreaterThan(0);
   });
 
   it('builds an export dry-run report from technical plan outline content', async () => {
@@ -76,7 +123,7 @@ describe('DeveloperDemoPage', () => {
       },
     } as unknown) as typeof window.yibiao;
 
-    render(<DeveloperDemoPage sectionId="developer-export-preview" />);
+    render(<DeveloperToolsPage sectionId="developer-export-preview" />);
 
     expect(await screen.findByRole('heading', { name: '导出链路预演' })).toBeInTheDocument();
     expect(await screen.findByText('已生成报告')).toBeInTheDocument();
@@ -106,16 +153,16 @@ describe('DeveloperDemoPage', () => {
               mineru_agent_supported: true,
               recommended_provider: 'local',
               status: 'mixed',
-              note: '文本型 PDF 可先走本地解析；扫描件 PDF 建议使用 MinerU OCR。',
+              note: '文本型 PDF 可先走本地解析；扫描件 PDF 建议优先使用本地 OCR。',
             },
             {
               extension: '.ofd',
               local_supported: false,
               mineru_accurate_supported: false,
               mineru_agent_supported: false,
-              recommended_provider: '',
-              status: 'unsupported',
-              note: '当前未接入 OFD 解析；建议先转换为 PDF/DOCX。',
+              recommended_provider: 'local-ocr',
+              status: 'local-ocr',
+              note: 'OFD 可走本地 OCR 兜底：优先通过本机 OFD 转 PDF 工具或 LibreOffice 转为页面 PDF，再按页面截图调用 PaddleOCR。',
             },
           ],
           chinese_path_smoke: {
@@ -123,9 +170,28 @@ describe('DeveloperDemoPage', () => {
             note: '解析回归样本应至少包含一个中文目录和中文文件名。',
             example: 'C:\\投标项目\\样本文档\\技术方案样例.docx',
           },
-          scanned_document_policy: '扫描件 PDF、JPEG、PNG 不走本地解析，优先使用 MinerU OCR。',
+          scanned_document_policy: '扫描件 PDF、JPEG、PNG 可先走本地 OCR；本地 OCR 默认优先使用 PaddleOCR。',
         }),
-        parseDeveloperSample: vi.fn().mockResolvedValue({
+        parseDeveloperSample: vi.fn().mockImplementation((options?: { filePath?: string; provider?: string }) => Promise.resolve(options?.filePath ? {
+          success: true,
+          message: '文件解析完成',
+          file: {
+            id: 'file-1',
+            file_name: 'sample.docx',
+            file_path: '/tmp/sample.docx',
+            extension: '.docx',
+            size: 1024,
+            modified_at: '2026-06-14T10:00:00.000Z',
+          },
+          parser_provider: options.provider || 'mineru-accurate-api',
+          parser_label: 'MinerU 精准解析 API',
+          requested_provider: options.provider || 'mineru-accurate-api',
+          duration_ms: 256,
+          markdown_preview: '# 样本文档\n\n解析结果增加了表格内容\n\n![图](asset.png)',
+          markdown_chars: 31,
+          image_count: 1,
+          line_count: 5,
+        } : {
           success: true,
           message: '文件解析完成',
           file: {
@@ -143,16 +209,18 @@ describe('DeveloperDemoPage', () => {
           markdown_chars: 18,
           image_count: 1,
           line_count: 3,
-        }),
+        })),
       },
     } as unknown) as typeof window.yibiao;
 
-    render(<DeveloperDemoPage sectionId="developer-parser-sandbox" />);
+    render(<DeveloperToolsPage sectionId="developer-parser-sandbox" />);
 
     expect(await screen.findByText('样本覆盖矩阵')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /本地 OCR 解析适合扫描 PDF、OFD 和图片/ })).toBeInTheDocument();
     expect(screen.getByText('.pdf')).toBeInTheDocument();
     expect(screen.getByText('.ofd')).toBeInTheDocument();
     expect(screen.getByText(/扫描件 PDF、JPEG、PNG/)).toBeInTheDocument();
+    expect(screen.queryByText(/扫描件 PDF 建议使用 MinerU OCR/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '选择并解析样本' }));
 
@@ -160,8 +228,20 @@ describe('DeveloperDemoPage', () => {
     expect(screen.getByText('sample.docx')).toBeInTheDocument();
     expect(screen.getAllByText('本地解析').length).toBeGreaterThan(0);
     expect(screen.getByText(/# 样本文档/)).toBeInTheDocument();
-    expect(screen.getByText(/当前未接入 OFD 解析/)).toBeInTheDocument();
+    expect(screen.getByText(/OFD 可走本地 OCR/)).toBeInTheDocument();
     expect(window.yibiao?.file.getDeveloperParserCapabilities).toHaveBeenCalled();
     expect(window.yibiao?.file.parseDeveloperSample).toHaveBeenCalledWith({ provider: 'local', preserveImages: false });
+
+    fireEvent.click(screen.getByRole('button', { name: '用另一解析器对比当前样本' }));
+
+    expect(await screen.findByText('对比完成')).toBeInTheDocument();
+    expect(screen.getByText('字符差异')).toBeInTheDocument();
+    expect(screen.getByText('+13')).toBeInTheDocument();
+    expect(screen.getByText(/解析结果增加了表格内容/)).toBeInTheDocument();
+    expect(window.yibiao?.file.parseDeveloperSample).toHaveBeenCalledWith({
+      provider: 'mineru-accurate-api',
+      preserveImages: false,
+      filePath: '/tmp/sample.docx',
+    });
   });
 });

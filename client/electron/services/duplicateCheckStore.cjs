@@ -398,11 +398,11 @@ function markdownReportToPdfLines(markdown) {
     const bullet = /^[-*]\s+(.+)$/.exec(trimmed);
     if (bullet) {
       const text = stripMarkdownInline(bullet[1]);
-      if (inImageReviewView && /(?:图序|图片组|涉及文件|判断依据|复核建议)/.test(text)) {
+      if (inImageReviewView && /(?:图序|图片组|涉及文件|判断依据|复核建议|视觉证据)/.test(text)) {
         output.push({
           type: 'image-review-card-line',
           text,
-          target: text.includes('图序') || text.startsWith('图片组'),
+          target: text.includes('图序') || text.startsWith('图片组') || text.includes('裁剪框') || text.includes('旋转') || text.includes('水印'),
           size: 9,
           gapBefore: 2,
         });
@@ -623,6 +623,67 @@ function imageReviewAdvice(item) {
   return 'Hash 完全一致，建议确认是否为通用图标、章戳或模板装饰图；如为关键业务图片，应替换或说明来源。';
 }
 
+function firstText(...values) {
+  for (const value of values) {
+    const text = String(value ?? '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function firstNumber(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+function formatCropBox(crop) {
+  if (!crop || typeof crop !== 'object') return '';
+  const left = crop.left ?? crop.x;
+  const top = crop.top ?? crop.y;
+  const width = crop.width ?? crop.w;
+  const height = crop.height ?? crop.h;
+  if ([left, top, width, height].some((value) => value === undefined || value === null || value === '')) return '';
+  return `x=${left}, y=${top}, w=${width}, h=${height}`;
+}
+
+function formatVisualEvidenceLine(item) {
+  const preview = firstText(item?.preview_url, item?.previewUrl, item?.assetUrl, item?.asset_url, item?.imageUrl, item?.image_url);
+  const width = firstNumber(item?.width, item?.image_width, item?.imageWidth);
+  const height = firstNumber(item?.height, item?.image_height, item?.imageHeight);
+  const crop = formatCropBox(item?.crop || item?.crop_box || item?.cropBox || item?.bbox || item?.bounding_box || item?.boundingBox);
+  const rotation = firstNumber(item?.rotation, item?.rotation_degrees, item?.rotationDegrees);
+  const watermark = firstText(item?.watermark_hint, item?.watermarkHint, item?.watermark);
+  const page = firstText(item?.page_number, item?.pageNumber, item?.page);
+  const region = firstText(item?.screenshot_region, item?.screenshotRegion, item?.region);
+  const parts = [];
+  if (preview) parts.push(`预览：${preview}`);
+  if (width && height) parts.push(`尺寸：${width}x${height}`);
+  if (crop) parts.push(`裁剪框：${crop}`);
+  if (rotation !== null) parts.push(`旋转：${rotation}°`);
+  if (watermark) parts.push(`水印：${watermark}`);
+  if (page) parts.push(`页码：${page}`);
+  if (region) parts.push(`截图区域：${region}`);
+  return parts.join('；');
+}
+
+function formatLocationVisualEvidence(entry) {
+  const crop = formatCropBox(entry?.crop || entry?.crop_box || entry?.cropBox || entry?.bbox || entry?.bounding_box || entry?.boundingBox);
+  const page = firstText(entry?.page_number, entry?.pageNumber, entry?.page);
+  const region = firstText(entry?.screenshot_region, entry?.screenshotRegion, entry?.region);
+  const rotation = firstNumber(entry?.rotation, entry?.rotation_degrees, entry?.rotationDegrees);
+  const watermark = firstText(entry?.watermark_hint, entry?.watermarkHint, entry?.watermark);
+  const parts = [];
+  if (page) parts.push(`页码：${page}`);
+  if (region) parts.push(`截图区域：${region}`);
+  if (crop) parts.push(`裁剪框：${crop}`);
+  if (rotation !== null) parts.push(`旋转：${rotation}°`);
+  if (watermark) parts.push(`水印：${watermark}`);
+  return parts.join('；');
+}
+
 function pushImageReviewView(lines, duplicateImages = [], bidFiles = []) {
   const reviewItems = (Array.isArray(duplicateImages) ? duplicateImages : [])
     .filter((item) => normalizeImageMatchType(item?.match_type) === 'similar')
@@ -640,6 +701,10 @@ function pushImageReviewView(lines, duplicateImages = [], bidFiles = []) {
     if (item.similarity_reason) {
       lines.push(`- 判断依据：${item.similarity_reason}`);
     }
+    const visualEvidence = formatVisualEvidenceLine(item);
+    if (visualEvidence) {
+      lines.push(`- 视觉证据：${visualEvidence}`);
+    }
     lines.push(`- 复核建议：${imageReviewAdvice(item)}`);
     fileIds.forEach((fileId) => {
       const entries = Array.isArray(item.locations?.[fileId]) ? item.locations[fileId] : [];
@@ -649,6 +714,10 @@ function pushImageReviewView(lines, duplicateImages = [], bidFiles = []) {
       }
       entries.slice(0, 3).forEach((entry) => {
         lines.push(`- ${fileNameById.get(fileId) || fileId}：${formatImageOccurrenceLocation(entry)}`);
+        const locationVisualEvidence = formatLocationVisualEvidence(entry);
+        if (locationVisualEvidence) {
+          lines.push(`- ${fileNameById.get(fileId) || fileId} 视觉证据：${locationVisualEvidence}`);
+        }
       });
     });
   });
@@ -1241,11 +1310,11 @@ function createDuplicateCheckStore({ app, db }) {
     const imageInsert = db.prepare(`
       INSERT INTO duplicate_check_duplicate_images (
         image_id, hash, preview_url, file_ids_json, sort_order, resolution_status, resolved_at,
-        match_type, similarity_score, similarity_reason
+        match_type, similarity_score, similarity_reason, rotation_degrees, watermark_hint, crop_json
       )
       VALUES (
         @image_id, @hash, @preview_url, @file_ids_json, @sort_order, @resolution_status, @resolved_at,
-        @match_type, @similarity_score, @similarity_reason
+        @match_type, @similarity_score, @similarity_reason, @rotation_degrees, @watermark_hint, @crop_json
       )
     `);
     const occurrenceInsert = db.prepare(`
@@ -1265,6 +1334,9 @@ function createDuplicateCheckStore({ app, db }) {
         match_type: normalizeImageMatchType(item?.match_type),
         similarity_score: Number(item?.similarity_score || (normalizeImageMatchType(item?.match_type) === 'exact' ? 1 : 0)),
         similarity_reason: item?.similarity_reason ? String(item.similarity_reason) : null,
+        rotation_degrees: Number.isFinite(Number(item?.rotation_degrees ?? item?.rotationDegrees)) ? Number(item?.rotation_degrees ?? item?.rotationDegrees) : null,
+        watermark_hint: item?.watermark_hint || item?.watermarkHint || item?.watermark ? String(item.watermark_hint || item.watermarkHint || item.watermark) : null,
+        crop_json: jsonOrNull(item?.crop || item?.crop_box || item?.cropBox || item?.bbox || item?.bounding_box || item?.boundingBox),
       });
       for (const [fileId, count] of Object.entries(item?.occurrences || {})) {
         occurrenceInsert.run({
@@ -1486,6 +1558,9 @@ function createDuplicateCheckStore({ app, db }) {
       match_type: normalizeImageMatchType(item.match_type),
       similarity_score: Number(item.similarity_score || (normalizeImageMatchType(item.match_type) === 'exact' ? 1 : 0)),
       similarity_reason: item.similarity_reason || undefined,
+      rotation_degrees: item.rotation_degrees === null || item.rotation_degrees === undefined ? undefined : Number(item.rotation_degrees),
+      watermark_hint: item.watermark_hint || undefined,
+      crop: safeJsonParse(item.crop_json, undefined),
     }));
     return {
       status: normalizeStatus(row.status, ['pending', 'running', 'success', 'error'], 'pending'),
