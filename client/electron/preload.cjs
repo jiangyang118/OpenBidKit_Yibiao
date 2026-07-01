@@ -63,6 +63,28 @@ const bridge = {
     clearJsonFailureSamples: () => ipcRenderer.invoke('ai:clear-json-failure-samples'),
     testImageModel: (config) => ipcRenderer.invoke('ai:test-image-model', config),
   },
+  agent: {
+    run: (payload) => ipcRenderer.invoke('agent:run', payload),
+    selfCheck: () => ipcRenderer.invoke('agent:self-check'),
+    exportSelfCheckReport: (payload) => ipcRenderer.invoke('agent:export-self-check-report', payload),
+    getStatus: () => ipcRenderer.invoke('agent:get-status'),
+    restart: (reason) => ipcRenderer.invoke('agent:restart', reason),
+    onStatus: (callback) => {
+      const listener = (_event, payload) => callback(payload);
+      ipcRenderer.on('agent:status', listener);
+      return () => ipcRenderer.removeListener('agent:status', listener);
+    },
+  },
+  developerTokenStats: {
+    openWindow: () => ipcRenderer.invoke('developer-token-stats:open-window'),
+    get: () => ipcRenderer.invoke('developer-token-stats:get'),
+    reset: () => ipcRenderer.invoke('developer-token-stats:reset'),
+    onChanged: (callback) => {
+      const listener = (_event, payload) => callback(payload);
+      ipcRenderer.on('developer-token-stats:changed', listener);
+      return () => ipcRenderer.removeListener('developer-token-stats:changed', listener);
+    },
+  },
   file: {
     selectDuplicateCheckFiles: (options) => ipcRenderer.invoke('file:select-duplicate-check-files', options),
     parseDeveloperSample: (options) => ipcRenderer.invoke('file:parse-developer-sample', options),
@@ -107,8 +129,8 @@ const bridge = {
     loadState: () => ipcRenderer.invoke('technical-plan:load-state'),
     importTenderDocument: () => ipcRenderer.invoke('technical-plan:import-tender-document'),
     importOriginalPlanDocument: () => ipcRenderer.invoke('technical-plan:import-original-plan-document'),
+    checkBidSections: () => ipcRenderer.invoke('technical-plan:check-bid-sections'),
     selectBidSection: (selectedSection) => ipcRenderer.invoke('technical-plan:select-bid-section', selectedSection),
-    cancelBidSectionSelection: () => ipcRenderer.invoke('technical-plan:cancel-bid-section-selection'),
     readTenderMarkdown: () => ipcRenderer.invoke('technical-plan:read-tender-markdown'),
     readOriginalPlanMarkdown: () => ipcRenderer.invoke('technical-plan:read-original-plan-markdown'),
     updateStep: (step) => ipcRenderer.invoke('technical-plan:update-step', step),
@@ -187,6 +209,7 @@ const bridge = {
     clear: () => ipcRenderer.invoke('bid-opportunity:clear'),
   },
   tasks: {
+    startBidSectionExtraction: (payload) => ipcRenderer.invoke('tasks:start-bid-section-extraction', payload),
     startBidAnalysis: (payload) => ipcRenderer.invoke('tasks:start-bid-analysis', payload),
     startOutlineGeneration: (payload) => ipcRenderer.invoke('tasks:start-outline-generation', payload),
     startGlobalFactsGeneration: (payload) => ipcRenderer.invoke('tasks:start-global-facts-generation', payload),
@@ -209,11 +232,15 @@ const bridge = {
   export: {
     previewWordExport: (payload) => ipcRenderer.invoke('export:preview-word', payload),
     exportWord: (payload) => ipcRenderer.invoke('export:word', payload),
+    openFile: (filePath) => ipcRenderer.invoke('export:open-file', filePath),
     onWordExportProgress: (callback) => {
       const listener = (_event, payload) => callback(payload);
       ipcRenderer.on('export:word-progress', listener);
       return () => ipcRenderer.removeListener('export:word-progress', listener);
     },
+  },
+  systemFonts: {
+    list: () => ipcRenderer.invoke('system-fonts:list'),
   },
 };
 

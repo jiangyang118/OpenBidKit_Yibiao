@@ -37,6 +37,15 @@
       "assets/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "vendor/opencode",
+        "to": "opencode",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "publish": [
       {
         "provider": "github",
@@ -84,6 +93,38 @@
             "x64",
             "arm64"
           ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "background": "assets/macos-dmg/background.png",
+      "iconSize": 88,
+      "iconTextSize": 12,
+      "contents": [
+        {
+          "x": 170,
+          "y": 360,
+          "type": "file"
+        },
+        {
+          "x": 520,
+          "y": 360,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 112,
+          "y": 318,
+          "type": "file",
+          "path": "assets/macos-dmg/macOS使用说明.txt",
+          "name": "macOS使用说明.txt"
         }
       ]
     },
@@ -106,19 +147,18 @@
     "iconv-lite": "^0.7.2",
     "image-size": "^2.0.2",
     "mammoth": "^1.12.0",
+    "markdown-it": "^14.2.0",
+    "markdown-it-cjk-friendly": "^2.0.2",
+    "markdown-it-task-lists": "^2.1.1",
     "mermaid": "^11.14.0",
     "mime-types": "^3.0.2",
     "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^5.7.284",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "react-markdown": "^10.1.0",
-    "rehype-raw": "^7.0.0",
-    "remark-gfm": "^4.0.1",
-    "remark-parse": "^11.0.0",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2",
-    "unified": "^11.0.5"
+    "undici": "^7.25.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",

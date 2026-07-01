@@ -10,7 +10,13 @@ const migrationsDir = resolve(workerDir, 'analytics-migrations');
 
 const d1BindingName = 'ANALYTICS_DB';
 const d1DatabaseName = 'openbidkit-analytics';
-const dailyRollupCron = '0 18 * * *';
+const dailyRollupCrons = [
+  '0 17 * * *',
+  '30 17 * * *',
+  '0 18 * * *',
+  '30 18 * * *',
+  '0 19 * * *',
+];
 
 function readConfig() {
   return readFileSync(workerConfigPath, 'utf8');
@@ -137,25 +143,26 @@ function ensureCronTrigger() {
   let source = readConfig();
   const oldCron = '15 18 * * *';
   if (source.includes(`"${oldCron}"`)) {
-    source = source.replace(`"${oldCron}"`, `"${dailyRollupCron}"`);
+    source = source.replace(`"${oldCron}"`, '"0 18 * * *"');
     writeConfig(source);
   }
 
   source = readConfig();
-  if (source.includes(`"${dailyRollupCron}"`)) {
-    console.log(`Analytics daily rollup cron configured: ${dailyRollupCron}`);
+  const missingCrons = dailyRollupCrons.filter((cron) => !source.includes(`"${cron}"`));
+  if (!missingCrons.length) {
+    console.log(`Analytics staged daily rollup crons configured: ${dailyRollupCrons.join(', ')}`);
     return;
   }
 
   const cronsPattern = /"crons"\s*:\s*\[/;
   if (cronsPattern.test(source)) {
-    writeConfig(source.replace(cronsPattern, `"crons": [\n      "${dailyRollupCron}",`));
-    console.log(`Analytics daily rollup cron added: ${dailyRollupCron}`);
+    writeConfig(source.replace(cronsPattern, `"crons": [\n      ${missingCrons.map((cron) => `"${cron}"`).join(',\n      ')},`));
+    console.log(`Analytics staged daily rollup crons added: ${missingCrons.join(', ')}`);
     return;
   }
 
-  writeConfig(insertTopLevelObjectBlock(source, 'triggers', `    "crons": [\n      "${dailyRollupCron}"\n    ]`));
-  console.log(`Analytics daily rollup cron configured: ${dailyRollupCron}`);
+  writeConfig(insertTopLevelObjectBlock(source, 'triggers', `    "crons": [\n      ${dailyRollupCrons.map((cron) => `"${cron}"`).join(',\n      ')}\n    ]`));
+  console.log(`Analytics staged daily rollup crons configured: ${dailyRollupCrons.join(', ')}`);
 }
 
 function printCredentialHelp(output) {

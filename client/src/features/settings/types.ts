@@ -1,11 +1,15 @@
 import type { AppTheme, DisplayLanguage, FileParserConfig, ImageModelConfig, ImageModelProfiles, SidebarLayout, TextModelConfig, TextModelProfiles, TextModelProvider, UpdateChannel } from '../../shared/types';
 
 export interface SettingsPageState {
-  textModel: TextModelConfig & {
+  textModel: Omit<TextModelConfig, 'context_length_limit' | 'concurrency_limit'> & {
+    context_length_limit: number | '';
+    concurrency_limit: number | '';
     provider: TextModelProvider;
   };
   textModelProfiles: TextModelProfiles;
-  imageModel: ImageModelConfig;
+  imageModel: Omit<ImageModelConfig, 'concurrency_limit'> & {
+    concurrency_limit: number | '';
+  };
   imageModelProfiles: ImageModelProfiles;
   fileParser: FileParserConfig;
   general: {
@@ -13,6 +17,7 @@ export interface SettingsPageState {
     theme: AppTheme;
     sidebar_layout: SidebarLayout;
     developer_mode: boolean;
+    developer_token_stats_auto_open: boolean;
     update_channel: UpdateChannel;
     gpu_hardware_acceleration_enabled: boolean;
     gpu_hardware_acceleration_configured: boolean;

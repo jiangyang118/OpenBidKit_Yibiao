@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { SectionId } from '../shared/types/navigation';
 import type { AppTheme, SidebarLayout } from '../shared/types';
 import { getAppMenuItemById } from './menuConfig';
@@ -5,8 +6,10 @@ import AiEvaluationPage from '../features/ai-evaluation/pages/AiEvaluationPage';
 import BidOpportunityPage from '../features/bid-opportunity/pages/BidOpportunityPage';
 import BusinessBidPage from '../features/business-bid/pages/BusinessBidPage';
 import DeveloperDemoPage, { isDeveloperDemoSection } from '../features/developer/pages/DeveloperDemoPage';
+import OpenCodeAgentTestPage from '../features/developer/pages/OpenCodeAgentTestPage';
 import DeveloperTestPage from '../features/developer/pages/DeveloperTestPage';
 import ExportFormatPage from '../features/export-format/pages/ExportFormatPage';
+import MyTemplatesPage from '../features/export-format/pages/MyTemplatesPage';
 import DuplicateCheckPage from '../features/duplicate-check/pages/DuplicateCheckPage';
 import ImageKnowledgeBasePage from '../features/image-knowledge-base/pages/ImageKnowledgeBasePage';
 import KnowledgeBasePage from '../features/knowledge-base/pages/KnowledgeBasePage';
@@ -27,6 +30,13 @@ interface AppRouterProps {
 
 function AppRouter({ activeSection, developerMode, onDeveloperModeChange, onAppearanceChange, onSectionChange, registerLeaveGuard }: AppRouterProps) {
   const activeMenuItem = getAppMenuItemById(activeSection, developerMode);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeSection !== 'my-templates') {
+      setEditingTemplateId(null);
+    }
+  }, [activeSection]);
 
   if (activeMenuItem?.children?.length) {
     return <SecondaryMenuPage menuItem={activeMenuItem} onNavigate={onSectionChange} />;
@@ -56,13 +66,15 @@ function AppRouter({ activeSection, developerMode, onDeveloperModeChange, onAppe
     case 'ai-evaluation':
       return <AiEvaluationPage />;
     case 'export-format':
-      return <ExportFormatPage />;
+      return <ExportFormatPage mode="create" />;
     case 'bid-opportunity':
       return <BidOpportunityPage />;
     case 'developer-test':
       return null;
     case 'developer-json-test':
       return <DeveloperTestPage />;
+    case 'developer-opencode-agent-test':
+      return <OpenCodeAgentTestPage />;
     case 'settings':
       return <SettingsPage onDeveloperModeChange={onDeveloperModeChange} onAppearanceChange={onAppearanceChange} />;
     default:

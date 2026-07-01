@@ -14,6 +14,9 @@ on:
 permissions:
   contents: write
 
+env:
+  OPENCODE_VERSION: ${{ vars.OPENCODE_VERSION || 'v1.17.8' }}
+
 jobs:
   create-release:
     name: Create GitHub Release
@@ -84,6 +87,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Prepare OpenCode binary
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENCODE_VERSION: ${{ env.OPENCODE_VERSION }}
+        run: node scripts/prepare-opencode-binary.cjs --platform win32 --arch x64
+
+      - name: Verify OpenCode binary
+        run: node scripts/verify-opencode-binary.cjs --platform win32 --arch x64
+
       - name: Install build type dependencies
         run: npm install --no-save @types/plist
 
@@ -108,6 +120,9 @@ jobs:
 
       - name: Build Windows MSI artifact
         run: npx electron-builder --win msi --publish never -c.productName=OpenBidKit_Yibiao -c.extraMetadata.author=mark -c.copyright="Copyright (c) 2026 mark"
+
+      - name: Verify packaged OpenCode binary
+        run: node scripts/verify-packaged-opencode-binary.cjs --platform win32 --arch x64 --release release
 
       - name: Upload release assets
         env:
@@ -174,6 +189,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Prepare OpenCode binary
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENCODE_VERSION: ${{ env.OPENCODE_VERSION }}
+        run: node scripts/prepare-opencode-binary.cjs --platform darwin --arch ${{ matrix.arch }}
+
+      - name: Verify OpenCode binary
+        run: node scripts/verify-opencode-binary.cjs --platform darwin --arch ${{ matrix.arch }}
+
       - name: Install build type dependencies
         run: npm install --no-save @types/plist
 
@@ -236,7 +260,7 @@ jobs:
 
           for attempt in 1 2 3; do
             echo "Build macOS ${{ matrix.arch }} artifacts, attempt ${attempt}/3."
-            if npx electron-builder --mac dmg:${{ matrix.arch }} --publish never; then
+            if npx electron-builder --mac dmg:${{ matrix.arch }} zip:${{ matrix.arch }} --publish never; then
               exit 0
             fi
 
@@ -250,49 +274,15 @@ jobs:
       - name: Verify packaged native architectures
         run: node scripts/verify-macos-native-arch.cjs "${{ matrix.arch }}" release
 
-      - name: Package macOS DMG with instructions
-        run: |
-          shopt -s nullglob
-          dmgs=(release/*.dmg)
-          if [ ${#dmgs[@]} -ne 1 ]; then
-            echo "Expected exactly one macOS ${{ matrix.arch }} DMG, found ${#dmgs[@]}."
-            exit 1
-          fi
-
-          for dmg in "${dmgs[@]}"; do
-            base="$(basename "$dmg" .dmg)"
-            package_dir="release/${base}-package"
-            rm -rf "$package_dir"
-            mkdir -p "$package_dir"
-            cp "$dmg" "$package_dir/"
-            cat > "$package_dir/macOS使用说明.txt" <<'EOF'
-          macOS 使用说明
-
-          如果双击 App 提示“已损坏，无法打开”或“无法验证开发者”，这是因为本软件未进行 Apple 官方签名和公证，并不代表文件真的损坏。
-
-          使用步骤：
-
-          1. 双击 dmg 文件。
-          2. 将“易标投标工具箱.app”拖到“应用程序”文件夹。
-          3. 打开“终端”App。
-          4. 执行下面命令：
-
-          xattr -dr com.apple.quarantine /Applications/易标投标工具箱.app
-
-          5. 再从“应用程序”中打开“易标投标工具箱”。
-
-          如果仍无法打开，请右键点击 App，选择“打开”，再确认打开。
-          EOF
-            (cd release && ditto -c -k --sequesterRsrc --keepParent "$(basename "$package_dir")" "${base}-package.zip")
-            rm -rf "$package_dir"
-            rm -f "$dmg"
-          done
+      - name: Verify packaged OpenCode binary
+        run: node scripts/verify-packaged-opencode-binary.cjs --platform darwin --arch ${{ matrix.arch }} --release release
 
       - name: Stage macOS release assets
         uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}
           path: |
+            client/release/*.dmg
             client/release/*.zip
             client/release/*.blockmap
             client/release/latest-mac.yml
@@ -357,15 +347,17 @@ jobs:
             fi
           }
 
-          require_single_asset "macOS x64 package ZIP" artifacts/x64/*-package.zip
-          require_single_asset "macOS x64 DMG blockmap" artifacts/x64/*.dmg.blockmap
-          require_single_asset "macOS arm64 package ZIP" artifacts/arm64/*-package.zip
-          require_single_asset "macOS arm64 DMG blockmap" artifacts/arm64/*.dmg.blockmap
+          require_single_asset "macOS x64 DMG" artifacts/x64/*-mac-x64.dmg
+          require_single_asset "macOS x64 update ZIP" artifacts/x64/*-mac-x64.zip
+          require_single_asset "macOS arm64 DMG" artifacts/arm64/*-mac-arm64.dmg
+          require_single_asset "macOS arm64 update ZIP" artifacts/arm64/*-mac-arm64.zip
           require_single_asset "merged macOS update manifest" artifacts/latest-mac.yml
 
           files=(
+            artifacts/x64/*.dmg
             artifacts/x64/*.zip
             artifacts/x64/*.blockmap
+            artifacts/arm64/*.dmg
             artifacts/arm64/*.zip
             artifacts/arm64/*.blockmap
             artifacts/latest-mac.yml
@@ -415,3 +407,34 @@ jobs:
           RELEASE_ASSETS_DIR: release-assets
           GITHUB_RELEASE_JSON: github-release.json
         run: node .github/scripts/publish-r2-release.mjs
+
+      - name: Trigger Gitee pull mirror
+        env:
+          GITEE_ACCESS_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
+          GITEE_OWNER: ${{ vars.GITEE_OWNER }}
+          GITEE_REPO: ${{ vars.GITEE_REPO }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$GITEE_ACCESS_TOKEN" ] || [ -z "$GITEE_OWNER" ] || [ -z "$GITEE_REPO" ]; then
+            echo "GITEE_ACCESS_TOKEN, GITEE_OWNER and GITEE_REPO are required."
+            exit 1
+          fi
+
+          response="$(curl --fail --show-error --silent --request POST --retry 3 --retry-all-errors --retry-delay 20 \
+            "https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/remote_mirror/pull?access_token=${GITEE_ACCESS_TOKEN}"
+          )"
+
+          echo "Gitee mirror response: ${response}"
+
+      - name: Publish Gitee Release
+        env:
+          GITEE_ACCESS_TOKEN: ${{ secrets.GITEE_ACCESS_TOKEN }}
+          GITEE_OWNER: ${{ vars.GITEE_OWNER }}
+          GITEE_REPO: ${{ vars.GITEE_REPO }}
+          R2_PUBLIC_BASE_URL: ${{ vars.R2_PUBLIC_BASE_URL }}
+          R2_RELEASE_PREFIX: ${{ vars.R2_RELEASE_PREFIX || 'release' }}
+          TAG_NAME: ${{ inputs.tag_name || github.ref_name }}
+          RELEASE_ASSETS_DIR: release-assets
+          GITHUB_RELEASE_JSON: github-release.json
+        run: node .github/scripts/sync-gitee-release.mjs

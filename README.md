@@ -15,6 +15,9 @@
   <a href="https://linux.do/" rel="nofollow">
   <img src="https://camo.githubusercontent.com/1c3b7d159a0bd69f89a8147a3d875d8d6431c97c172e52bac05fda35ae7370c3/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f4c494e55582d2d444f2d436f6d6d756e6974792d626c75652e7376673f6c6f676f3d64617461253341696d616765253246737667253242786d6c25334262617365363425324350484e325a79423361575230614430694d5449774969426f5a576c6e61485139496a45794d434967646d6c6c64304a76654430694d434177494445794d4341784d6a4169494868746247357a50534a6f644852774f693876643364334c6e637a4c6d39795a7938794d4441774c334e325a794925324250474e73615842515958526f49476c6b50534a68496a343859326c795932786c49474e34505349324d43496759336b39496a597749694279505349304e794976506a7776593278706346426864476725324250474e70636d4e735a53426d615778735053496a5a6a426d4d4759774969426a654430694e6a416949474e35505349324d434967636a30694e5441694c7a3438636d566a6443426d615778735053496a4d574d78597a466c4969426a62476c774c58426864476739496e56796243676a59536b6949486739496a457749694235505349784d43496764326c6b64476739496a45774d434967614756705a3268305053497a4d434976506a78795a574e3049475a706247773949694e6d4d4759775a6a416949474e7361584174634746306144306964584a734b434e684b534967654430694d54416949486b39496a51774969423361575230614430694d5441774969426f5a576c6e61485139496a517749693825324250484a6c593351675a6d6c736244306949325a6d596a41774d79496759327870634331775958526f50534a31636d776f4932457049694234505349784d434967655430694f444169494864705a48526f505349784d4441694947686c6157646f644430694d7a41694c7a34384c334e325a7a34253344267374796c653d666c6174" alt="友链 linux.do" data-canonical-src="https://img.shields.io/badge/LINUX--DO-Community-blue.svg?logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgdmlld0JveD0iMCAwIDEyMCAxMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI%2BPGNsaXBQYXRoIGlkPSJhIj48Y2lyY2xlIGN4PSI2MCIgY3k9IjYwIiByPSI0NyIvPjwvY2xpcFBhdGg%2BPGNpcmNsZSBmaWxsPSIjZjBmMGYwIiBjeD0iNjAiIGN5PSI2MCIgcj0iNTAiLz48cmVjdCBmaWxsPSIjMWMxYzFlIiBjbGlwLXBhdGg9InVybCgjYSkiIHg9IjEwIiB5PSIxMCIgd2lkdGg9IjEwMCIgaGVpZ2h0PSIzMCIvPjxyZWN0IGZpbGw9IiNmMGYwZjAiIGNsaXAtcGF0aD0idXJsKCNhKSIgeD0iMTAiIHk9IjQwIiB3aWR0aD0iMTAwIiBoZWlnaHQ9IjQwIi8%2BPHJlY3QgZmlsbD0iI2ZmYjAwMyIgY2xpcC1wYXRoPSJ1cmwoI2EpIiB4PSIxMCIgeT0iODAiIHdpZHRoPSIxMDAiIGhlaWdodD0iMzAiLz48L3N2Zz4%3D&amp;style=flat" style="max-width: 100%;">
   </a>
+  <a href="https://afdian.com/a/markup" rel="nofollow">
+    <img src="https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E6%94%AF%E6%8C%81%E9%A1%B9%E7%9B%AE-F96854.svg" alt="爱发电支持项目">
+  </a>
 </p>
 
 
@@ -23,41 +26,24 @@
   <br>
   易标投标工具箱是一款面向招投标场景的智能标书制作工具，完全开源，包括 AI 生成技术方案、已有方案扩写、图文生成、商务标、AI 评标、企业知识库管理、图片知识库、标书查重、废标项检查、投标机会、资源下载和开发者调试台等本地桌面能力。
   <br>
-  支持OpenAI like模式的所有AI api，目前已深度适配DeepSeek、龙猫、火山方舟三个平台，也支持ollama、lm studio等接入本地模型。
+  支持OpenAI like模式的所有AI api，目前已深度适配GPT、DeepSeek、龙猫、火山方舟四个平台，也支持ollama、lm studio等接入本地模型。
   <br>
   <br>
   <strong>❓ 解决什么问题</strong>
   <br>
-  现在AI写标书的付费工具非常多，但是价格都超级高，一份标书几十块，除非企业给报销，小企业的牛马根本用不起。免费的工具质量又非常差，OpenBidkit力争做投标领域的OpenClaw，提供开箱即用的优质标书编写工具，亲测一份20万字的投标标书，用deepseek v4 flash 生成只需要0.8-1元，还努力适配了完全免费的LongCat-2.0-Preview，从此牛马不用自己买草料了。
+  现在AI写标书的付费工具非常多，但是价格都超级高，一份标书几十块，除非企业给报销，小企业的牛马根本用不起。免费的工具质量又非常差，OpenBidkit力争做投标领域的OpenClaw，提供开箱即用的优质标书编写工具，亲测一份10万字的投标标书，用deepseek v4 flash 生成只需要1元。
 </p>
 
 
 ## 🌐 官方网站
 
-**在线体验**: [https://yibiao.pro](https://yibiao.pro)
+**在线体验**: [https://yibiao.pro](https://yibiao.pro)  【获取更多产品信息、在线体验和技术支持。】
 
-获取更多产品信息、在线体验和技术支持。
+## 💖 支持项目
 
-> **广告位 · Jlaude API**
->
-> 专注 GPT 全系列，比 DeepSeek V4 PRO更低成本，7 个月稳定高速！演武场原生对话 + 无限画布生图，一站配齐，好用不贵。
->
-> 链接直达：https://jlaudeapi.com
-
-## 📢 声明
-近期收到大量issue攻击，对本仓库进行无理由诋毁和攻击，特此声明：
-
-1. 我不会停止开源，永不！
-2. 即使以后商业化，也会效仿Excalidraw、NocoDB这样优秀的开源项目，仅针对项目管理、云端存储、团队协作、企业服务等B端业务进行收费。我用人格担保，个人使用基础功能永久开源免费，且生成质量向付费软件看齐。  
-
-<img src="./screenshots/issue_claim.png" alt="易标使用演示视频" width="100%">
-
-## 🍉 鸣谢
-- 感谢所有用户的支持与信任
-- 特别鸣谢 <a href="https://linux.do/" rel="nofollow">linuxdo</a> 佬友们的支持与鼓励
+如果这个项目对你有帮助，欢迎通过 [爱发电](https://afdian.com/a/markup) 支持项目维护和持续开源。
 
 <h2 align="center">✨ 核心功能与优势</h2>
-
 <p align="center">
   <strong>AI写标书 · 标书AI · AI标书生成 · 技术标编写 · 投标文件生成</strong><br>
   <sub>不止生成标书初稿，更强调开源可控、本地工作区、素材复用、图文表达和流程可恢复。</sub>
@@ -177,6 +163,65 @@
 3. **🔧 代码贡献**: Fork项目，提交Pull Request
 4. **📖 文档完善**: 帮助改进文档和使用说明
 
+## 📢 声明
+近期收到大量issue攻击，对本仓库进行无理由诋毁和攻击，特此声明：
+
+1. 我不会停止开源，永不！
+2. 即使以后商业化，也会效仿Excalidraw、NocoDB这样优秀的开源项目，仅针对项目管理、云端存储、团队协作、企业服务等B端业务进行收费。我用人格担保，个人使用基础功能永久开源免费，且生成质量向付费软件看齐。  
+
+<img src="./screenshots/issue_claim.png" alt="易标使用演示视频" width="100%">
+
+## 🍉 鸣谢
+- 感谢所有用户的支持与信任
+- 特别鸣谢 <a href="https://linux.do/" rel="nofollow">linuxdo</a> 佬友们的支持与鼓励
+
+
+### 🦞非开发人员贡献
+为本开源项目提供需求分析、技术支持、测试文件、有效反馈、免费推广等，不会自动加入contributors，但仍然值得被记录~
+<table>
+  <tr>
+    <td width="20%" valign="top">
+
+![](https://oss.agnet.top/keep/2026/06/23/20260623104254982.png)
+<p align="center">云峰</p>
+    </td>
+    <td width="20%" valign="top">
+
+![](https://oss.agnet.top/keep/2026/06/23/20260623104442168.png)
+<p align="center">Engineer X</p>
+    </td>
+    <td width="20%" valign="top">
+
+![](https://oss.agnet.top/keep/2026/06/23/20260623104455361.png)
+<p align="center">专业标书</p>
+    </td>
+    <td width="20%" valign="top">
+
+![](https://oss.agnet.top/keep/2026/06/23/20260623104521954.png)
+<p align="center">Mr.Erick</p>
+    </td>
+    <td width="20%" valign="top">
+
+![](https://oss.agnet.top/keep/2026/06/23/20260623104533722.png)
+<p align="center">小麦浪的夏天</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="20%" valign="top">
+
+![](https://oss.agnet.top/keep/2026/06/23/20260623105024436.png)
+<p align="center">韩枫（石化安装培训）</p>
+    </td>
+    <td width="20%" valign="top">
+    </td>
+    <td width="20%" valign="top">
+    </td>
+    <td width="20%" valign="top">
+    </td>
+    <td width="20%" valign="top">
+    </td>
+  </tr>
+</table>
 
 ## 📄 许可证
 

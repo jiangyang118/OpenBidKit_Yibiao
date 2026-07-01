@@ -37,8 +37,14 @@ function normalizeConfigValue(configKey, configValue) {
 }
 
 function normalizeClientIp(request) {
-  const value = normalizeText(request?.headers?.get('CF-Connecting-IP'), 80);
-  return value && !/[\s,]/.test(value) ? value : '';
+  const connectingIp = normalizeText(request?.headers?.get('CF-Connecting-IP'), 80);
+  const connectingIpv6 = normalizeText(request?.headers?.get('CF-Connecting-IPv6'), 80);
+
+  if (isPseudoIpv4(connectingIp)) {
+    return isSingleIp(connectingIpv6) ? connectingIpv6 : '';
+  }
+
+  return isSingleIp(connectingIp) ? connectingIp : '';
 }
 
 function createMetricBlobs(event) {
@@ -48,7 +54,9 @@ function createMetricBlobs(event) {
       ? event.resourceKey
       : event.event === 'config_usage'
         ? event.configKey
-        : '';
+        : event.event === 'agent_runtime'
+          ? event.agentRuntimeStatus
+          : '';
   const blob10 = event.event === 'ai_request'
     ? event.aiModelEndpointHost
     : event.event === 'config_usage'
@@ -118,6 +126,7 @@ export function normalizeTrackBody(body, request) {
 export function validateTrackEvent(event) {
   if (!isValidProjectName(event.projectName)) return 'invalid projectName';
   if (!ALLOWED_EVENTS.has(event.event)) return 'invalid event';
+  if (event.event === 'agent_runtime' && !AGENT_RUNTIME_STATUSES.has(event.agentRuntimeStatus)) return 'invalid agent_runtime_status';
   if (!event.clientId) return 'missing client_id';
   if (!event.clientCreatedAt) return 'missing client_created_at';
   if (!event.version) return 'missing version';

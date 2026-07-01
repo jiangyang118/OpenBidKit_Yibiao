@@ -51,6 +51,7 @@ export type {
   ImageModelConfig,
   ImageModelProvider,
   ImageModelProfiles,
+  ImageModelSize,
   ImageModelStatus,
   ModelListResult,
   TextModelConfig,
@@ -62,9 +63,15 @@ export type {
 export type { AppMenuItem, SectionId } from './navigation';
 export type {
   ExportFormatConfig,
-  NumberingFormat,
+  ExportTemplateRecord,
+  HeadingNumberingFormat,
   HeadingStyleConfig,
+  HeadingBorderConfig,
   BodyTextStyleConfig,
+  TableCellStyleConfig,
+  TableStyleConfig,
+  ImageStyleConfig,
+  ListStyle,
   PageSetupConfig,
 } from './exportFormat';
 export {
@@ -74,14 +81,28 @@ export {
   SIZE_TO_PT,
   FONT_TO_CSS,
   ALIGNMENT_TO_CSS,
-  NUMBERING_FORMATS,
+  HEADING_NUMBERING_FORMAT_OPTIONS,
+  HEADING_BORDER_STRUCTURE_OPTIONS,
+  LIST_STYLE_OPTIONS,
   PAPER_SIZES,
   PAPER_DIMENSIONS,
   DEFAULT_EXPORT_FORMAT,
   HEADING_LEVEL_LABELS,
 } from './exportFormat';
-export type { OutlineData, OutlineItem, OutlineMode, TechnicalRequirementGroup } from './outline';
+export type { OutlineData, OutlineExpansionMode, OutlineItem, OutlineMode, TechnicalRequirementGroup } from './outline';
 export type {
+  AgentRunFile,
+  AgentRunPayload,
+  AgentRunResult,
+  AgentRuntimeActiveTask,
+  AgentRuntimePhase,
+  AgentRuntimeStatus,
+  AgentSelfCheckDiagnostics,
+  AgentSelfCheckReportExportResult,
+  AgentSelfCheckResult,
+  AgentSelfCheckStatus,
+  AgentSelfCheckStep,
+  AgentSelfCheckStepStatus,
   GpuHardwareAccelerationStatus,
   LatestReleaseInfo,
   ProjectWorkspaceActiveResult,

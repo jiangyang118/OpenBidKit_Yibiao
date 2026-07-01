@@ -3,6 +3,7 @@ import type { AiEvaluationExpertScoreInput, AiEvaluationExportReportResult, AiEv
 import type { DuplicateCheckExportReportResult, DuplicateCheckWorkspaceState, FileSelectionResult, LocalFileSelection } from './bid';
 import type { BusinessBidAiExtractionResult, BusinessBidAttachmentPatch, BusinessBidClausePatch, BusinessBidExportReportResult, BusinessBidImportAttachmentsResult, BusinessBidImportDocumentResult, BusinessBidOfficeExportResult, BusinessBidState } from '../../features/business-bid/types';
 import type { ClientConfig, ConfigSaveResult, ImageModelTestResult, ModelListResult, UpdateChannel } from './config';
+import type { ExportFormatConfig, ExportTemplateRecord } from './exportFormat';
 import type {
   ImageKnowledgeAssetPatch,
   ImageKnowledgeBatchResult,
@@ -18,8 +19,8 @@ import type {
 import type { BidOpportunityExportCalendarResult, BidOpportunityExportReportResult, BidOpportunityFollowUpPatch, BidOpportunityImportResult, BidOpportunityInput, BidOpportunityState, BidOpportunityStatus } from '../../features/bid-opportunity/types';
 import type { KnowledgeAnalysisSnapshot, KnowledgeBaseActiveTasksSnapshot, KnowledgeBaseEvent, KnowledgeBaseIndex, KnowledgeBaseIndexMutationResult, KnowledgeBaseMigrationResult, KnowledgeBaseMigrationStatus, KnowledgeBaseMutationResult, KnowledgeBaseRetryDocumentResult, KnowledgeBaseStartMatchingResult, KnowledgeBaseUploadResult, KnowledgeDocument, KnowledgeFolder, KnowledgeItem } from '../../features/knowledge-base/types';
 import type { RejectionCheckExportReportResult, RejectionCheckWorkspaceState, RejectionDocumentRole } from '../../features/rejection-check/types';
-import type { BidAnalysisMode, BidAnalysisTaskState, ContentGenerationOptions, ContentGenerationPlanState, ContentGenerationRuntimeState, ContentGenerationSectionState, DetectedBidSection, GlobalFactGroupState, SaveOutlineRequest, TechnicalPlanState, TechnicalPlanStep, TechnicalPlanWorkflowKind } from '../../features/technical-plan/types';
-import type { OutlineData, OutlineMode } from './outline';
+import type { BidAnalysisMode, BidAnalysisTaskState, BidSectionMode, ContentGenerationOptions, ContentGenerationPlanState, ContentGenerationRuntimeState, ContentGenerationSectionState, DetectedBidSection, GlobalFactGroupState, SaveOutlineRequest, TechnicalPlanState, TechnicalPlanStep, TechnicalPlanWorkflowKind } from '../../features/technical-plan/types';
+import type { OutlineData, OutlineExpansionMode, OutlineMode } from './outline';
 
 export interface TaskEvent<TState = unknown, TRejectionCheckState = unknown, TDuplicateCheckState = unknown, TBusinessBidState = unknown, TAiEvaluationState = unknown> {
   task: unknown;
@@ -126,6 +127,15 @@ export interface DeveloperParserCapabilityReport {
   scanned_document_policy: string;
 }
 
+export interface DeveloperTextTokenStats {
+  request_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cached_tokens: number;
+  cache_ratio: number;
+}
+
 export interface LatestReleaseInfo {
   version: string;
   name: string;
@@ -144,6 +154,11 @@ export interface UpdateCheckResult {
   failed?: boolean;
   message?: string;
   channel?: UpdateChannel;
+}
+
+export interface UpdateInstallResult {
+  success: boolean;
+  message?: string;
 }
 
 export interface GpuHardwareAccelerationStatus {
@@ -217,6 +232,162 @@ export interface ProjectWorkspacePathResult {
   workspace_path: string;
 }
 
+export type AgentSelfCheckStepStatus = 'pending' | 'running' | 'success' | 'error';
+export type AgentSelfCheckStatus = 'normal' | 'error' | 'busy';
+
+export type AgentRuntimePhase = 'stopped' | 'starting' | 'idle' | 'running' | 'aborting' | 'unhealthy' | 'restarting' | 'closing';
+
+export interface AgentRuntimeActiveTask {
+  task_id: string;
+  title: string;
+  stage: string;
+  progress_text: string;
+  started_at: string;
+  last_activity_at: string;
+  last_progress_at?: string;
+  elapsed_seconds: number;
+  idle_seconds: number;
+}
+
+export interface AgentRuntimeStatus {
+  phase: AgentRuntimePhase;
+  healthy: boolean;
+  message: string;
+  updated_at: string;
+  last_health_at?: string;
+  last_health_error?: string;
+  restart_pending?: boolean;
+  restart_pending_reason?: string;
+  active_task?: AgentRuntimeActiveTask | null;
+  proxy?: {
+    active: number;
+    queued: number;
+    limit: number;
+  };
+  opencode?: {
+    pid: number;
+    base_url?: string;
+    port?: number;
+    last_exit_code?: number | null;
+    last_exit_signal?: string;
+  };
+}
+
+export interface AgentRunFile {
+  path: string;
+  content: string;
+}
+
+export interface AgentRunPayload {
+  task_id?: string;
+  title?: string;
+  task?: string;
+  prompt?: string;
+  output_file?: string;
+  files?: AgentRunFile[];
+  timeout_ms?: number;
+  agent?: string;
+}
+
+export interface AgentRunResult {
+  success: boolean;
+  status?: 'busy' | string;
+  skipped?: boolean;
+  message?: string;
+  task_id?: string;
+  title?: string;
+  workspace_dir?: string;
+  runtime_workspace_dir?: string;
+  runtime_root?: string;
+  output_file?: string;
+  output_content?: string;
+  assistant_text?: string;
+  diff?: unknown[];
+  session_id?: string;
+  active_task?: AgentRuntimeActiveTask | null;
+  opencode_request_log?: unknown[];
+  opencode_stderr_tail?: string;
+  opencode_stdout_tail?: string;
+}
+
+export interface AgentSelfCheckStep {
+  id: string;
+  label: string;
+  status: AgentSelfCheckStepStatus;
+  message?: string;
+  updated_at?: string;
+}
+
+export interface AgentSelfCheckDiagnostics {
+  name?: string;
+  message?: string;
+  stage?: string;
+  stack?: string;
+  agent_task_id?: string;
+  agent_title?: string;
+  agent_workspace_dir?: string;
+  agent_runtime_root?: string;
+  agent_output_file?: string;
+  agent_output_path?: string;
+  agent_partial_output_chars?: number;
+  agent_partial_output?: string;
+  opencode_binary_path?: string;
+  opencode_base_url?: string;
+  opencode_port?: number;
+  opencode_exit_code?: number | null;
+  opencode_exit_signal?: string;
+  opencode_spawn_error?: string;
+  opencode_last_health_error?: string;
+  opencode_last_health_cause?: string;
+  opencode_stdout_tail?: string;
+  opencode_stderr_tail?: string;
+  opencode_request_log?: unknown[];
+}
+
+export interface AgentSelfCheckEnvironmentSnapshot {
+  app?: Record<string, unknown>;
+  process?: Record<string, unknown>;
+  paths?: Record<string, unknown>;
+  opencode?: Record<string, unknown>;
+  text_model?: Record<string, unknown>;
+}
+
+export interface AgentSelfCheckResult {
+  success: boolean;
+  status: AgentSelfCheckStatus;
+  message: string;
+  checked_at: string;
+  duration_ms: number;
+  log_dir: string;
+  log_file: string;
+  runtime_root: string;
+  workspace_dir: string;
+  output_file: string;
+  output_path: string;
+  output_content?: string;
+  opencode_binary_path: string;
+  conclusion?: string;
+  model_config?: Record<string, unknown>;
+  environment?: AgentSelfCheckEnvironmentSnapshot | null;
+  direct_model_test?: Record<string, unknown> | null;
+  opencode_request_log?: unknown[];
+  proxy_diagnostics?: { events: unknown[] };
+  workspace_snapshot?: Record<string, unknown> | null;
+  agent_result?: Record<string, unknown>;
+  steps: AgentSelfCheckStep[];
+  diagnostics?: AgentSelfCheckDiagnostics;
+  error?: AgentSelfCheckDiagnostics;
+  detail_text: string;
+  runtime_status?: AgentRuntimeStatus;
+}
+
+export interface AgentSelfCheckReportExportResult {
+  success: boolean;
+  canceled?: boolean;
+  path?: string;
+  message: string;
+}
+
 export interface YibiaoBridge {
   appName: string;
   platform: string;
@@ -230,7 +401,7 @@ export interface YibiaoBridge {
   openExternal: (url: string) => Promise<{ success: boolean; message?: string }>;
   checkUpdate: () => Promise<UpdateCheckResult>;
   startUpdate: () => Promise<UpdateCheckResult>;
-  quitAndInstall: () => Promise<void>;
+  quitAndInstall: () => Promise<UpdateInstallResult>;
   onUpdateProgress: (callback: (event: { percent: number }) => void) => () => void;
   onUpdateDownloaded: (callback: (event: { version: string }) => void) => () => void;
   onUpdateError: (callback: (event: { message: string }) => void) => () => void;
@@ -255,6 +426,13 @@ export interface YibiaoBridge {
     listModels: (config?: ClientConfig) => Promise<ModelListResult>;
     openConfigFolder: () => Promise<{ success: boolean; path: string }>;
   };
+  templates: {
+    list: () => Promise<ExportTemplateRecord[]>;
+    get: (templateId: string) => Promise<ExportTemplateRecord | null>;
+    create: (config: ExportFormatConfig) => Promise<ExportTemplateRecord>;
+    update: (templateId: string, config: ExportFormatConfig) => Promise<ExportTemplateRecord>;
+    delete: (templateId: string) => Promise<{ success: boolean; message?: string }>;
+  };
   ai: {
     chat: (request: ChatCompletionRequest) => Promise<string>;
     requestJson: <TResult = unknown>(request: JsonCompletionRequest) => Promise<TResult>;
@@ -263,6 +441,20 @@ export interface YibiaoBridge {
     saveJsonFailureSample: (sample: JsonFailureSampleInput) => Promise<JsonFailureSamplesResult>;
     clearJsonFailureSamples: () => Promise<JsonFailureSamplesResult>;
     testImageModel: (config: ClientConfig) => Promise<ImageModelTestResult>;
+  };
+  agent: {
+    run: (payload: AgentRunPayload) => Promise<AgentRunResult>;
+    selfCheck: () => Promise<AgentSelfCheckResult>;
+    exportSelfCheckReport: (payload: AgentSelfCheckResult) => Promise<AgentSelfCheckReportExportResult>;
+    getStatus: () => Promise<AgentRuntimeStatus>;
+    restart: (reason?: string) => Promise<AgentRuntimeStatus>;
+    onStatus: (callback: (status: AgentRuntimeStatus) => void) => () => void;
+  };
+  developerTokenStats: {
+    openWindow: () => Promise<{ success: boolean }>;
+    get: () => Promise<DeveloperTextTokenStats>;
+    reset: () => Promise<DeveloperTextTokenStats>;
+    onChanged: (callback: (stats: DeveloperTextTokenStats) => void) => () => void;
   };
   file: {
     selectDuplicateCheckFiles: (options?: { multiple?: boolean }) => Promise<FileSelectionResult>;
@@ -307,9 +499,6 @@ export interface YibiaoBridge {
       message?: string;
       state?: TechnicalPlanState;
       markdown?: string;
-      needsSectionSelection?: boolean;
-      sections?: DetectedBidSection[];
-      totalDeclared?: number | null;
       fileName?: string;
       parserLabel?: string | null;
     }>;
@@ -319,15 +508,15 @@ export interface YibiaoBridge {
       state?: TechnicalPlanState;
       markdown?: string;
     }>;
+    checkBidSections: () => Promise<{ hasMultiple: boolean; totalDeclared?: number | null }>;
     selectBidSection: (selectedSection: DetectedBidSection) => Promise<{ success: boolean; message?: string; state: TechnicalPlanState; markdown: string }>;
-    cancelBidSectionSelection: () => Promise<{ success: boolean; message?: string; state: TechnicalPlanState }>;
     readTenderMarkdown: () => Promise<string>;
     readOriginalPlanMarkdown: () => Promise<string>;
     updateStep: (step: TechnicalPlanStep) => Promise<TechnicalPlanState>;
     setWorkflowKind: (workflowKind: TechnicalPlanWorkflowKind) => Promise<TechnicalPlanState>;
     switchWorkflowKind: (workflowKind: TechnicalPlanWorkflowKind) => Promise<TechnicalPlanState>;
-    saveBidAnalysisConfig: (payload: { mode: BidAnalysisMode; selectedTaskIds: string[] }) => Promise<TechnicalPlanState>;
-    saveOutlineConfig: (payload: { outlineMode: OutlineMode; referenceKnowledgeDocumentIds: string[] }) => Promise<TechnicalPlanState>;
+    saveBidAnalysisConfig: (payload: { mode: BidAnalysisMode; selectedTaskIds: string[]; bidSectionMode?: BidSectionMode }) => Promise<TechnicalPlanState>;
+    saveOutlineConfig: (payload: { referenceKnowledgeDocumentIds: string[]; outlineExpansionMode?: OutlineExpansionMode }) => Promise<TechnicalPlanState>;
     saveOutline: (payload: SaveOutlineRequest) => Promise<TechnicalPlanState>;
     saveGlobalFacts: (globalFacts: GlobalFactGroupState[]) => Promise<TechnicalPlanState>;
     saveContentGenerationOptions: (options: ContentGenerationOptions) => Promise<TechnicalPlanState>;
@@ -399,6 +588,7 @@ export interface YibiaoBridge {
     clear: () => Promise<BidOpportunityState>;
   };
   tasks: {
+    startBidSectionExtraction: (payload?: unknown) => Promise<unknown>;
     startBidAnalysis: (payload: unknown) => Promise<unknown>;
     startOutlineGeneration: (payload: unknown) => Promise<unknown>;
     startGlobalFactsGeneration: (payload: unknown) => Promise<unknown>;
@@ -416,6 +606,10 @@ export interface YibiaoBridge {
   export: {
     previewWordExport: (payload: unknown) => Promise<WordExportPreviewResult>;
     exportWord: (payload: unknown) => Promise<WordExportResult>;
+    openFile: (filePath: string) => Promise<{ success: boolean }>;
     onWordExportProgress: (callback: (event: WordExportProgressEvent) => void) => () => void;
+  };
+  systemFonts: {
+    list: () => Promise<string[]>;
   };
 }

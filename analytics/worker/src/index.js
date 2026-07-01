@@ -1,4 +1,5 @@
 import { corsHeaders, json } from './http.js';
+import { handleAgentRuntime } from './routes/agentRuntime.js';
 import { handleClients, handleClientDetail, handleIpStats } from './routes/clients.js';
 import { handleConfigUsage, handleModelUsage } from './routes/configUsage.js';
 import { handleGitHubRepoStats } from './routes/githubRepoStats.js';
@@ -11,7 +12,7 @@ import { handleRetention } from './routes/retention.js';
 import { handleAdminResources, handlePublicResources, handleResourceImage } from './routes/resources.js';
 import { handleTrack } from './routes/track.js';
 import { handleTraffic } from './routes/traffic.js';
-import { rollupYesterdayForAllProjects } from './services/analyticsStatsStore.js';
+import { rollupYesterdayCronStage } from './services/analyticsStatsStore.js';
 
 const routes = new Map([
   ['/health', (request, env) => handleHealth(env)],
@@ -31,6 +32,7 @@ const routes = new Map([
   ['/api/retention', handleRetention],
   ['/api/config-usage', handleConfigUsage],
   ['/api/model-usage', handleModelUsage],
+  ['/api/agent-runtime', handleAgentRuntime],
   ['/api/github-repo-stats', handleGitHubRepoStats],
 ]);
 
@@ -49,7 +51,7 @@ export default {
     return json({ code: 404, message: 'not found' }, { status: 404 });
   },
 
-  async scheduled(_event, env) {
-    await rollupYesterdayForAllProjects(env);
+  async scheduled(event, env) {
+    await rollupYesterdayCronStage(env, event?.cron || '');
   },
 };

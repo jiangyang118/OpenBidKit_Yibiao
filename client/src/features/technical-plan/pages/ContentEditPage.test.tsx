@@ -11,9 +11,10 @@ const generationOptions: ContentGenerationOptions = {
   useMermaidImages: true,
   tableRequirement: 'moderate',
   minimumWords: 0,
-  contentConcurrency: 2,
   enableConsistencyAudit: true,
+  consistencyRepairMode: 'agent',
   enableOriginalPlanCoverageAudit: false,
+  originalPlanCoverageRepairMode: 'agent',
 };
 
 const sections: ContentGenerationSections = {

@@ -15,6 +15,9 @@
    <a href="https://linux.do/" rel="nofollow">
   <img src="https://camo.githubusercontent.com/1c3b7d159a0bd69f89a8147a3d875d8d6431c97c172e52bac05fda35ae7370c3/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f4c494e55582d2d444f2d436f6d6d756e6974792d626c75652e7376673f6c6f676f3d64617461253341696d616765253246737667253242786d6c25334262617365363425324350484e325a79423361575230614430694d5449774969426f5a576c6e61485139496a45794d434967646d6c6c64304a76654430694d434177494445794d4341784d6a4169494868746247357a50534a6f644852774f693876643364334c6e637a4c6d39795a7938794d4441774c334e325a794925324250474e73615842515958526f49476c6b50534a68496a343859326c795932786c49474e34505349324d43496759336b39496a597749694279505349304e794976506a7776593278706346426864476725324250474e70636d4e735a53426d615778735053496a5a6a426d4d4759774969426a654430694e6a416949474e35505349324d434967636a30694e5441694c7a3438636d566a6443426d615778735053496a4d574d78597a466c4969426a62476c774c58426864476739496e56796243676a59536b6949486739496a457749694235505349784d43496764326c6b64476739496a45774d434967614756705a3268305053497a4d434976506a78795a574e3049475a706247773949694e6d4d4759775a6a416949474e7361584174634746306144306964584a734b434e684b534967654430694d54416949486b39496a51774969423361575230614430694d5441774969426f5a576c6e61485139496a517749693825324250484a6c593351675a6d6c736244306949325a6d596a41774d79496759327870634331775958526f50534a31636d776f4932457049694234505349784d434967655430694f444169494864705a48526f505349784d4441694947686c6157646f644430694d7a41694c7a34384c334e325a7a34253344267374796c653d666c6174" alt="友链 linux.do" data-canonical-src="https://img.shields.io/badge/LINUX--DO-Community-blue.svg?logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTIwIiBoZWlnaHQ9IjEyMCIgdmlld0JveD0iMCAwIDEyMCAxMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI%2BPGNsaXBQYXRoIGlkPSJhIj48Y2lyY2xlIGN4PSI2MCIgY3k9IjYwIiByPSI0NyIvPjwvY2xpcFBhdGg%2BPGNpcmNsZSBmaWxsPSIjZjBmMGYwIiBjeD0iNjAiIGN5PSI2MCIgcj0iNTAiLz48cmVjdCBmaWxsPSIjMWMxYzFlIiBjbGlwLXBhdGg9InVybCgjYSkiIHg9IjEwIiB5PSIxMCIgd2lkdGg9IjEwMCIgaGVpZ2h0PSIzMCIvPjxyZWN0IGZpbGw9IiNmMGYwZjAiIGNsaXAtcGF0aD0idXJsKCNhKSIgeD0iMTAiIHk9IjQwIiB3aWR0aD0iMTAwIiBoZWlnaHQ9IjQwIi8%2BPHJlY3QgZmlsbD0iI2ZmYjAwMyIgY2xpcC1wYXRoPSJ1cmwoI2EpIiB4PSIxMCIgeT0iODAiIHdpZHRoPSIxMDAiIGhlaWdodD0iMzAiLz48L3N2Zz4%3D&amp;style=flat" style="max-width: 100%;">
   </a>
+  <a href="https://afdian.com/a/markup" rel="nofollow">
+    <img src="https://img.shields.io/badge/Afdian-Support%20the%20Project-F96854.svg" alt="Support the project on Afdian">
+  </a>
 </p>
 
 <p align="left">
@@ -22,39 +25,21 @@
   <br>
   Yibiao Bid Toolbox is an intelligent bid document creation tool for tendering and bidding scenarios. It is fully open source and includes local desktop capabilities such as AI-generated technical proposals, existing-proposal expansion, image-and-text generation, commercial bid support, AI evaluation, enterprise knowledge base management, image knowledge base, duplicate checking, rejection-risk checks, tender opportunities, resource downloads, and developer diagnostics.
   <br>
-  It supports all OpenAI-like AI APIs. DeepSeek, LongCat, and Volcano Ark are deeply adapted, and local models can also be connected through Ollama, LM Studio, and similar tools.
+  It supports all OpenAI-like AI APIs. GPT, DeepSeek, LongCat, and Volcano Ark are deeply adapted, and local models can also be connected through Ollama, LM Studio, and similar tools.
   <br>
   <br>
   <strong>❓ What problem does it solve?</strong>
   <br>
-  There are many paid AI bid-writing tools today, but they are extremely expensive. A single proposal can cost tens of yuan, and unless a company reimburses it, small-business workers can hardly afford them. Free tools often have very poor quality. OpenBidKit aims to become the OpenClaw of the bidding field by providing an out-of-the-box, high-quality proposal writing tool. In our tests, generating a 200,000-word bid proposal with DeepSeek V4 Flash costs only about 0.8-1 yuan. We are also working hard to support the completely free LongCat-2.0-Preview, so proposal writers no longer need to buy their own feed.
+  There are many paid AI bid-writing tools today, but they are extremely expensive. A single proposal can cost tens of yuan, and unless a company reimburses it, small-business workers can hardly afford them. Free tools often have very poor quality. OpenBidKit aims to become the OpenClaw of the bidding field by providing an out-of-the-box, high-quality proposal writing tool. In our tests, generating a 100,000-word bid proposal with DeepSeek V4 Flash costs only about 1 yuan.
 </p>
 
 ## 🌐 Official Website
 
-**Online Experience**: [https://yibiao.pro](https://yibiao.pro)
+**Online Experience**: [https://yibiao.pro](https://yibiao.pro)  [Get more product information, online demos, and technical support.]
 
-Visit the website for more product information, online demos, and technical support.
+## 💖 Support the Project
 
-> **Ad Slot · Jlaude API**
->
-> Focused on the full GPT series, lower cost than DeepSeek V4 PRO, stable and fast for 7 months. Native chat in Yanwuchang plus unlimited-canvas image generation, all in one place, practical and affordable.
->
-> Direct link: https://jlaudeapi.com
-
-## 📢 Statement
-
-Recently, we have received many issue-based attacks that baselessly smear and attack this repository. I hereby state:
-
-1. I will not stop open-sourcing this project. Never!
-2. Even if it becomes commercialized in the future, I will follow excellent open-source projects such as Excalidraw and NocoDB, and only charge for B2B services such as project management, cloud storage, team collaboration, and enterprise services. I give my personal word that the basic features for personal use will remain open source and free forever, and the generation quality will strive to match paid software.
-
-<img src="./screenshots/issue_claim.png" alt="Yibiao issue statement" width="100%">
-
-## 🍉 Acknowledgements
-
-- Thanks to all users for your support and trust.
-- Special thanks to friends from <a href="https://linux.do/" rel="nofollow">linuxdo</a> for your support and encouragement.
+If this project helps you, you can support ongoing maintenance and open-source development on [Afdian](https://afdian.com/a/markup).
 
 <h2 align="center">✨ Features & Advantages</h2>
 
@@ -175,6 +160,69 @@ Contributions are welcome.
 3. **🔧 Code Contributions**: Fork the repository and submit a pull request.
 4. **📖 Documentation**: Help improve documentation and usage guides.
 
+## 📢 Statement
+
+Recently, we have received many issue-based attacks that baselessly smear and attack this repository. I hereby state:
+
+1. I will not stop open-sourcing this project. Never!
+2. Even if it becomes commercialized in the future, I will follow excellent open-source projects such as Excalidraw and NocoDB, and only charge for B2B services such as project management, cloud storage, team collaboration, and enterprise services. I give my personal word that the basic features for personal use will remain open source and free forever, and the generation quality will strive to match paid software.
+
+<img src="./screenshots/issue_claim.png" alt="Yibiao issue statement" width="100%">
+
+## 🍉 Acknowledgements
+
+- Thanks to all users for your support and trust.
+- Special thanks to friends from <a href="https://linux.do/" rel="nofollow">linuxdo</a> for your support and encouragement.
+
+### 🦞 Non-Developer Contributions
+
+People who provide requirement analysis, technical support, test files, useful feedback, free promotion, and other help for this open-source project may not automatically appear in contributors, but they still deserve to be recorded.
+
+<table>
+  <tr>
+    <td width="20%" valign="top">
+
+![](https://oss.agnet.top/keep/2026/06/23/20260623104254982.png)
+<p align="center">Yunfeng</p>
+    </td>
+    <td width="20%" valign="top">
+
+![](https://oss.agnet.top/keep/2026/06/23/20260623104442168.png)
+<p align="center">Engineer X</p>
+    </td>
+    <td width="20%" valign="top">
+
+![](https://oss.agnet.top/keep/2026/06/23/20260623104455361.png)
+<p align="center">Professional Proposal</p>
+    </td>
+    <td width="20%" valign="top">
+
+![](https://oss.agnet.top/keep/2026/06/23/20260623104521954.png)
+<p align="center">Mr.Erick</p>
+    </td>
+    <td width="20%" valign="top">
+
+![](https://oss.agnet.top/keep/2026/06/23/20260623104533722.png)
+<p align="center">Xiaomailang's Summer</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="20%" valign="top">
+
+![](https://oss.agnet.top/keep/2026/06/23/20260623105024436.png)
+<p align="center">Hanfeng (Petrochemical Installation Training)</p>
+    </td>
+    <td width="20%" valign="top">
+    </td>
+    <td width="20%" valign="top">
+    </td>
+    <td width="20%" valign="top">
+    </td>
+    <td width="20%" valign="top">
+    </td>
+  </tr>
+</table>
+
 ## 📄 License
 
 This project is released under the [GNU Affero General Public License v3.0](LICENSE).
@@ -216,6 +264,8 @@ You may use, modify, distribute, and commercialize this project, but modified ve
   ⭐ If this project helps you, please give it a Star.
 </p>
 
-<p align="center">⭐ This project has been open sourced and self recommended for communication in the LINUX DO community. We welcome your supervision, feedback, and contributions.</a></p>
+<p align="center">
+  ⭐ This project has been open sourced and self-recommended in the LINUX DO community. We welcome your supervision, feedback, and contributions.
+</p>
 
 `AI Proposal Writing` `Bid AI` `AI Bid Generation` `Free Bid Proposal Tool`

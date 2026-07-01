@@ -21,10 +21,10 @@ PRAGMA user_version = 30;
 -- ============================================================================
 
 -- 技术方案单例元数据。
--- 只保留一行 id = 1，用于保存当前步骤、工作流类型、招标文件/原方案 Markdown 元数据、Step 内 pending 子状态、模式配置和正文生成运行时 JSON。
--- 招标文件 Markdown 原文不进入 SQLite，保存到 userData/workspace/technical-plan/tender.md。
+-- 只保留一行 id = 1，用于保存当前步骤、工作流类型、招标文件/原方案 Markdown 元数据、模式配置和正文生成运行时 JSON。
+-- 招标文件 Markdown 原文不进入 SQLite，原始文件保存到 userData/workspace/technical-plan/tender-original.md，当前投标范围工作副本保存到 userData/workspace/technical-plan/tender.md。
 -- 原方案 Markdown 原文不进入 SQLite，保存到 userData/workspace/technical-plan/original-plan.md。
--- 多标段待选择 Markdown 原文同样不进入 SQLite，保存到 userData/workspace/technical-plan/tender-pending-*.tmp.md，并由 pending_tender_* 字段记录恢复状态。
+-- pending_tender_* 为旧版 Step01 标段待选择兼容清理字段，新流程不再写入。
 CREATE TABLE IF NOT EXISTS technical_plan_meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   -- v9 工作流类型：technical-plan / existing-plan-expansion
@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS technical_plan_meta (
   tender_markdown_chars INTEGER NOT NULL DEFAULT 0,
   tender_parser_label TEXT,
   tender_imported_at TEXT,
+  -- v14 多标段优化：原始招标文件 Markdown 状态，tender_markdown_* 继续代表当前工作副本。
+  tender_original_markdown_path TEXT,
+  tender_original_markdown_hash TEXT,
+  tender_original_markdown_chars INTEGER NOT NULL DEFAULT 0,
   -- v9 已有方案扩写的原方案文件状态
   original_plan_file_name TEXT,
   original_plan_markdown_path TEXT,
@@ -43,7 +47,7 @@ CREATE TABLE IF NOT EXISTS technical_plan_meta (
   original_plan_markdown_chars INTEGER NOT NULL DEFAULT 0,
   original_plan_parser_label TEXT,
   original_plan_imported_at TEXT,
-  -- v8 Step01 多标段待选择恢复状态
+  -- v8 旧版 Step01 多标段待选择恢复状态（新流程仅用于兼容清理）
   pending_tender_markdown_path TEXT,
   pending_tender_file_name TEXT,
   pending_tender_parser_label TEXT,
@@ -53,7 +57,14 @@ CREATE TABLE IF NOT EXISTS technical_plan_meta (
   bid_analysis_mode TEXT NOT NULL DEFAULT 'key',
   -- v10 招标解析项选择配置，JSON 数组，关键项由运行时代码强制并入。
   bid_analysis_selected_task_ids_json TEXT,
+  -- v14 投标范围模式：single / multiple；多标段 AI 提取结果保存在 bid_sections_json。
+  bid_section_mode TEXT NOT NULL DEFAULT 'single',
+  bid_sections_json TEXT,
+  bid_section_extraction_status TEXT NOT NULL DEFAULT 'idle',
+  bid_section_extraction_error TEXT,
   outline_mode TEXT NOT NULL DEFAULT 'aligned',
+  -- v13 已有方案扩写目录使用方式：original-only / ai-complement。
+  outline_expansion_mode TEXT NOT NULL DEFAULT 'ai-complement',
   outline_project_name TEXT,
   outline_project_overview TEXT,
   content_generation_options_json TEXT,
@@ -61,7 +72,7 @@ CREATE TABLE IF NOT EXISTS technical_plan_meta (
   -- v6 兼容字段（旧版客户端遗留，新代码不再使用但保留以兼容）
   current_bid_section_id TEXT,
   bid_sections_extracted INTEGER,
-  -- v7 标段选择字段
+  -- v7 标段选择字段；selected_section_head_line 为旧展示字段，新流程从 bid_sections_json 读取 AI 结果。
   selected_section_id TEXT,
   selected_section_title TEXT,
   selected_section_head_line TEXT,

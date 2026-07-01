@@ -1,9 +1,11 @@
 const { ipcMain, shell } = require('electron');
+const { registerAgentIpc } = require('./agentIpc.cjs');
 const { registerAiIpc } = require('./aiIpc.cjs');
 const { registerAiEvaluationIpc } = require('./aiEvaluationIpc.cjs');
 const { registerBidOpportunityIpc } = require('./bidOpportunityIpc.cjs');
 const { registerBusinessBidIpc } = require('./businessBidIpc.cjs');
 const { registerConfigIpc } = require('./configIpc.cjs');
+const { registerDeveloperIpc } = require('./developerIpc.cjs');
 const { registerDuplicateCheckIpc } = require('./duplicateCheckIpc.cjs');
 const { registerExportIpc } = require('./exportIpc.cjs');
 const { registerFileIpc } = require('./fileIpc.cjs');
@@ -13,6 +15,9 @@ const { registerProjectWorkspaceIpc } = require('./projectWorkspaceIpc.cjs');
 const { registerRejectionCheckIpc } = require('./rejectionCheckIpc.cjs');
 const { registerTaskIpc } = require('./taskIpc.cjs');
 const { registerTechnicalPlanIpc } = require('./technicalPlanIpc.cjs');
+const { registerTemplateIpc } = require('./templateIpc.cjs');
+const { registerSystemFontIpc } = require('./systemFontIpc.cjs');
+const { createAgentService } = require('../services/agentService.cjs');
 const { createAiService } = require('../services/aiService.cjs');
 const { createAiEvaluationStore } = require('../services/aiEvaluationStore.cjs');
 const { createBidOpportunityStore } = require('../services/bidOpportunityStore.cjs');
@@ -28,8 +33,10 @@ const { createKnowledgeBaseStore } = require('../services/knowledgeBaseStore.cjs
 const { createProjectWorkspaceStore } = require('../services/projectWorkspaceStore.cjs');
 const { createRejectionCheckStore } = require('../services/rejectionCheckStore.cjs');
 const { createSqliteDatabase } = require('../services/sqliteDatabase.cjs');
+const { createSystemFontService } = require('../services/systemFontService.cjs');
 const { createTaskService } = require('../services/taskService.cjs');
 const { createTechnicalPlanStore } = require('../services/technicalPlanStore.cjs');
+const { createTemplateStore } = require('../services/templateStore.cjs');
 
 function normalizeExternalUrl(value) {
   const raw = String(value || '').trim();
@@ -48,8 +55,8 @@ const workspaceDatabaseChannels = [
   'technical-plan:load-state',
   'technical-plan:import-tender-document',
   'technical-plan:import-original-plan-document',
+  'technical-plan:check-bid-sections',
   'technical-plan:select-bid-section',
-  'technical-plan:cancel-bid-section-selection',
   'technical-plan:read-tender-markdown',
   'technical-plan:read-original-plan-markdown',
   'technical-plan:update-step',
@@ -140,6 +147,11 @@ const workspaceDatabaseChannels = [
   'tasks:start-ai-evaluation-extraction',
   'tasks:start-ai-evaluation-batch-scoring',
   'tasks:get-active',
+  'templates:list',
+  'templates:get',
+  'templates:create',
+  'templates:update',
+  'templates:delete',
 ];
 
 function clearWorkspaceDatabaseIpc() {
@@ -198,7 +210,7 @@ function registerWorkspaceDatabaseStatusIpc({ mainWindow }) {
   };
 }
 
-function registerWorkspaceDatabaseServices({ app, configStore, aiService, fileService, updateStatus }) {
+function registerWorkspaceDatabaseServices({ app, configStore, aiService, agentService, fileService, updateStatus }) {
   const sqliteDatabase = createSqliteDatabase(app, { onStatus: updateStatus });
   const knowledgeBaseStore = createKnowledgeBaseStore({ app, db: sqliteDatabase.db });
   const knowledgeBaseService = createKnowledgeBaseService({ app, aiService, configStore, knowledgeBaseStore });
@@ -250,9 +262,22 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
   const aiService = createAiService({ app: projectApp, configStore });
   const fileService = createFileService({ app: projectApp, configStore });
   const exportService = createExportService({ configStore });
+  const systemFontService = createSystemFontService();
   const databaseStatus = registerWorkspaceDatabaseStatusIpc({ mainWindow });
   let workspaceDatabaseStarted = false;
   let gpuTrialRelaunchStarted = false;
+
+  const closeServices = async () => {
+    await agentService.close?.();
+  };
+
+  const closeServicesBeforeExit = async () => {
+    try {
+      await closeServices();
+    } catch (error) {
+      console.warn('[ipc] 关闭后台服务失败', error?.message || String(error));
+    }
+  };
 
   const saveGpuHardwareAccelerationPreference = (enabled) => {
     const nextEnabled = Boolean(enabled);
@@ -286,12 +311,42 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
       .concat('--disable-gpu');
   };
 
-  registerConfigIpc({ configStore, aiService });
+  const openDeveloperTokenStatsWindowOnStartup = () => {
+    try {
+      const config = configStore.load();
+      if (config.developer_mode && config.developer_token_stats_auto_open) {
+        openDeveloperTokenStatsWindow?.();
+      }
+    } catch (error) {
+      console.warn('[developer] 自动打开 Token 统计小窗失败', error?.message || String(error));
+    }
+  };
+
+  registerConfigIpc({
+    configStore,
+    aiService,
+    onConfigChanged(nextConfig, previousConfig) {
+      agentService.handleConfigChanged?.(nextConfig, previousConfig);
+    },
+    onDeveloperModeChange(developerMode) {
+      if (!developerMode) {
+        closeDeveloperTokenStatsWindow?.();
+      }
+    },
+  });
+  registerDeveloperIpc({ configStore, aiService, openDeveloperTokenStatsWindow });
   registerAiIpc({ aiService });
+  registerAgentIpc({ agentService, mainWindow });
   registerFileIpc({ fileService });
   registerExportIpc({ exportService });
   registerProjectWorkspaceIpc({ projectWorkspaceStore });
   registerPendingWorkspaceDatabaseIpc(databaseStatus.getStatus);
+
+  setTimeout(() => {
+    void agentService.warmup?.().catch((error) => {
+      console.warn('[agent] warmup failed', error?.message || String(error));
+    });
+  }, 500);
 
   const startWorkspaceDatabase = () => {
     if (workspaceDatabaseStarted) return;
@@ -318,9 +373,13 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
   };
 
   if (mainWindow.webContents.isLoading()) {
-    mainWindow.webContents.once('did-finish-load', startWorkspaceDatabase);
+    mainWindow.webContents.once('did-finish-load', () => {
+      startWorkspaceDatabase();
+      openDeveloperTokenStatsWindowOnStartup();
+    });
   } else {
     startWorkspaceDatabase();
+    openDeveloperTokenStatsWindowOnStartup();
   }
 
   ipcMain.handle('app:get-version', () => app.getVersion());
@@ -338,21 +397,20 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
 
   ipcMain.handle('app:save-gpu-hardware-acceleration-preference', (_event, enabled) => saveGpuHardwareAccelerationPreference(enabled));
 
-  ipcMain.handle('app:start-gpu-hardware-acceleration-trial', () => {
+  ipcMain.handle('app:start-gpu-hardware-acceleration-trial', async () => {
     if (gpuTrialRelaunchStarted) {
       return { success: true };
     }
 
     gpuTrialRelaunchStarted = true;
     const args = buildGpuTrialRelaunchArgs();
-    setTimeout(() => {
-      app.relaunch({ args });
-      app.exit(0);
-    }, 50);
+    await closeServicesBeforeExit();
+    app.relaunch({ args });
+    app.exit(0);
     return { success: true };
   });
 
-  ipcMain.handle('app:relaunch-with-gpu-hardware-acceleration-disabled', () => {
+  ipcMain.handle('app:relaunch-with-gpu-hardware-acceleration-disabled', async () => {
     saveGpuHardwareAccelerationPreference(false);
     if (gpuTrialRelaunchStarted) {
       return { success: true };
@@ -360,10 +418,9 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
 
     gpuTrialRelaunchStarted = true;
     const args = buildGpuDisabledRelaunchArgs();
-    setTimeout(() => {
-      app.relaunch({ args });
-      app.exit(0);
-    }, 50);
+    await closeServicesBeforeExit();
+    app.relaunch({ args });
+    app.exit(0);
     return { success: true };
   });
 
@@ -384,8 +441,9 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
 
   ipcMain.handle('app:get-latest-version', () => getLatestVersion({ configStore }));
   ipcMain.handle('app:get-update-download-url', () => getUpdateDownloadUrl({ configStore }));
-  ipcMain.handle('app:quit-and-install', () => {
-    quitAndInstall();
+  ipcMain.handle('app:quit-and-install', async () => {
+    await closeServicesBeforeExit();
+    return quitAndInstall({ app });
   });
 
   ipcMain.handle('app:check-update', (event) => {
@@ -423,6 +481,10 @@ function registerIpcHandlers({ app, mainWindow, checkAndDownloadUpdate, triggerU
       },
     });
   });
+
+  return {
+    closeServices,
+  };
 }
 
 module.exports = {

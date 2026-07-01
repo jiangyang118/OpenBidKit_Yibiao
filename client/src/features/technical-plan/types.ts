@@ -1,13 +1,17 @@
-import type { OutlineData, OutlineMode } from '../../shared/types';
+import type { OutlineData, OutlineExpansionMode, OutlineMode } from '../../shared/types';
 
 export type TechnicalPlanStep = 'document-analysis' | 'bid-analysis' | 'outline-generation' | 'global-facts' | 'content-edit';
 export type TechnicalPlanWorkflowKind = 'technical-plan' | 'existing-plan-expansion';
 export type BidAnalysisMode = 'key' | 'full' | 'custom';
 export type BidAnalysisTaskStatus = 'idle' | 'running' | 'success' | 'error';
-export type BackgroundTaskType = 'bid-analysis' | 'outline-generation' | 'global-facts-generation' | 'content-generation';
+export type BidSectionMode = 'single' | 'multiple';
+export type BidSectionExtractionStatus = 'idle' | 'running' | 'success' | 'error';
+export type BackgroundTaskType = 'bid-section-extraction' | 'bid-analysis' | 'outline-generation' | 'global-facts-generation' | 'content-generation';
 export type BackgroundTaskStatus = 'running' | 'pausing' | 'paused' | 'success' | 'error';
 export type ContentGenerationSectionStatus = 'idle' | 'running' | 'success' | 'error';
 export type ContentTableRequirement = 'none' | 'light' | 'moderate' | 'heavy';
+export type ConsistencyRepairMode = 'agent' | 'normal';
+export type OriginalPlanCoverageRepairMode = 'agent' | 'normal';
 export type SaveOutlineReason = 'sort' | 'edit' | 'delete' | 'add-root' | 'add-child' | 'replace';
 
 export interface SaveOutlineRequest {
@@ -23,9 +27,10 @@ export interface ContentGenerationOptions {
   useMermaidImages: boolean;
   tableRequirement: ContentTableRequirement;
   minimumWords: number;
-  contentConcurrency: number;
   enableConsistencyAudit: boolean;
+  consistencyRepairMode: ConsistencyRepairMode;
   enableOriginalPlanCoverageAudit: boolean;
+  originalPlanCoverageRepairMode: OriginalPlanCoverageRepairMode;
 }
 
 export interface ContentImageStats {
@@ -164,7 +169,7 @@ export interface BackgroundTaskState {
   error?: string;
   stats?: {
     content?: {
-      phase: 'planning' | 'restoring' | 'generating' | 'outline-expanding' | 'expanding' | 'original-auditing' | 'auditing' | 'illustrating' | 'done';
+      phase: 'planning' | 'restoring' | 'generating' | 'outline-expanding' | 'expanding' | 'original-auditing' | 'auditing' | 'table-cleaning' | 'illustrating' | 'done';
       planning_total: number;
       planning_completed: number;
       generation_total: number;
@@ -184,6 +189,16 @@ export interface BackgroundTaskState {
       audit_fix_total?: number;
       audit_fix_completed?: number;
       audit_fix_failed?: number;
+      audit_repair_mode?: ConsistencyRepairMode | '';
+      audit_agent_step_total?: number;
+      audit_agent_step_completed?: number;
+      audit_agent_step_label?: string;
+      audit_agent_changed_sections?: number;
+      audit_agent_failed_sections?: number;
+      table_cleanup_total?: number;
+      table_cleanup_completed?: number;
+      table_cleanup_rewritten?: number;
+      table_cleanup_skipped?: number;
       illustration_total?: number;
       illustration_completed?: number;
     };
@@ -229,6 +244,7 @@ export type ContentGenerationSections = Record<string, ContentGenerationSectionS
 export type ContentIllustrationType = 'ai' | 'mermaid' | 'none';
 
 export interface ContentGenerationPlanData {
+  writing_focus?: string;
   knowledge: {
     item_ids: string[];
   };
@@ -269,6 +285,7 @@ export interface ContentGenerationPlanData {
 export interface ContentGenerationPlanState {
   plan: ContentGenerationPlanData;
   illustration_type: ContentIllustrationType;
+  table_requirement?: 'none' | 'light' | 'moderate' | 'heavy';
   updated_at?: string;
 }
 
@@ -291,11 +308,13 @@ export interface TechnicalPlanTenderFile {
   markdownPath: string;
   markdownChars: number;
   contentHash: string;
+  originalMarkdownPath?: string;
+  originalMarkdownChars?: number;
+  originalContentHash?: string;
   parserLabel?: string;
   importedAt?: string;
   selectedSectionId?: string;
   selectedSectionTitle?: string;
-  selectedSectionHeadLine?: string;
   updatedAt: string;
 }
 
@@ -309,6 +328,12 @@ export interface TechnicalPlanOriginalPlanFile {
   updatedAt: string;
 }
 
+export interface BidSectionLineRange {
+  startLine: number;
+  endLine: number;
+  reason?: string;
+}
+
 export interface DetectedBidSection {
   id: string;
   index: number;
@@ -316,14 +341,8 @@ export interface DetectedBidSection {
   title: string;
   headLine: string;
   description: string;
-}
-
-export interface PendingSectionSelection {
-  fileName: string;
-  parserLabel?: string | null;
-  sections: DetectedBidSection[];
-  totalDeclared?: number | null;
-  createdAt?: string;
+  includeRanges?: BidSectionLineRange[];
+  evidence?: string[];
 }
 
 export interface TechnicalPlanState {
@@ -337,8 +356,14 @@ export interface TechnicalPlanState {
   bidAnalysisSelectedTaskIds: string[];
   bidAnalysisTasks: BidAnalysisTasks;
   bidAnalysisProgress: number;
+  bidSectionMode: BidSectionMode;
+  bidSections: DetectedBidSection[];
+  bidSectionExtractionStatus: BidSectionExtractionStatus;
+  bidSectionExtractionError?: string;
   outlineMode: OutlineMode;
+  outlineExpansionMode: OutlineExpansionMode;
   referenceKnowledgeDocumentIds: string[];
+  bidSectionExtractionTask?: BackgroundTaskState;
   bidAnalysisTask?: BackgroundTaskState;
   outlineGenerationTask?: BackgroundTaskState;
   globalFactsTask?: BackgroundTaskState;
@@ -349,5 +374,4 @@ export interface TechnicalPlanState {
   contentGenerationPlans: ContentGenerationPlans;
   contentGenerationRuntime?: ContentGenerationRuntimeState;
   outlineData: OutlineData | null;
-  pendingSectionSelection: PendingSectionSelection | null;
 }

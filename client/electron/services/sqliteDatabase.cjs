@@ -17,6 +17,9 @@ function createInitialSchema(db) {
       tender_markdown_chars INTEGER NOT NULL DEFAULT 0,
       tender_parser_label TEXT,
       tender_imported_at TEXT,
+      tender_original_markdown_path TEXT,
+      tender_original_markdown_hash TEXT,
+      tender_original_markdown_chars INTEGER NOT NULL DEFAULT 0,
       original_plan_file_name TEXT,
       original_plan_markdown_path TEXT,
       original_plan_markdown_hash TEXT,
@@ -31,7 +34,12 @@ function createInitialSchema(db) {
       pending_tender_created_at TEXT,
       bid_analysis_mode TEXT NOT NULL DEFAULT 'key',
       bid_analysis_selected_task_ids_json TEXT,
+      bid_section_mode TEXT NOT NULL DEFAULT 'single',
+      bid_sections_json TEXT,
+      bid_section_extraction_status TEXT NOT NULL DEFAULT 'idle',
+      bid_section_extraction_error TEXT,
       outline_mode TEXT NOT NULL DEFAULT 'aligned',
+      outline_expansion_mode TEXT NOT NULL DEFAULT 'ai-complement',
       outline_project_name TEXT,
       outline_project_overview TEXT,
       content_generation_options_json TEXT,
@@ -209,6 +217,20 @@ function addTechnicalPlanBidAnalysisSelection(db) {
   if (!cols.includes('bid_analysis_selected_task_ids_json')) {
     db.exec('ALTER TABLE technical_plan_meta ADD COLUMN bid_analysis_selected_task_ids_json TEXT');
   }
+}
+
+function addTechnicalPlanOutlineExpansionMode(db) {
+  addColumnIfMissing(db, 'technical_plan_meta', 'outline_expansion_mode', "TEXT NOT NULL DEFAULT 'ai-complement'");
+}
+
+function addTechnicalPlanBidSectionOptimization(db) {
+  addColumnIfMissing(db, 'technical_plan_meta', 'tender_original_markdown_path', 'TEXT');
+  addColumnIfMissing(db, 'technical_plan_meta', 'tender_original_markdown_hash', 'TEXT');
+  addColumnIfMissing(db, 'technical_plan_meta', 'tender_original_markdown_chars', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'technical_plan_meta', 'bid_section_mode', "TEXT NOT NULL DEFAULT 'single'");
+  addColumnIfMissing(db, 'technical_plan_meta', 'bid_sections_json', 'TEXT');
+  addColumnIfMissing(db, 'technical_plan_meta', 'bid_section_extraction_status', "TEXT NOT NULL DEFAULT 'idle'");
+  addColumnIfMissing(db, 'technical_plan_meta', 'bid_section_extraction_error', 'TEXT');
 }
 
 function addKnowledgeDocumentSortOrder(db) {
@@ -1354,6 +1376,21 @@ function createKnowledgeBaseSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_knowledge_match_batches_status
     ON knowledge_match_batches(document_id, status, batch_index);
+  `);
+}
+
+function createExportTemplatesSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS export_templates (
+      template_id TEXT PRIMARY KEY,
+      template_name TEXT NOT NULL,
+      config_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_export_templates_updated
+    ON export_templates(updated_at DESC);
   `);
 }
 

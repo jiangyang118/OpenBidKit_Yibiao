@@ -33,7 +33,9 @@ interface ConfigUsagePayload {
   business_bid_action?: BusinessBidAnalyticsAction;
   minimum_words?: number;
   enable_consistency_audit?: boolean;
+  consistency_repair_mode?: string;
   enable_original_plan_coverage_audit?: boolean;
+  original_plan_coverage_repair_mode?: string;
 }
 
 const configUsageFields: Array<[keyof ConfigUsagePayload, string]> = [
@@ -50,7 +52,9 @@ const configUsageFields: Array<[keyof ConfigUsagePayload, string]> = [
   ['business_bid_action', 'businessBidActions'],
   ['minimum_words', 'minimumWords'],
   ['enable_consistency_audit', 'enableConsistencyAudit'],
+  ['consistency_repair_mode', 'consistencyRepairModes'],
   ['enable_original_plan_coverage_audit', 'enableOriginalPlanCoverageAudit'],
+  ['original_plan_coverage_repair_mode', 'originalPlanCoverageRepairModes'],
 ];
 
 const PAGE_ID_PATTERN = /^[a-zA-Z0-9/_-]{1,120}$/;

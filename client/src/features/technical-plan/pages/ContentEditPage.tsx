@@ -1,13 +1,12 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Popover from '@radix-ui/react-popover';
 import * as Switch from '@radix-ui/react-switch';
-import { Children, isValidElement, memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import type { Components } from 'react-markdown';
+import { memo, useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { trackConfigUsage } from '../../../shared/analytics/analytics';
-import { DetailHelpLink, MarkdownEditor, MarkdownRenderer, useToast } from '../../../shared/ui';
+import { MarkdownEditor, MarkdownRenderer, useToast } from '../../../shared/ui';
 import type { ClientConfig, ImageModelStatus, OutlineData, OutlineItem } from '../../../shared/types';
 import { countReadableWords } from '../../../shared/utils/wordCount';
-import type { BackgroundTaskState, ContentGenerationOptions, ContentGenerationSectionStatus, ContentGenerationSections, ContentImageStats, ContentTableRequirement, TechnicalPlanState, TechnicalPlanWorkflowKind } from '../types';
+import type { BackgroundTaskState, ConsistencyRepairMode, ContentGenerationOptions, ContentGenerationSectionStatus, ContentGenerationSections, ContentImageStats, ContentTableRequirement, OriginalPlanCoverageRepairMode, TechnicalPlanState, TechnicalPlanWorkflowKind } from '../types';
 import type { ImageKnowledgeAsset, ImageKnowledgeState } from '../../image-knowledge-base/types';
 import type { ExportFormatConfig } from '../../../shared/types/exportFormat';
 import { DEFAULT_EXPORT_FORMAT } from '../../../shared/types/exportFormat';
@@ -33,7 +32,7 @@ interface OutlineNodeMeta {
   words: number;
 }
 
-type ContentGenerationAction = 'start' | 'continue' | 'retry_minimum_words' | 'regenerate';
+type ContentGenerationAction = 'start' | 'continue' | 'retry_minimum_words' | 'regenerate' | 'regenerate_section';
 
 interface PendingMinimumWordsChoice {
   options: ContentGenerationOptions;
@@ -42,6 +41,11 @@ interface PendingMinimumWordsChoice {
   currentWords: number;
   minimumWords: number;
 }
+
+type NumberInputDraft = number | '';
+type DraftContentGenerationOptions = Omit<ContentGenerationOptions, 'minimumWords'> & {
+  minimumWords: NumberInputDraft;
+};
 
 const statusLabels: Record<TreeStatus, string> = {
   idle: '待生成',
@@ -65,19 +69,38 @@ const tableRequirementOptions: Array<{ value: ContentTableRequirement; label: st
   { value: 'heavy', label: '大量', description: '保持现有编排逻辑' },
 ];
 
+const consistencyRepairModeOptions: Array<{ value: ConsistencyRepairMode; label: string; description: string }> = [
+  { value: 'agent', label: 'Agent 修复（推荐）', description: '交给 Agent 审计并修复全文，质量更高但耗时更久' },
+  { value: 'normal', label: '普通修复', description: '使用现有分组审计和局部替换修复，速度更快' },
+];
+
+const originalPlanCoverageRepairModeOptions: Array<{ value: OriginalPlanCoverageRepairMode; label: string; description: string }> = [
+  { value: 'agent', label: 'Agent 修复（推荐）', description: '全文检查并补回原方案核心内容，质量更高但耗时更久' },
+  { value: 'normal', label: '普通修复', description: '按小节审计和局部补写，速度更快；单章节重写始终使用普通修复' },
+];
+
 const defaultContentGenerationOptions: ContentGenerationOptions = {
   useAiImages: false,
   maxAiImages: 6,
   useMermaidImages: true,
   tableRequirement: 'heavy',
   minimumWords: 0,
-  contentConcurrency: 5,
   enableConsistencyAudit: true,
+  consistencyRepairMode: 'agent',
   enableOriginalPlanCoverageAudit: false,
+  originalPlanCoverageRepairMode: 'agent',
 };
 
 function isContentTableRequirement(value: unknown): value is ContentTableRequirement {
   return tableRequirementOptions.some((option) => option.value === value);
+}
+
+function isConsistencyRepairMode(value: unknown): value is ConsistencyRepairMode {
+  return consistencyRepairModeOptions.some((option) => option.value === value);
+}
+
+function isOriginalPlanCoverageRepairMode(value: unknown): value is OriginalPlanCoverageRepairMode {
+  return originalPlanCoverageRepairModeOptions.some((option) => option.value === value);
 }
 
 function buildDefaultGenerationOptions(imageModelAvailable: boolean, leafCount: number): ContentGenerationOptions {
@@ -88,12 +111,11 @@ function buildDefaultGenerationOptions(imageModelAvailable: boolean, leafCount: 
   };
 }
 
-function normalizeGenerationOptions(options: ContentGenerationOptions | undefined, imageModelAvailable: boolean, leafCount: number, isExpansionWorkflow = false): ContentGenerationOptions {
+function normalizeGenerationOptions(options: ContentGenerationOptions | DraftContentGenerationOptions | undefined, imageModelAvailable: boolean, leafCount: number, isExpansionWorkflow = false): ContentGenerationOptions {
   const fallback = buildDefaultGenerationOptions(imageModelAvailable, leafCount);
   const maxAiImagesLimit = Math.max(1, leafCount);
   const requestedMaxAiImages = Number(options?.maxAiImages ?? fallback.maxAiImages);
   const requestedMinimumWords = Number(options?.minimumWords ?? fallback.minimumWords);
-  const requestedContentConcurrency = Number(options?.contentConcurrency ?? fallback.contentConcurrency);
   const tableRequirement = options?.tableRequirement;
 
   return {
@@ -102,10 +124,17 @@ function normalizeGenerationOptions(options: ContentGenerationOptions | undefine
     useMermaidImages: Boolean(options?.useMermaidImages ?? fallback.useMermaidImages),
     tableRequirement: isContentTableRequirement(tableRequirement) ? tableRequirement : fallback.tableRequirement,
     minimumWords: Math.max(0, Number.isFinite(requestedMinimumWords) ? Math.round(requestedMinimumWords) : fallback.minimumWords),
-    contentConcurrency: Math.max(1, Number.isFinite(requestedContentConcurrency) ? Math.round(requestedContentConcurrency) : fallback.contentConcurrency),
     enableConsistencyAudit: Boolean(options?.enableConsistencyAudit ?? fallback.enableConsistencyAudit),
+    consistencyRepairMode: isConsistencyRepairMode(options?.consistencyRepairMode) ? options?.consistencyRepairMode : fallback.consistencyRepairMode,
     enableOriginalPlanCoverageAudit: isExpansionWorkflow ? Boolean(options?.enableOriginalPlanCoverageAudit ?? fallback.enableOriginalPlanCoverageAudit) : false,
+    originalPlanCoverageRepairMode: isExpansionWorkflow && isOriginalPlanCoverageRepairMode(options?.originalPlanCoverageRepairMode) ? options?.originalPlanCoverageRepairMode : fallback.originalPlanCoverageRepairMode,
   };
+}
+
+function parseMinimumWordsInput(value: string): NumberInputDraft {
+  if (value === '') return '';
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, Math.round(number)) : '';
 }
 
 const emptyImageStats: ContentImageStats = { planned: 0, attempted: 0, success: 0, failed: 0, skipped: 0 };
@@ -251,133 +280,14 @@ function buildOutlineMeta(items: OutlineItem[], sections: ContentGenerationSecti
   return meta;
 }
 
-function MermaidBlock({ code }: { code: string }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-  const [errorMessage, setErrorMessage] = useState('');
-
-  useEffect(() => {
-    let cancelled = false;
-    const container = containerRef.current;
-    const trimmedCode = String(code || '').trim();
-
-    if (!trimmedCode) {
-      setStatus('error');
-      setErrorMessage('Mermaid 图代码为空');
-      if (container) {
-        container.innerHTML = '';
-      }
-      return undefined;
-    }
-
-    setStatus('loading');
-    setErrorMessage('');
-    if (container) {
-      container.innerHTML = '';
-    }
-
-    import('mermaid')
-      .then((module) => {
-        const mermaid = module.default;
-        mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });
-        return mermaid.render(`mermaid-${Date.now()}-${Math.random().toString(36).slice(2)}`, trimmedCode);
-      })
-      .then(({ svg }) => {
-        if (cancelled || !containerRef.current) {
-          return;
-        }
-        containerRef.current.innerHTML = svg;
-        setStatus('success');
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return;
-        }
-        setStatus('error');
-        setErrorMessage(error instanceof Error ? error.message : 'Mermaid 图渲染失败');
-      });
-
-    return () => {
-      cancelled = true;
-      if (container) {
-        container.innerHTML = '';
-      }
-    };
-  }, [code]);
-
-  return (
-    <figure className={`mermaid-preview-card is-${status}`}>
-      {status === 'loading' && <span>正在渲染 Mermaid 图...</span>}
-      {status === 'error' && (
-        <div className="mermaid-preview-error">
-          <strong>Mermaid 图渲染失败</strong>
-          <small>{errorMessage}</small>
-          <pre>{code}</pre>
-        </div>
-      )}
-      <div ref={containerRef} className="mermaid-preview-canvas" aria-hidden={status !== 'success'} />
-    </figure>
-  );
-}
-
-function reactNodeText(children: ReactNode): string {
-  return Children.toArray(children).map((child) => {
-    if (typeof child === 'string' || typeof child === 'number') {
-      return String(child);
-    }
-    if (isValidElement<{ children?: ReactNode }>(child)) {
-      return reactNodeText(child.props.children);
-    }
-    return '';
-  }).join('');
-}
-
 const MarkdownContent = memo(function MarkdownContent({ content, onPreviewImage }: { content: string; onPreviewImage: (src: string, alt: string) => void }) {
-  const markdownComponents = useMemo<Components>(() => ({
-    p({ children, className, ...props }) {
-      const isFigureCaption = /^图[:：]/.test(reactNodeText(children).trim());
-      const nextClassName = isFigureCaption
-        ? [className, 'markdown-figure-caption'].filter(Boolean).join(' ')
-        : className;
-      return <p {...props} className={nextClassName}>{children}</p>;
-    },
-    pre({ children, ...props }) {
-      const child = Children.count(children) === 1 ? Children.only(children) : null;
-      if (isValidElement(child)) {
-        const childProps = child.props as { className?: string; children?: ReactNode };
-        const className = childProps.className || '';
-        if (/\blanguage-mermaid\b/i.test(className)) {
-          return <MermaidBlock code={String(childProps.children || '').replace(/\n$/, '')} />;
-        }
-      }
-
-      return <pre {...props}>{children}</pre>;
-    },
-    img({ node: _node, src, alt, ...props }) {
-      const imageSrc = String(src || '');
-      const imageAlt = String(alt || '正文图片');
-      return (
-        <img
-          {...props}
-          src={imageSrc}
-          alt={imageAlt}
-          className="markdown-clickable-image"
-          role={imageSrc ? 'button' : undefined}
-          tabIndex={imageSrc ? 0 : undefined}
-          onClick={() => imageSrc && onPreviewImage(imageSrc, imageAlt)}
-          onKeyDown={(event) => {
-            if (imageSrc && (event.key === 'Enter' || event.key === ' ')) {
-              event.preventDefault();
-              onPreviewImage(imageSrc, imageAlt);
-            }
-          }}
-        />
-      );
-    },
-  }), [onPreviewImage]);
-
   return (
-    <MarkdownRenderer components={markdownComponents}>
+    <MarkdownRenderer
+      imageMode="preview"
+      imageClassName="markdown-clickable-image"
+      renderMermaid
+      onPreviewImage={onPreviewImage}
+    >
       {content}
     </MarkdownRenderer>
   );
@@ -407,7 +317,7 @@ function ContentEditPage({
   const [developerMode, setDeveloperMode] = useState(false);
   const [imageModelStatus, setImageModelStatus] = useState<ImageModelStatus>('untested');
   const [generationDialogOpen, setGenerationDialogOpen] = useState(false);
-  const [draftGenerationOptions, setDraftGenerationOptions] = useState<ContentGenerationOptions>(defaultContentGenerationOptions);
+  const [draftGenerationOptions, setDraftGenerationOptions] = useState<DraftContentGenerationOptions>(defaultContentGenerationOptions);
   const [pendingMinimumWordsChoice, setPendingMinimumWordsChoice] = useState<PendingMinimumWordsChoice | null>(null);
   const [previewImage, setPreviewImage] = useState<{ src: string; alt: string } | null>(null);
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
@@ -439,6 +349,8 @@ function ContentEditPage({
   const expanding = phaseVisible && contentStats?.phase === 'expanding';
   const originalAuditing = phaseVisible && contentStats?.phase === 'original-auditing';
   const auditing = phaseVisible && contentStats?.phase === 'auditing';
+  const tableCleaning = phaseVisible && contentStats?.phase === 'table-cleaning';
+  const contentCorrecting = originalAuditing || auditing || tableCleaning;
   const illustrating = phaseVisible && contentStats?.phase === 'illustrating';
   const outlineMeta = useMemo(() => outlineData?.outline ? buildOutlineMeta(outlineData.outline, sections, planning) : new Map<string, OutlineNodeMeta>(), [outlineData, planning, sections]);
   const contentSummary = useMemo(() => leaves.reduce((summary, item) => {
@@ -468,6 +380,10 @@ function ContentEditPage({
   const currentWords = contentStats?.current_words ?? totalWords;
   const minimumWordsUnmet = minimumWords > 0 && currentWords < minimumWords;
   const canRetryMinimumWords = taskFailed && minimumWordsUnmet && completedCount === leaves.length;
+  const canRetryContentCorrection = taskFailed
+    && leaves.length > 0
+    && completedCount === leaves.length
+    && ['original-auditing', 'auditing', 'table-cleaning'].includes(String(contentStats?.phase || ''));
   const latestTaskLog = task?.logs?.[task.logs.length - 1] || '';
   const taskErrorMessage = task?.error || latestTaskLog || '正文生成任务失败';
   const wordExpansionProgress = minimumWords ? Math.min(100, Math.round((currentWords / minimumWords) * 100)) : 0;
@@ -477,29 +393,53 @@ function ContentEditPage({
   const auditFixTotal = contentStats?.audit_fix_total || 0;
   const auditFixCompleted = contentStats?.audit_fix_completed || 0;
   const auditFixFailed = contentStats?.audit_fix_failed || 0;
-  const auditProgress = auditFixTotal
+  const auditAgentMode = contentStats?.audit_repair_mode === 'agent';
+  const auditAgentStepTotal = contentStats?.audit_agent_step_total || 0;
+  const auditAgentStepCompleted = contentStats?.audit_agent_step_completed || 0;
+  const auditAgentStepLabel = contentStats?.audit_agent_step_label || '';
+  const auditAgentChangedSections = contentStats?.audit_agent_changed_sections || 0;
+  const auditAgentFailedSections = contentStats?.audit_agent_failed_sections || 0;
+  const auditProgress = auditAgentMode && auditAgentStepTotal
+    ? Math.round((auditAgentStepCompleted / auditAgentStepTotal) * 100)
+    : auditFixTotal
     ? Math.round((auditFixCompleted / auditFixTotal) * 100)
     : auditGroupTotal
       ? Math.round((auditGroupCompleted / auditGroupTotal) * 100)
       : 0;
+  const tableCleanupTotal = contentStats?.table_cleanup_total || 0;
+  const tableCleanupCompleted = contentStats?.table_cleanup_completed || 0;
+  const tableCleanupRewritten = contentStats?.table_cleanup_rewritten || 0;
+  const tableCleanupSkipped = contentStats?.table_cleanup_skipped || 0;
+  const tableCleanupProgress = tableCleanupTotal ? Math.round((tableCleanupCompleted / tableCleanupTotal) * 100) : 0;
+  const auditCorrectionCount = auditFixTotal
+    ? `${auditFixCompleted}/${auditFixTotal}`
+    : auditAgentMode && auditAgentStepTotal
+      ? `${auditAgentStepCompleted}/${auditAgentStepTotal}`
+      : auditGroupTotal
+        ? `${auditGroupCompleted}/${auditGroupTotal}`
+        : '检查中';
+  const contentCorrectionProgress = tableCleaning ? tableCleanupProgress : auditProgress;
+  const contentCorrectionCount = tableCleaning
+    ? tableCleanupTotal ? `${tableCleanupCompleted}/${tableCleanupTotal}` : '检查中'
+    : auditCorrectionCount;
   const illustrationTotal = contentStats?.illustration_total || 0;
   const illustrationCompleted = contentStats?.illustration_completed || 0;
   const illustrationProgress = illustrationTotal ? Math.round((illustrationCompleted / illustrationTotal) * 100) : 0;
-  const displayProgress = planning ? planningProgress : outlineExpanding ? outlineExpansionProgress : expanding ? wordExpansionProgress : originalAuditing || auditing ? auditProgress : illustrating ? illustrationProgress : progress;
-  const displayProgressLabel = planning ? '编排统计' : restoring ? '原方案还原' : outlineExpanding ? '补目录' : expanding ? '扩写进度' : originalAuditing ? '原方案审计' : auditing ? '一致性审计' : illustrating ? '配图统计' : '生成统计';
+  const displayProgress = planning ? planningProgress : outlineExpanding ? outlineExpansionProgress : expanding ? wordExpansionProgress : contentCorrecting ? contentCorrectionProgress : illustrating ? illustrationProgress : progress;
+  const displayProgressLabel = planning ? '编排统计' : restoring ? '原方案还原' : outlineExpanding ? '补目录' : expanding ? '扩写进度' : contentCorrecting ? '内容矫正' : illustrating ? '配图统计' : '生成统计';
   const displayProgressCount = planning
     ? `${planningCompleted}/${planningTotal}`
     : outlineExpanding
       ? `${outlineExpansionStepCompleted}/${outlineExpansionStepTotal}`
       : expanding
         ? `${wordExpansionProgress}%`
-        : originalAuditing || auditing
-          ? auditFixTotal ? `${auditFixCompleted}/${auditFixTotal}` : `${auditGroupCompleted}/${auditGroupTotal}`
+        : contentCorrecting
+          ? contentCorrectionCount
           : illustrating
             ? `${illustrationCompleted}/${illustrationTotal}`
             : `${completedCount}/${leaves.length}`;
-  const progressPhaseLabel = planning ? '正文编排' : restoring ? '原方案还原' : outlineExpanding ? '正文补目录' : expanding ? '正文扩写' : originalAuditing ? '原方案覆盖审计' : auditing ? '全文一致性审计' : illustrating ? '正文配图' : '正文生成';
-  const progressTrackClass = `content-generation-progress-track${planning ? ' is-planning' : ''}${outlineExpanding ? ' is-outline-expanding' : ''}${originalAuditing || auditing ? ' is-auditing' : ''}${illustrating ? ' is-illustrating' : ''}${taskInFlight && (planning || outlineExpanding || expanding || originalAuditing || auditing || illustrating) ? ' is-active' : ''}`;
+  const progressPhaseLabel = planning ? '正文编排' : restoring ? '原方案还原' : outlineExpanding ? '正文补目录' : expanding ? '正文扩写' : contentCorrecting ? '内容矫正' : illustrating ? '正文配图' : '正文生成';
+  const progressTrackClass = `content-generation-progress-track${planning ? ' is-planning' : ''}${outlineExpanding ? ' is-outline-expanding' : ''}${contentCorrecting ? ' is-auditing' : ''}${illustrating ? ' is-illustrating' : ''}${taskInFlight && (planning || outlineExpanding || expanding || contentCorrecting || illustrating) ? ' is-active' : ''}`;
   const progressDescription = taskFailed
     ? minimumWordsUnmet
       ? `正文扩写失败：当前 ${currentWords}/${minimumWords} 字。${taskErrorMessage}`
@@ -513,28 +453,48 @@ function ContentEditPage({
       : expanding
         ? paused ? `正文生成已暂停在扩写阶段，最低字数达成 ${wordExpansionProgress}%。` : `正在扩写正文，最低字数达成 ${wordExpansionProgress}%。`
         : originalAuditing
-          ? paused
-            ? `正文生成已暂停在原方案覆盖审计阶段，审计 ${auditGroupCompleted}/${auditGroupTotal} 个小节，修复 ${auditFixCompleted}/${auditFixTotal} 个小节。`
-            : auditFixTotal
-              ? `正在补写原方案缺失内容，已完成 ${auditFixCompleted}/${auditFixTotal} 个小节${auditFixFailed ? `，${auditFixFailed} 个需人工核对` : ''}。`
-              : `正在审计原方案覆盖情况，已完成 ${auditGroupCompleted}/${auditGroupTotal} 个小节${auditConflictTotal ? `，发现 ${auditConflictTotal} 个需核对来源段` : ''}。`
+            ? paused
+              ? auditAgentMode
+                ? `内容矫正已暂停在原方案覆盖 Agent 修复阶段，步骤 ${auditAgentStepCompleted}/${auditAgentStepTotal}。${auditAgentStepLabel}`
+                : `内容矫正已暂停在原方案覆盖检查阶段，审计 ${auditGroupCompleted}/${auditGroupTotal} 个小节，修复 ${auditFixCompleted}/${auditFixTotal} 个小节。`
+              : auditAgentMode
+                ? auditAgentFailedSections
+                  ? `原方案覆盖 Agent 修复未完成：${auditAgentFailedSections} 个小节需人工核对，任务将继续进入后续流程。`
+                  : auditAgentStepCompleted >= auditAgentStepTotal && auditAgentChangedSections
+                    ? `原方案覆盖 Agent 修复完成：已回写 ${auditAgentChangedSections} 个小节。`
+                    : `正在内容矫正：${auditAgentStepLabel || 'Agent 正在检查并补回原方案内容'}，步骤 ${auditAgentStepCompleted}/${auditAgentStepTotal || 5}。`
+                : auditFixTotal
+                ? `正在内容矫正：补写原方案缺失内容，已完成 ${auditFixCompleted}/${auditFixTotal} 个小节${auditFixFailed ? `，${auditFixFailed} 个需人工核对` : ''}。`
+                : `正在内容矫正：检查原方案覆盖情况，已完成 ${auditGroupCompleted}/${auditGroupTotal} 个小节${auditConflictTotal ? `，发现 ${auditConflictTotal} 个需核对来源段` : ''}。`
           : auditing
             ? paused
-              ? `正文生成已暂停在一致性审计阶段，审计 ${auditGroupCompleted}/${auditGroupTotal} 组，修复 ${auditFixCompleted}/${auditFixTotal} 个小节。`
-              : auditFixTotal
-                ? `正在修复一致性冲突，已完成 ${auditFixCompleted}/${auditFixTotal} 个小节${auditFixFailed ? `，${auditFixFailed} 个需人工核对` : ''}。`
-                : `正在审计全文一致性，已完成 ${auditGroupCompleted}/${auditGroupTotal} 组${auditConflictTotal ? `，发现 ${auditConflictTotal} 个冲突小节` : ''}。`
-          : illustrating
-            ? paused ? `正文生成已暂停在配图阶段，已完成 ${illustrationCompleted}/${illustrationTotal} 张。` : `正在生成配图，已完成 ${illustrationCompleted}/${illustrationTotal} 张。`
-            : pausing
-              ? '正在暂停正文生成，已发出的 AI 请求完成后会停止调度新任务。'
-              : running
-                ? latestTaskLog || '正文生成任务正在运行。'
-                : paused
-                  ? '正文生成已暂停，可导出当前已完成内容或点击继续。'
-                  : completedCount
-                    ? `已生成 ${completedCount} 个小节，共 ${totalWords} 字。`
-                    : '点击生成正文后，目录会实时显示每个小节状态。';
+              ? auditAgentMode
+                ? `内容矫正已暂停在 Agent 全文一致性修复阶段，步骤 ${auditAgentStepCompleted}/${auditAgentStepTotal}。${auditAgentStepLabel}`
+                : `内容矫正已暂停在全文一致性检查阶段，审计 ${auditGroupCompleted}/${auditGroupTotal} 组，修复 ${auditFixCompleted}/${auditFixTotal} 个小节。`
+              : auditAgentMode
+                ? auditAgentStepCompleted >= auditAgentStepTotal && auditAgentChangedSections
+                  ? `Agent 一致性修复完成：已回写 ${auditAgentChangedSections} 个小节。`
+                  : `正在内容矫正：${auditAgentStepLabel || 'Agent 正在审计并修复全文'}，步骤 ${auditAgentStepCompleted}/${auditAgentStepTotal || 5}。`
+                : auditFixTotal
+                ? `正在内容矫正：修复一致性冲突，已完成 ${auditFixCompleted}/${auditFixTotal} 个小节${auditFixFailed ? `，${auditFixFailed} 个需人工核对` : ''}。`
+                : `正在内容矫正：检查全文一致性，已完成 ${auditGroupCompleted}/${auditGroupTotal} 组${auditConflictTotal ? `，发现 ${auditConflictTotal} 个冲突小节` : ''}。`
+            : tableCleaning
+              ? paused
+                ? `内容矫正已暂停在表格清理阶段，已处理 ${tableCleanupCompleted}/${tableCleanupTotal} 个表格。`
+                : tableCleanupTotal
+                  ? `正在内容矫正：将表格转换为普通文字描述，已处理 ${tableCleanupCompleted}/${tableCleanupTotal} 个表格，已转换 ${tableCleanupRewritten} 个${tableCleanupSkipped ? `，跳过 ${tableCleanupSkipped} 个` : ''}。`
+                  : '正在内容矫正：检查正文中是否存在需要转换的表格。'
+              : illustrating
+                ? paused ? `正文生成已暂停在配图阶段，已完成 ${illustrationCompleted}/${illustrationTotal} 张。` : `正在生成配图，已完成 ${illustrationCompleted}/${illustrationTotal} 张。`
+                : pausing
+                  ? '正在暂停正文生成，已发出的 AI 请求完成后会停止调度新任务。'
+                  : running
+                    ? latestTaskLog || '正文生成任务正在运行。'
+                    : paused
+                      ? '正文生成已暂停，可导出当前已完成内容或点击继续。'
+                      : completedCount
+                        ? `已生成 ${completedCount} 个小节，共 ${totalWords} 字。`
+                        : '点击生成正文后，目录会实时显示每个小节状态。';
   const selectedStatus = selectedItem ? outlineMeta.get(selectedItem.id)?.status || 'idle' : 'idle';
   const generationButtonLabel = pausing
     ? '正在暂停中...'
@@ -542,13 +502,15 @@ function ContentEditPage({
       ? '暂停'
       : paused
         ? '继续'
-        : canRetryMinimumWords
-          ? '继续补足字数'
-          : completedCount === leaves.length && leaves.length
-            ? '重新生成正文'
-            : completedCount > 0
-              ? '继续生成正文'
-              : '生成正文';
+        : canRetryContentCorrection
+          ? '重试内容矫正'
+          : canRetryMinimumWords
+            ? '继续补足字数'
+            : completedCount === leaves.length && leaves.length
+              ? '重新生成正文'
+              : completedCount > 0
+                ? '继续生成正文'
+                : '生成正文';
   const editing = Boolean(selectedItem && selectedIsLeaf && editingItemId === selectedItem.id);
   const imageStats = task?.stats?.images;
   const aiImageStats = normalizeImageStats(imageStats?.ai);
@@ -713,15 +675,13 @@ function ContentEditPage({
     const currentOptions = contentGenerationOptions
       ? { ...defaultContentGenerationOptions, ...contentGenerationOptions }
       : normalizeGenerationOptions(undefined, imageAvailable, leaves.length, isExpansionWorkflow);
-    const nextOptions = paused
-      ? { ...currentOptions, contentConcurrency: normalizedDraftOptions.contentConcurrency }
-      : normalizedDraftOptions;
+    const nextOptions = paused ? currentOptions : normalizedDraftOptions;
     await onContentGenerationOptionsChange(nextOptions);
     setDraftGenerationOptions(normalizeGenerationOptions(nextOptions, imageAvailable, leaves.length, isExpansionWorkflow));
 
     if (showSuccess) {
       setGenerationDialogOpen(false);
-      showToast(paused ? '正文生成并发速度已保存，继续后生效' : '正文生成配置已保存', 'success');
+      showToast('正文生成配置已保存', 'success');
     }
 
     return nextOptions;
@@ -803,6 +763,19 @@ function ContentEditPage({
     }
   };
 
+  const retryContentCorrection = async () => {
+    if (!canRetryContentCorrection) {
+      return;
+    }
+
+    try {
+      await window.yibiao?.tasks.startContentGeneration({ retryContentCorrection: true });
+      showToast('内容矫正重试任务已在后台启动', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '重试内容矫正失败', 'error');
+    }
+  };
+
   const handleGenerationButtonClick = () => {
     if (running) {
       void pauseGeneration();
@@ -810,6 +783,10 @@ function ContentEditPage({
     }
     if (paused) {
       void resumeGeneration();
+      return;
+    }
+    if (canRetryContentCorrection) {
+      void retryContentCorrection();
       return;
     }
     if (completedCount === leaves.length && leaves.length) {
@@ -851,20 +828,22 @@ function ContentEditPage({
         useMermaidImages: savedGenerationOptions.useMermaidImages,
         tableRequirement: savedGenerationOptions.tableRequirement,
         minimumWords: savedGenerationOptions.minimumWords,
-        contentConcurrency: savedGenerationOptions.contentConcurrency,
         enableConsistencyAudit: savedGenerationOptions.enableConsistencyAudit,
+        consistencyRepairMode: savedGenerationOptions.consistencyRepairMode,
         enableOriginalPlanCoverageAudit: isExpansionWorkflow && savedGenerationOptions.enableOriginalPlanCoverageAudit,
+        originalPlanCoverageRepairMode: isExpansionWorkflow ? savedGenerationOptions.originalPlanCoverageRepairMode : undefined,
       },
     });
     trackConfigUsage({
       table_requirement: savedGenerationOptions.tableRequirement,
       use_mermaid_images: savedGenerationOptions.useMermaidImages,
       use_ai_images: nextImageModelAvailable && savedGenerationOptions.useAiImages,
-      content_concurrency: savedGenerationOptions.contentConcurrency,
       content_generation_action: contentGenerationAction,
       minimum_words: savedGenerationOptions.minimumWords,
       enable_consistency_audit: savedGenerationOptions.enableConsistencyAudit,
+      consistency_repair_mode: savedGenerationOptions.enableConsistencyAudit ? savedGenerationOptions.consistencyRepairMode : undefined,
       enable_original_plan_coverage_audit: isExpansionWorkflow && savedGenerationOptions.enableOriginalPlanCoverageAudit,
+      original_plan_coverage_repair_mode: isExpansionWorkflow && savedGenerationOptions.enableOriginalPlanCoverageAudit ? savedGenerationOptions.originalPlanCoverageRepairMode : undefined,
     }, config);
     setGenerationDialogOpen(false);
     setPendingMinimumWordsChoice(null);
@@ -964,21 +943,23 @@ function ContentEditPage({
           useAiImages: nextImageModelAvailable && savedGenerationOptions.useAiImages,
           maxAiImages: savedGenerationOptions.maxAiImages,
           useMermaidImages: savedGenerationOptions.useMermaidImages,
-          tableRequirement: savedGenerationOptions.tableRequirement,
-          contentConcurrency: savedGenerationOptions.contentConcurrency,
-          enableConsistencyAudit: savedGenerationOptions.enableConsistencyAudit,
-          enableOriginalPlanCoverageAudit: isExpansionWorkflow && savedGenerationOptions.enableOriginalPlanCoverageAudit,
-        },
+        tableRequirement: savedGenerationOptions.tableRequirement,
+        enableConsistencyAudit: savedGenerationOptions.enableConsistencyAudit,
+        consistencyRepairMode: savedGenerationOptions.consistencyRepairMode,
+        enableOriginalPlanCoverageAudit: isExpansionWorkflow && savedGenerationOptions.enableOriginalPlanCoverageAudit,
+        originalPlanCoverageRepairMode: isExpansionWorkflow ? 'normal' : undefined,
+      },
       });
       trackConfigUsage({
         table_requirement: savedGenerationOptions.tableRequirement,
         use_mermaid_images: savedGenerationOptions.useMermaidImages,
         use_ai_images: nextImageModelAvailable && savedGenerationOptions.useAiImages,
-        content_concurrency: savedGenerationOptions.contentConcurrency,
         content_generation_action: 'regenerate_section',
         minimum_words: savedGenerationOptions.minimumWords,
         enable_consistency_audit: savedGenerationOptions.enableConsistencyAudit,
+        consistency_repair_mode: savedGenerationOptions.enableConsistencyAudit ? savedGenerationOptions.consistencyRepairMode : undefined,
         enable_original_plan_coverage_audit: isExpansionWorkflow && savedGenerationOptions.enableOriginalPlanCoverageAudit,
+        original_plan_coverage_repair_mode: isExpansionWorkflow && savedGenerationOptions.enableOriginalPlanCoverageAudit ? 'normal' : undefined,
       }, config);
       setSelectedItemId(requirementItem.id);
       setRequirementItem(null);
@@ -1142,7 +1123,7 @@ function ContentEditPage({
         >
           <span className="content-outline-dot" aria-hidden="true" />
           <span className="content-outline-text">
-            <strong>{formatOutlineTitle(item.id, item.title, exportFormat.headings[Math.min(item.id.split('.').length - 1, 5)].numbering_format)}</strong>
+            <strong>{formatOutlineTitle(item.id, item.title, exportFormat.headings[Math.min(item.id.split('.').length - 1, 5)])}</strong>
             <small>{isLeaf ? `${statusLabels[status]} · ${words} 字` : `${statusLabels[status]} · ${leafCount} 个小节 · ${words} 字`}</small>
           </span>
           {isLeaf && (status === 'success' || status === 'error') ? (
@@ -1566,7 +1547,7 @@ function ContentEditPage({
               <Dialog.Title>正文生成配置</Dialog.Title>
               <Dialog.Description>
                 {paused
-                  ? '任务已暂停，仅可修改正文生成并发速度，继续后生效。'
+                  ? '任务已暂停，继续后会使用设置中的文本模型并发上限；生成策略需重新开始任务后修改。'
                   : canRetryMinimumWords
                     ? '将保留已生成正文，继续扩写未达标的最低字数。'
                     : completedCount === leaves.length && leaves.length
@@ -1601,7 +1582,7 @@ function ContentEditPage({
                   disabled={generationStrategyLocked}
                   onChange={(event) => setDraftGenerationOptions((prev) => ({
                     ...prev,
-                    minimumWords: Math.max(0, Math.round(Number(event.target.value) || 0)),
+                    minimumWords: parseMinimumWordsInput(event.target.value),
                   }))}
                 />
               </label>
@@ -1620,46 +1601,55 @@ function ContentEditPage({
                   <Switch.Thumb className="content-generation-switch-thumb" />
                 </Switch.Root>
               </label>
-              {isExpansionWorkflow && (
+              {draftGenerationOptions.enableConsistencyAudit && (
                 <label className="content-generation-config-row">
                   <span>
-                    <strong>原方案覆盖审计</strong>
-                    <small>检查原方案中的核心内容是否已经保留到生成正文中；默认关闭，开启后会增加一次审计和修复请求。</small>
+                    <strong>一致性修复方式</strong>
+                    <small>{consistencyRepairModeOptions.find((option) => option.value === draftGenerationOptions.consistencyRepairMode)?.description}</small>
                   </span>
-                  <Switch.Root
-                    className="content-generation-switch"
-                    checked={draftGenerationOptions.enableOriginalPlanCoverageAudit}
+                  <select
+                    value={draftGenerationOptions.consistencyRepairMode}
                     disabled={generationStrategyLocked}
-                    onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, enableOriginalPlanCoverageAudit: checked }))}
-                    aria-label="是否启用原方案覆盖审计"
+                    onChange={(event) => setDraftGenerationOptions((prev) => ({ ...prev, consistencyRepairMode: event.target.value as ConsistencyRepairMode }))}
                   >
-                    <Switch.Thumb className="content-generation-switch-thumb" />
-                  </Switch.Root>
+                    {consistencyRepairModeOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
+                  </select>
                 </label>
               )}
-              <div className="content-generation-config-row">
-                <span>
-                  <strong>正文生成并发速度</strong>
-                  <small>
-                    AI接口请求的并发速率
-                    <DetailHelpLink title="正文生成并发速度说明">
-                      同时发起的正文编排、正文生成、字数扩写和一致性审计请求数，不影响配图。<br/>
-                      具体并发上限取决于配置的API接口限制，设置过高会报429错误。
-                    </DetailHelpLink>
-                  </small>
-                </span>
-                <input
-                  aria-label="正文生成并发速度"
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={draftGenerationOptions.contentConcurrency}
-                  onChange={(event) => setDraftGenerationOptions((prev) => ({
-                    ...prev,
-                    contentConcurrency: Math.max(1, Math.round(Number(event.target.value) || 1)),
-                  }))}
-                />
-              </div>
+              {isExpansionWorkflow && (
+                <>
+                  <label className="content-generation-config-row">
+                    <span>
+                      <strong>原方案覆盖审计</strong>
+                      <small>检查原方案中的核心内容是否已经保留到生成正文中；默认关闭，开启后会增加一次审计和修复请求。</small>
+                    </span>
+                    <Switch.Root
+                      className="content-generation-switch"
+                      checked={draftGenerationOptions.enableOriginalPlanCoverageAudit}
+                      disabled={generationStrategyLocked}
+                      onCheckedChange={(checked) => setDraftGenerationOptions((prev) => ({ ...prev, enableOriginalPlanCoverageAudit: checked }))}
+                      aria-label="是否启用原方案覆盖审计"
+                    >
+                      <Switch.Thumb className="content-generation-switch-thumb" />
+                    </Switch.Root>
+                  </label>
+                  {draftGenerationOptions.enableOriginalPlanCoverageAudit && (
+                    <label className="content-generation-config-row">
+                      <span>
+                        <strong>原方案覆盖修复方式</strong>
+                        <small>{originalPlanCoverageRepairModeOptions.find((option) => option.value === draftGenerationOptions.originalPlanCoverageRepairMode)?.description}</small>
+                      </span>
+                      <select
+                        value={draftGenerationOptions.originalPlanCoverageRepairMode}
+                        disabled={generationStrategyLocked}
+                        onChange={(event) => setDraftGenerationOptions((prev) => ({ ...prev, originalPlanCoverageRepairMode: event.target.value as OriginalPlanCoverageRepairMode }))}
+                      >
+                        {originalPlanCoverageRepairModeOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
+                      </select>
+                    </label>
+                  )}
+                </>
+              )}
               <label className="content-generation-config-row">
                 <span>
                   <strong>使用 AI 生图</strong>
@@ -1716,8 +1706,8 @@ function ContentEditPage({
             </div>
             <div className="content-regenerate-actions">
               <Dialog.Close className="secondary-action" type="button">取消</Dialog.Close>
-              <button type="button" className="secondary-action" onClick={saveGenerationOptions} disabled={taskInFlight}>
-                {paused ? '保存并发速度' : '保存配置'}
+              <button type="button" className="secondary-action" onClick={saveGenerationOptions} disabled={taskInFlight || paused}>
+                保存配置
               </button>
               {!paused && <button type="button" className="primary-action" onClick={startGeneration} disabled={taskBlocksGeneration}>{canRetryMinimumWords ? '继续补足字数' : '开始生成'}</button>}
             </div>

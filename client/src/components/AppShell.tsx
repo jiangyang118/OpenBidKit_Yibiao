@@ -2,6 +2,7 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import type { ReactNode } from 'react';
 import type { SidebarLayout } from '../shared/types';
 import type { SectionId } from '../shared/types/navigation';
+import AgentRuntimeStatusBar from '../app/AgentRuntimeStatusBar';
 import Sidebar from './Sidebar';
 
 interface AppShellProps {
@@ -22,6 +23,7 @@ function AppShell({ activeSection, children, developerMode, sidebarLayout, onSec
         <Sidebar activeSection={activeSection} developerMode={developerMode} sidebarLayout={sidebarLayout} onSectionChange={onSectionChange} />
 
         <main className="main-area">
+          <AgentRuntimeStatusBar />
           <section className="content-shell" aria-label="主内容">
             {children}
           </section>

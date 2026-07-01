@@ -27,6 +27,25 @@ export const appMenuItems: AppMenuItem[] = [
     ],
   },
   {
+    id: 'template-settings',
+    label: '模版设置',
+    description: '标书导出模板与排版配置',
+    children: [
+      {
+        id: 'my-templates',
+        label: '我的模板',
+        description: '管理已保存的标书导出模板',
+        icon: 'document',
+      },
+      {
+        id: 'new-template',
+        label: '新建模板',
+        description: '配置 Word 文档排版与编号格式',
+        icon: 'export',
+      },
+    ],
+  },
+  {
     id: 'knowledge-base',
     label: '知识库',
     description: '素材、模板和案例资产',
@@ -71,11 +90,6 @@ export const appMenuItems: AppMenuItem[] = [
     ],
   },
   {
-    id: 'export-format',
-    label: '导出格式',
-    description: 'Word 文档排版与编号格式设置',
-  },
-  {
     id: 'bid-opportunity',
     label: '投标机会',
     description: '机会发现与线索跟踪',
@@ -116,6 +130,12 @@ const developerMenuItems: AppMenuItem[] = [
         label: '导出链路预演',
         description: '预览 Word、Markdown、Mermaid 图片转换的导出检查路径。',
         icon: 'export',
+      },
+      {
+        id: 'developer-opencode-agent-test',
+        label: 'OpenCode Agent测试',
+        description: '验证常驻 OpenCode Server、OpenCode AI proxy、agentService 的完整链路。',
+        icon: 'tool',
       },
     ],
   },

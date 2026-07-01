@@ -11,6 +11,9 @@ export type SectionId =
   | 'duplicate-check'
   | 'rejection-check'
   | 'ai-evaluation'
+  | 'template-settings'
+  | 'my-templates'
+  | 'new-template'
   | 'export-format'
   | 'bid-opportunity'
   | 'developer-test'
@@ -18,6 +21,7 @@ export type SectionId =
   | 'developer-prompt-lab'
   | 'developer-parser-sandbox'
   | 'developer-export-preview'
+  | 'developer-opencode-agent-test'
   | 'settings';
 
 export interface AppMenuNotice {

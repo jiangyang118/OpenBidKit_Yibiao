@@ -8,6 +8,15 @@ const { runOutlineGenerationTask } = require('./outlineGenerationTask.cjs');
 const { runRejectionCheckTask, runRejectionItemsExtractionTask } = require('./rejectionCheckTask.cjs');
 
 const taskDefinitions = {
+  'bid-section-extraction': {
+    label: '多标段识别',
+    group: 'technical-plan',
+    groupLabel: '技术方案',
+    step: 2,
+    lockPolicy: 'group-exclusive',
+    stateKey: 'technicalPlan',
+    field: 'bidSectionExtractionTask',
+  },
   'bid-analysis': {
     label: '招标文件解析',
     group: 'technical-plan',
@@ -217,10 +226,10 @@ function inferContentGenerationPhase(technicalPlan) {
   const taskContent = technicalPlan?.contentGenerationTask?.stats?.content || {};
   const taskPhase = taskContent.phase;
   const runtimePhase = technicalPlan?.contentGenerationRuntime?.phase;
-  if (['restoring', 'outline-expanding', 'expanding', 'original-auditing', 'auditing', 'illustrating'].includes(taskPhase)) {
+  if (['restoring', 'outline-expanding', 'expanding', 'original-auditing', 'auditing', 'table-cleaning', 'illustrating'].includes(taskPhase)) {
     return taskPhase;
   }
-  if (['planning', 'restoring', 'generating', 'outline-expanding', 'expanding', 'original-auditing', 'auditing', 'illustrating'].includes(runtimePhase)) {
+  if (['planning', 'restoring', 'generating', 'outline-expanding', 'expanding', 'original-auditing', 'auditing', 'table-cleaning', 'illustrating'].includes(runtimePhase)) {
     return runtimePhase;
   }
 
@@ -390,8 +399,33 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
       }
     }
 
+    if (task.type === 'bid-section-extraction') {
+      copyPatchFields(patch, state, [
+        'bidSectionMode',
+        'bidSections',
+        'bidSectionExtractionStatus',
+        'bidSectionExtractionError',
+        'tenderFile',
+        'bidAnalysisTask',
+        'bidAnalysisTasks',
+        'bidAnalysisProgress',
+        'projectOverview',
+        'techRequirements',
+        'outlineData',
+        'outlineGenerationTask',
+        'referenceKnowledgeDocumentIds',
+        'globalFactsTask',
+        'globalFacts',
+        'contentGenerationTask',
+        'contentGenerationOptions',
+        'contentGenerationSections',
+        'contentGenerationPlans',
+        'contentGenerationRuntime',
+      ]);
+    }
+
     if (task.type === 'outline-generation') {
-      copyPatchFields(patch, state, ['outlineMode', 'referenceKnowledgeDocumentIds']);
+      copyPatchFields(patch, state, ['outlineMode', 'outlineExpansionMode', 'referenceKnowledgeDocumentIds']);
       if (task.status === 'success' || state.outlineData === null || hasOwn(eventPatch, 'outlineData')) {
         copyPatchFields(patch, state, [
           'outlineData',
@@ -619,6 +653,7 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
     const taskField = getTaskField(type);
     let currentTask = task;
     const taskControl = {
+      queueScopeId,
       pauseRequested: false,
       isPauseRequested() {
         return this.pauseRequested;
@@ -736,6 +771,79 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
       },
     });
     emit(pausedTask, buildSnapshot(getTaskDefinition('content-generation'), state, pausedTask));
+  }
+
+  function recoverInterruptedBidAnalysisTask() {
+    if (activeTasks.has('bid-analysis')) {
+      return;
+    }
+
+    const technicalPlan = technicalPlanStore.loadTechnicalPlan() || {};
+    const bidAnalysisTask = technicalPlan.bidAnalysisTask;
+    if (!isActiveTaskStatus(bidAnalysisTask?.status)) {
+      return;
+    }
+
+    const message = '上次招标文件解析未完成，请重新解析';
+    const nextBidAnalysisTasks = {};
+    let hasInterruptedItem = false;
+    for (const [itemId, item] of Object.entries(technicalPlan.bidAnalysisTasks || {})) {
+      if (item?.status === 'running') {
+        nextBidAnalysisTasks[itemId] = {
+          ...item,
+          status: 'error',
+          error: message,
+        };
+        hasInterruptedItem = true;
+      } else {
+        nextBidAnalysisTasks[itemId] = item;
+      }
+    }
+
+    const logs = Array.isArray(bidAnalysisTask.logs) ? bidAnalysisTask.logs : [];
+    const recoveredTask = {
+      ...bidAnalysisTask,
+      status: 'error',
+      progress: 100,
+      pause_requested: false,
+      error: message,
+      logs: logs.includes(message) ? logs : [...logs, message],
+      updated_at: now(),
+    };
+    const partial = hasInterruptedItem
+      ? { bidAnalysisTask: recoveredTask, bidAnalysisTasks: nextBidAnalysisTasks }
+      : { bidAnalysisTask: recoveredTask };
+    const state = technicalPlanStore.updateTechnicalPlan(partial);
+    emit(recoveredTask, buildSnapshot(getTaskDefinition('bid-analysis'), state, recoveredTask));
+  }
+
+  function recoverInterruptedBidSectionExtractionTask() {
+    if (activeTasks.has('bid-section-extraction')) {
+      return;
+    }
+
+    const technicalPlan = technicalPlanStore.loadTechnicalPlan() || {};
+    const extractionTask = technicalPlan.bidSectionExtractionTask;
+    if (!isActiveTaskStatus(extractionTask?.status)) {
+      return;
+    }
+
+    const message = '上次多标段识别未完成，请重新识别';
+    const recoveredTask = {
+      ...extractionTask,
+      status: 'error',
+      progress: 100,
+      pause_requested: false,
+      error: message,
+      logs: [...(Array.isArray(extractionTask.logs) ? extractionTask.logs : []), message],
+      updated_at: now(),
+    };
+    const state = technicalPlanStore.updateTechnicalPlan({
+      bidSectionExtractionTask: recoveredTask,
+      bidSectionExtractionStatus: 'error',
+      bidSectionExtractionError: message,
+    });
+    emit(recoveredTask, buildSnapshot(getTaskDefinition('bid-section-extraction'), state, recoveredTask));
   }
 
   function recoverInterruptedGlobalFactsTask() {
@@ -884,12 +992,36 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
 
   return {
     subscribe,
+    startBidSectionExtraction(payload) {
+      return startManagedTask('bid-section-extraction', payload, runBidSectionExtractionTask, {
+        bidSectionMode: 'multiple',
+        bidSections: [],
+        bidSectionExtractionStatus: 'running',
+        bidSectionExtractionError: undefined,
+        bidAnalysisTask: undefined,
+        bidAnalysisTasks: {},
+        bidAnalysisProgress: 0,
+        projectOverview: '',
+        techRequirements: '',
+        outlineData: null,
+        outlineGenerationTask: undefined,
+        referenceKnowledgeDocumentIds: [],
+        globalFactsTask: undefined,
+        globalFacts: [],
+        contentGenerationTask: undefined,
+        contentGenerationOptions: undefined,
+        contentGenerationSections: {},
+        contentGenerationPlans: {},
+        contentGenerationRuntime: undefined,
+      });
+    },
     startBidAnalysis(payload) {
       return startManagedTask('bid-analysis', payload, runBidAnalysisTask);
     },
     startOutlineGeneration(payload) {
       return startManagedTask('outline-generation', payload, runOutlineGenerationTask, {
-        outlineMode: payload?.mode,
+        outlineMode: 'aligned',
+        outlineExpansionMode: payload?.outline_expansion_mode === 'original-only' ? 'original-only' : 'ai-complement',
         referenceKnowledgeDocumentIds: Array.isArray(payload?.reference_knowledge_document_ids) ? payload.reference_knowledge_document_ids : [],
       });
     },
@@ -909,6 +1041,9 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
       const task = activeTasks.get('content-generation');
       const control = activeTaskControls.get('content-generation');
       if (task && isActiveTaskStatus(task.status) && control?.requestPause) {
+        if (control.queueScopeId && aiService?.pauseQueueScope) {
+          aiService.pauseQueueScope(control.queueScopeId);
+        }
         return control.requestPause();
       }
 
@@ -951,6 +1086,8 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
       return startManagedTask('ai-evaluation-batch-scoring', payload, runAiEvaluationBatchScoringTask);
     },
     getActiveTasks() {
+      recoverInterruptedBidSectionExtractionTask();
+      recoverInterruptedBidAnalysisTask();
       recoverInterruptedContentGenerationTask();
       recoverInterruptedGlobalFactsTask();
       recoverInterruptedRejectionCheckTasks();

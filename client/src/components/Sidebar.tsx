@@ -26,6 +26,9 @@ const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>>
   'duplicate-check': CompareIcon,
   'rejection-check': ShieldIcon,
   'ai-evaluation': BidCheckIcon,
+  'template-settings': DocumentIcon,
+  'my-templates': DocumentIcon,
+  'new-template': DocumentIcon,
   'export-format': DocumentIcon,
   'bid-opportunity': RadarIcon,
   'developer-test': FlaskIcon,
@@ -33,6 +36,7 @@ const navigationIcons: Record<SectionId, ComponentType<SVGProps<SVGSVGElement>>>
   'developer-prompt-lab': FlaskIcon,
   'developer-parser-sandbox': FlaskIcon,
   'developer-export-preview': FlaskIcon,
+  'developer-opencode-agent-test': FlaskIcon,
   settings: GearIcon,
 };
 

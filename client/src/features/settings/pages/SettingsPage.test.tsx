@@ -9,6 +9,8 @@ const textProfile = {
   api_key: '',
   base_url: 'https://jlaudeapi.com/v1',
   model_name: 'gpt-3.5-turbo',
+  context_length_limit: 400000,
+  concurrency_limit: 10,
   request_mode: 'stream' as const,
 };
 
@@ -17,7 +19,9 @@ const imageProfile = {
   base_url: 'https://jlaudeapi.com/v1',
   api_key: '',
   model_name: '',
+  image_size: '1024x1024' as const,
   request_mode: 'stream' as const,
+  concurrency_limit: 2,
   status: 'untested' as const,
   tested_at: '',
   last_error: '',
@@ -33,6 +37,7 @@ const baseConfig: ClientConfig = {
     volcengine: { ...textProfile, base_url: 'https://ark.cn-beijing.volces.com/api/v3', model_name: '' },
     deepseek: { ...textProfile, base_url: 'https://api.deepseek.com', model_name: '' },
     longcat: { ...textProfile, base_url: 'https://api.longcat.chat/openai/v1', model_name: '' },
+    agnes: { ...textProfile, base_url: 'https://apihub.agnes-ai.com/v1', model_name: '' },
     'codex-cli': { ...textProfile, base_url: 'local-codex-cli', model_name: 'gpt-5.5', request_mode: 'normal' },
     'local-gemma': { ...textProfile, base_url: 'http://127.0.0.1:11434/v1', model_name: 'gemma4:31b', request_mode: 'normal' },
     'local-qwen': { ...textProfile, base_url: 'http://127.0.0.1:11434/v1', model_name: 'qwen3.6:27b', request_mode: 'normal' },
@@ -45,12 +50,15 @@ const baseConfig: ClientConfig = {
   api_key: textProfile.api_key,
   base_url: textProfile.base_url,
   model_name: textProfile.model_name,
+  context_length_limit: textProfile.context_length_limit,
+  concurrency_limit: textProfile.concurrency_limit,
   request_mode: textProfile.request_mode,
   image_model: imageProfile,
   image_model_profiles: {
     jinlong: imageProfile,
     volcengine: { ...imageProfile, provider: 'volcengine', base_url: 'https://ark.cn-beijing.volces.com/api/v3' },
     'google-ai-studio': { ...imageProfile, provider: 'google-ai-studio', base_url: 'https://generativelanguage.googleapis.com/v1beta', model_name: 'gemini-3.1-flash-image-preview' },
+    agnes: { ...imageProfile, provider: 'agnes', base_url: 'https://apihub.agnes-ai.com/v1' },
     custom: { ...imageProfile, provider: 'custom', base_url: '' },
   },
   file_parser: {

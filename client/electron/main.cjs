@@ -13,6 +13,10 @@ const GPU_HARDWARE_ACCELERATION_TRIAL_ARG = '--yibiao-trial-hardware-acceleratio
 const FORCE_DISABLE_GPU_ARGS = ['--disable-gpu', '--disable-hardware-acceleration'];
 let appQuitting = false;
 let gpuRecoveryRelaunchStarted = false;
+let developerTokenStatsWindow = null;
+let services = null;
+let closeBeforeQuitStarted = false;
+let quitAfterClose = false;
 
 function hasProcessArg(name) {
   return process.argv.some((arg) => arg === name || arg.startsWith(`${name}=`));
@@ -207,12 +211,22 @@ function withoutGpuControlArgs(args) {
   return args.filter((arg) => !excludedArgs.has(String(arg).split('=')[0]));
 }
 
-function relaunchWithGpuDisabled() {
+async function closeServicesBeforeExit() {
+  try {
+    await services?.closeServices?.();
+  } catch (error) {
+    console.warn('[electron] 关闭后台服务失败', error?.message || String(error));
+  }
+}
+
+async function relaunchWithGpuDisabled() {
   if (gpuRecoveryRelaunchStarted) {
     return;
   }
 
   gpuRecoveryRelaunchStarted = true;
+  appQuitting = true;
+  await closeServicesBeforeExit();
   app.relaunch({ args: withoutGpuControlArgs(process.argv.slice(1)).concat('--disable-gpu') });
   app.exit(0);
 }
@@ -340,12 +354,74 @@ function createMainWindow() {
   return mainWindow;
 }
 
+function appendWindowQuery(url, windowName) {
+  return `${url}${url.includes('?') ? '&' : '?'}window=${encodeURIComponent(windowName)}`;
+}
+
+function closeDeveloperTokenStatsWindow() {
+  const window = developerTokenStatsWindow;
+  developerTokenStatsWindow = null;
+  if (window && !window.isDestroyed()) {
+    window.close();
+  }
+}
+
+function openDeveloperTokenStatsWindow() {
+  if (developerTokenStatsWindow && !developerTokenStatsWindow.isDestroyed()) {
+    if (developerTokenStatsWindow.isMinimized()) {
+      developerTokenStatsWindow.restore();
+    }
+    developerTokenStatsWindow.show();
+    developerTokenStatsWindow.focus();
+    return { success: true };
+  }
+
+  const tokenStatsWindow = new BrowserWindow({
+    width: 360,
+    height: 330,
+    minWidth: 320,
+    minHeight: 300,
+    maxWidth: 420,
+    maxHeight: 420,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    backgroundColor: '#00000000',
+    title: 'Token 统计',
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+
+  developerTokenStatsWindow = tokenStatsWindow;
+  tokenStatsWindow.setMenuBarVisibility(false);
+  tokenStatsWindow.on('closed', () => {
+    if (developerTokenStatsWindow === tokenStatsWindow) {
+      developerTokenStatsWindow = null;
+    }
+  });
+
+  const baseUrl = rendererUrl || packagedIndexUrl;
+  tokenStatsWindow.loadURL(appendWindowQuery(baseUrl, 'token-stats'));
+  return { success: true };
+}
+
 app.whenReady().then(() => {
   nativeTheme.themeSource = 'light';
   registerAssetProtocol();
   const mainWindow = createMainWindow();
   scheduleGpuStartupProbeClear(mainWindow);
-  registerIpcHandlers({
+  services = registerIpcHandlers({
     app,
     mainWindow,
     checkAndDownloadUpdate,
@@ -356,8 +432,13 @@ app.whenReady().then(() => {
     gpuStartupState,
     gpuTrialArg: GPU_HARDWARE_ACCELERATION_TRIAL_ARG,
     forceDisableGpuArgs: FORCE_DISABLE_GPU_ARGS,
+    openDeveloperTokenStatsWindow,
+    closeDeveloperTokenStatsWindow,
   });
   setupAutoUpdate({ app, mainWindow });
+  mainWindow.on('closed', () => {
+    closeDeveloperTokenStatsWindow();
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -378,15 +459,34 @@ app.on('child-process-gone', (_event, details) => {
   });
   if (gpuStartupState.hardwareAccelerationEnabled && !gpuStartupState.forcedDisabled && details.reason !== 'clean-exit') {
     disableGpuHardwareAccelerationForNextLaunch('gpu-process-gone');
-    relaunchWithGpuDisabled();
+    void relaunchWithGpuDisabled();
   }
 });
 
-app.on('before-quit', () => {
-  appQuitting = true;
-  if (gpuStartupState.probeStarted && !gpuRecoveryRelaunchStarted) {
-    clearGpuStartupProbe();
+app.on('before-quit', (event) => {
+  if (quitAfterClose) {
+    return;
   }
+  event.preventDefault();
+  if (closeBeforeQuitStarted) {
+    return;
+  }
+  closeBeforeQuitStarted = true;
+  appQuitting = true;
+  void Promise.resolve()
+    .then(async () => {
+      await closeServicesBeforeExit();
+      if (gpuStartupState.probeStarted && !gpuRecoveryRelaunchStarted) {
+        clearGpuStartupProbe();
+      }
+    })
+    .catch((error) => {
+      console.warn('[electron] before-quit 清理失败', error?.message || String(error));
+    })
+    .finally(() => {
+      quitAfterClose = true;
+      app.quit();
+    });
 });
 
 app.on('window-all-closed', () => {
