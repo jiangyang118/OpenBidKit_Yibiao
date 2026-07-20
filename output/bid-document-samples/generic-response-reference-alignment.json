@@ -1,0 +1,1085 @@
+{
+  "ok": true,
+  "input": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/generic-response-sample.docx",
+  "candidate": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/generic-response-sample.docx",
+  "output_json": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/generic-response-reference-alignment.json",
+  "analysis": {
+    "ok": true,
+    "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/generic-response-sample.docx",
+    "entryCount": 26,
+    "hasDocumentXml": true,
+    "hasStylesXml": true,
+    "hasRelationshipsXml": true,
+    "layout": {
+      "hasSectionProperties": true,
+      "pageSize": {
+        "width": "11906",
+        "height": "16838",
+        "orientation": "portrait"
+      },
+      "margins": {
+        "top": "1440",
+        "right": "1440",
+        "bottom": "1440",
+        "left": "1440"
+      }
+    },
+    "summary": {
+      "blockCount": 76,
+      "headingCount": 25,
+      "tableCount": 11,
+      "imageReferenceCount": 3,
+      "mediaCount": 2,
+      "pageBreakCount": 14,
+      "tocFieldCount": 1,
+      "footerCount": 1,
+      "hasPageNumberFooter": true,
+      "footerText": "第  页"
+    },
+    "headings": [
+      {
+        "blockIndex": 6,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "供应商及授权代表页"
+      },
+      {
+        "blockIndex": 9,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "目录"
+      },
+      {
+        "blockIndex": 13,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "一、报价一览表"
+      },
+      {
+        "blockIndex": 17,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "1-2 分项报价表"
+      },
+      {
+        "blockIndex": 20,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "二、法定代表人身份证明"
+      },
+      {
+        "blockIndex": 22,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "三、法定代表人授权委托书"
+      },
+      {
+        "blockIndex": 25,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "四、供应商基本情况表"
+      },
+      {
+        "blockIndex": 31,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "五、供应商资格证明文件"
+      },
+      {
+        "blockIndex": 34,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "六、技术方案"
+      },
+      {
+        "blockIndex": 35,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "项目理解"
+      },
+      {
+        "blockIndex": 37,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "总体架构"
+      },
+      {
+        "blockIndex": 39,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "核心业务流程"
+      },
+      {
+        "blockIndex": 41,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "关键功能设计"
+      },
+      {
+        "blockIndex": 43,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "第三方接口边界"
+      },
+      {
+        "blockIndex": 45,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "数据安全与运维设计"
+      },
+      {
+        "blockIndex": 47,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "交付成果"
+      },
+      {
+        "blockIndex": 49,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "详细功能介绍"
+      },
+      {
+        "blockIndex": 54,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "关键功能参数响应"
+      },
+      {
+        "blockIndex": 56,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "相关配套设备"
+      },
+      {
+        "blockIndex": 59,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "七、项目实施方案"
+      },
+      {
+        "blockIndex": 62,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "八、产品售后方案"
+      },
+      {
+        "blockIndex": 65,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "九、质保期"
+      },
+      {
+        "blockIndex": 68,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "十、其他材料"
+      },
+      {
+        "blockIndex": 69,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "合同案例证明"
+      },
+      {
+        "blockIndex": 74,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "后备服务"
+      }
+    ],
+    "tables": [
+      {
+        "blockIndex": 7,
+        "rowCount": 5,
+        "columnCount": 2,
+        "firstRow": [
+          "项目",
+          "内容"
+        ],
+        "textPreview": [
+          "项目",
+          "内容",
+          "项目名称",
+          "通用完整标书样例项目",
+          "采购人",
+          "样例采购人",
+          "供应商",
+          "样例供应商",
+          "文件类型",
+          "响应文件"
+        ]
+      },
+      {
+        "blockIndex": 14,
+        "rowCount": 6,
+        "columnCount": 2,
+        "firstRow": [
+          "项目",
+          "响应内容"
+        ],
+        "textPreview": [
+          "项目",
+          "响应内容",
+          "项目名称",
+          "通用完整标书样例项目",
+          "供应商",
+          "样例供应商",
+          "报价含税总价",
+          "300.00 元",
+          "不含税金额",
+          "265.49 元",
+          "税率口径",
+          "软硬件 13%，实施服务 6%"
+        ]
+      },
+      {
+        "blockIndex": 16,
+        "rowCount": 3,
+        "columnCount": 3,
+        "firstRow": [
+          "付款节点",
+          "付款比例",
+          "付款说明"
+        ],
+        "textPreview": [
+          "付款节点",
+          "付款比例",
+          "付款说明",
+          "到货",
+          "50%",
+          "设备到现场支付合同总价款的 50%。",
+          "验收",
+          "50%",
+          "设备调试合格后支付合同总价款的 50%。"
+        ]
+      },
+      {
+        "blockIndex": 18,
+        "rowCount": 3,
+        "columnCount": 6,
+        "firstRow": [
+          "序号",
+          "名称",
+          "数量",
+          "品牌及型号",
+          "含税单价",
+          "含税总价"
+        ],
+        "textPreview": [
+          "序号",
+          "名称",
+          "数量",
+          "品牌及型号",
+          "含税单价",
+          "含税总价",
+          "1",
+          "样例管理系统",
+          "1",
+          "GEN-SYS V1.0",
+          "100.00 元",
+          "100.00 元"
+        ]
+      },
+      {
+        "blockIndex": 26,
+        "rowCount": 4,
+        "columnCount": 2,
+        "firstRow": [
+          "项目",
+          "内容"
+        ],
+        "textPreview": [
+          "项目",
+          "内容",
+          "供应商名称",
+          "样例供应商",
+          "响应项目",
+          "通用完整标书样例项目",
+          "资质材料",
+          "营业执照、资质证书、体系认证、信用证明、检测报告及采购文件要求的其他证明材料。"
+        ]
+      },
+      {
+        "blockIndex": 38,
+        "rowCount": 6,
+        "columnCount": 3,
+        "firstRow": [
+          "层级",
+          "建设内容",
+          "投标响应说明"
+        ],
+        "textPreview": [
+          "层级",
+          "建设内容",
+          "投标响应说明",
+          "用户入口层",
+          "管理端、业务端、现场使用端",
+          "覆盖项目相关人员的日常操作入口。",
+          "采集与执行层",
+          "终端设备、业务表单、现场记录",
+          "支撑业务数据采集、过程执行和结果留痕。",
+          "业务应用层",
+          "配置管理、业务处理、查询统计、异常处理",
+          "按采购范围组织功能，不扩大合同边界。"
+        ]
+      },
+      {
+        "blockIndex": 40,
+        "rowCount": 5,
+        "columnCount": 3,
+        "firstRow": [
+          "流程",
+          "功能内容",
+          "交付边界"
+        ],
+        "textPreview": [
+          "流程",
+          "功能内容",
+          "交付边界",
+          "基础配置",
+          "维护项目基础资料、角色权限和业务规则。",
+          "以合同和采购文件确认范围为准。",
+          "业务办理",
+          "按业务流程记录申请、处理、审核和结果。",
+          "流程节点可按项目约定配置。",
+          "数据汇总",
+          "形成业务台账、统计报表和过程记录。",
+          "报表口径以双方确认的数据来源为准。"
+        ]
+      },
+      {
+        "blockIndex": 42,
+        "rowCount": 4,
+        "columnCount": 4,
+        "firstRow": [
+          "功能模块",
+          "功能内容",
+          "投标响应说明",
+          "管理价值/交付边界"
+        ],
+        "textPreview": [
+          "功能模块",
+          "功能内容",
+          "投标响应说明",
+          "管理价值/交付边界",
+          "基础资料管理",
+          "维护项目、人员、组织、设备或服务基础信息。",
+          "按项目实例数据初始化。",
+          "保证后续业务处理口径一致。",
+          "业务流程管理",
+          "支撑采购文件约定的核心办理流程。",
+          "按合同范围交付。",
+          "提高执行过程规范性。"
+        ]
+      },
+      {
+        "blockIndex": 44,
+        "rowCount": 4,
+        "columnCount": 3,
+        "firstRow": [
+          "接口类别",
+          "前置条件",
+          "交付边界"
+        ],
+        "textPreview": [
+          "接口类别",
+          "前置条件",
+          "交付边界",
+          "人员/组织系统",
+          "对方系统开放接口，提供字段说明、测试账号和权限。",
+          "按合同范围实施基础数据对接。",
+          "业务系统",
+          "对方明确数据来源、更新频率和字段口径。",
+          "完成约定字段同步或结果回传。",
+          "财务/支付系统",
+          "对方提供接口文档、联调环境和测试权限。",
+          "不承诺合同范围外的无限开发。"
+        ]
+      },
+      {
+        "blockIndex": 55,
+        "rowCount": 3,
+        "columnCount": 6,
+        "firstRow": [
+          "序号",
+          "名称",
+          "数量",
+          "品牌及型号",
+          "含税单价",
+          "含税总价"
+        ],
+        "textPreview": [
+          "序号",
+          "名称",
+          "数量",
+          "品牌及型号",
+          "含税单价",
+          "含税总价",
+          "1",
+          "样例管理系统",
+          "1",
+          "GEN-SYS V1.0",
+          "100.00 元",
+          "100.00 元"
+        ]
+      },
+      {
+        "blockIndex": 60,
+        "rowCount": 5,
+        "columnCount": 3,
+        "firstRow": [
+          "阶段",
+          "工作内容",
+          "交付结果"
+        ],
+        "textPreview": [
+          "阶段",
+          "工作内容",
+          "交付结果",
+          "启动准备",
+          "项目启动、现场确认、计划排期。",
+          "实施计划和现场确认记录。",
+          "安装调试",
+          "设备安装、系统配置、基础数据初始化。",
+          "可运行的系统和设备联调记录。",
+          "试运行",
+          "业务验证、问题修正、用户培训。",
+          "试运行问题闭环和培训记录。"
+        ]
+      }
+    ],
+    "images": [
+      {
+        "blockIndex": 29,
+        "paragraphText": "",
+        "relationshipId": "rId8",
+        "target": "media/4a5eb7171b58e08a6881721e3b43d5a44419a2be.png"
+      },
+      {
+        "blockIndex": 53,
+        "paragraphText": "",
+        "relationshipId": "rId8",
+        "target": "media/4a5eb7171b58e08a6881721e3b43d5a44419a2be.png"
+      },
+      {
+        "blockIndex": 73,
+        "paragraphText": "",
+        "relationshipId": "rId8",
+        "target": "media/4a5eb7171b58e08a6881721e3b43d5a44419a2be.png"
+      }
+    ],
+    "mediaEntries": [
+      "word/media/",
+      "word/media/4a5eb7171b58e08a6881721e3b43d5a44419a2be.png"
+    ],
+    "pageBreakIndexes": [
+      5,
+      8,
+      12,
+      19,
+      24,
+      27,
+      30,
+      33,
+      51,
+      58,
+      61,
+      64,
+      67,
+      71
+    ],
+    "tocBlocks": [
+      {
+        "blockIndex": 10,
+        "text": ""
+      }
+    ],
+    "footerEntries": [
+      "word/footer1.xml"
+    ]
+  },
+  "candidate_analysis": {
+    "ok": true,
+    "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/generic-response-sample.docx",
+    "entryCount": 26,
+    "hasDocumentXml": true,
+    "hasStylesXml": true,
+    "hasRelationshipsXml": true,
+    "layout": {
+      "hasSectionProperties": true,
+      "pageSize": {
+        "width": "11906",
+        "height": "16838",
+        "orientation": "portrait"
+      },
+      "margins": {
+        "top": "1440",
+        "right": "1440",
+        "bottom": "1440",
+        "left": "1440"
+      }
+    },
+    "summary": {
+      "blockCount": 76,
+      "headingCount": 25,
+      "tableCount": 11,
+      "imageReferenceCount": 3,
+      "mediaCount": 2,
+      "pageBreakCount": 14,
+      "tocFieldCount": 1,
+      "footerCount": 1,
+      "hasPageNumberFooter": true,
+      "footerText": "第  页"
+    },
+    "headings": [
+      {
+        "blockIndex": 6,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "供应商及授权代表页"
+      },
+      {
+        "blockIndex": 9,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "目录"
+      },
+      {
+        "blockIndex": 13,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "一、报价一览表"
+      },
+      {
+        "blockIndex": 17,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "1-2 分项报价表"
+      },
+      {
+        "blockIndex": 20,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "二、法定代表人身份证明"
+      },
+      {
+        "blockIndex": 22,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "三、法定代表人授权委托书"
+      },
+      {
+        "blockIndex": 25,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "四、供应商基本情况表"
+      },
+      {
+        "blockIndex": 31,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "五、供应商资格证明文件"
+      },
+      {
+        "blockIndex": 34,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "六、技术方案"
+      },
+      {
+        "blockIndex": 35,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "项目理解"
+      },
+      {
+        "blockIndex": 37,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "总体架构"
+      },
+      {
+        "blockIndex": 39,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "核心业务流程"
+      },
+      {
+        "blockIndex": 41,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "关键功能设计"
+      },
+      {
+        "blockIndex": 43,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "第三方接口边界"
+      },
+      {
+        "blockIndex": 45,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "数据安全与运维设计"
+      },
+      {
+        "blockIndex": 47,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "交付成果"
+      },
+      {
+        "blockIndex": 49,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "详细功能介绍"
+      },
+      {
+        "blockIndex": 54,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "关键功能参数响应"
+      },
+      {
+        "blockIndex": 56,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "相关配套设备"
+      },
+      {
+        "blockIndex": 59,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "七、项目实施方案"
+      },
+      {
+        "blockIndex": 62,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "八、产品售后方案"
+      },
+      {
+        "blockIndex": 65,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "九、质保期"
+      },
+      {
+        "blockIndex": 68,
+        "level": 1,
+        "styleId": "Heading1",
+        "styleName": "Heading 1",
+        "text": "十、其他材料"
+      },
+      {
+        "blockIndex": 69,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "合同案例证明"
+      },
+      {
+        "blockIndex": 74,
+        "level": 2,
+        "styleId": "Heading2",
+        "styleName": "Heading 2",
+        "text": "后备服务"
+      }
+    ],
+    "tables": [
+      {
+        "blockIndex": 7,
+        "rowCount": 5,
+        "columnCount": 2,
+        "firstRow": [
+          "项目",
+          "内容"
+        ],
+        "textPreview": [
+          "项目",
+          "内容",
+          "项目名称",
+          "通用完整标书样例项目",
+          "采购人",
+          "样例采购人",
+          "供应商",
+          "样例供应商",
+          "文件类型",
+          "响应文件"
+        ]
+      },
+      {
+        "blockIndex": 14,
+        "rowCount": 6,
+        "columnCount": 2,
+        "firstRow": [
+          "项目",
+          "响应内容"
+        ],
+        "textPreview": [
+          "项目",
+          "响应内容",
+          "项目名称",
+          "通用完整标书样例项目",
+          "供应商",
+          "样例供应商",
+          "报价含税总价",
+          "300.00 元",
+          "不含税金额",
+          "265.49 元",
+          "税率口径",
+          "软硬件 13%，实施服务 6%"
+        ]
+      },
+      {
+        "blockIndex": 16,
+        "rowCount": 3,
+        "columnCount": 3,
+        "firstRow": [
+          "付款节点",
+          "付款比例",
+          "付款说明"
+        ],
+        "textPreview": [
+          "付款节点",
+          "付款比例",
+          "付款说明",
+          "到货",
+          "50%",
+          "设备到现场支付合同总价款的 50%。",
+          "验收",
+          "50%",
+          "设备调试合格后支付合同总价款的 50%。"
+        ]
+      },
+      {
+        "blockIndex": 18,
+        "rowCount": 3,
+        "columnCount": 6,
+        "firstRow": [
+          "序号",
+          "名称",
+          "数量",
+          "品牌及型号",
+          "含税单价",
+          "含税总价"
+        ],
+        "textPreview": [
+          "序号",
+          "名称",
+          "数量",
+          "品牌及型号",
+          "含税单价",
+          "含税总价",
+          "1",
+          "样例管理系统",
+          "1",
+          "GEN-SYS V1.0",
+          "100.00 元",
+          "100.00 元"
+        ]
+      },
+      {
+        "blockIndex": 26,
+        "rowCount": 4,
+        "columnCount": 2,
+        "firstRow": [
+          "项目",
+          "内容"
+        ],
+        "textPreview": [
+          "项目",
+          "内容",
+          "供应商名称",
+          "样例供应商",
+          "响应项目",
+          "通用完整标书样例项目",
+          "资质材料",
+          "营业执照、资质证书、体系认证、信用证明、检测报告及采购文件要求的其他证明材料。"
+        ]
+      },
+      {
+        "blockIndex": 38,
+        "rowCount": 6,
+        "columnCount": 3,
+        "firstRow": [
+          "层级",
+          "建设内容",
+          "投标响应说明"
+        ],
+        "textPreview": [
+          "层级",
+          "建设内容",
+          "投标响应说明",
+          "用户入口层",
+          "管理端、业务端、现场使用端",
+          "覆盖项目相关人员的日常操作入口。",
+          "采集与执行层",
+          "终端设备、业务表单、现场记录",
+          "支撑业务数据采集、过程执行和结果留痕。",
+          "业务应用层",
+          "配置管理、业务处理、查询统计、异常处理",
+          "按采购范围组织功能，不扩大合同边界。"
+        ]
+      },
+      {
+        "blockIndex": 40,
+        "rowCount": 5,
+        "columnCount": 3,
+        "firstRow": [
+          "流程",
+          "功能内容",
+          "交付边界"
+        ],
+        "textPreview": [
+          "流程",
+          "功能内容",
+          "交付边界",
+          "基础配置",
+          "维护项目基础资料、角色权限和业务规则。",
+          "以合同和采购文件确认范围为准。",
+          "业务办理",
+          "按业务流程记录申请、处理、审核和结果。",
+          "流程节点可按项目约定配置。",
+          "数据汇总",
+          "形成业务台账、统计报表和过程记录。",
+          "报表口径以双方确认的数据来源为准。"
+        ]
+      },
+      {
+        "blockIndex": 42,
+        "rowCount": 4,
+        "columnCount": 4,
+        "firstRow": [
+          "功能模块",
+          "功能内容",
+          "投标响应说明",
+          "管理价值/交付边界"
+        ],
+        "textPreview": [
+          "功能模块",
+          "功能内容",
+          "投标响应说明",
+          "管理价值/交付边界",
+          "基础资料管理",
+          "维护项目、人员、组织、设备或服务基础信息。",
+          "按项目实例数据初始化。",
+          "保证后续业务处理口径一致。",
+          "业务流程管理",
+          "支撑采购文件约定的核心办理流程。",
+          "按合同范围交付。",
+          "提高执行过程规范性。"
+        ]
+      },
+      {
+        "blockIndex": 44,
+        "rowCount": 4,
+        "columnCount": 3,
+        "firstRow": [
+          "接口类别",
+          "前置条件",
+          "交付边界"
+        ],
+        "textPreview": [
+          "接口类别",
+          "前置条件",
+          "交付边界",
+          "人员/组织系统",
+          "对方系统开放接口，提供字段说明、测试账号和权限。",
+          "按合同范围实施基础数据对接。",
+          "业务系统",
+          "对方明确数据来源、更新频率和字段口径。",
+          "完成约定字段同步或结果回传。",
+          "财务/支付系统",
+          "对方提供接口文档、联调环境和测试权限。",
+          "不承诺合同范围外的无限开发。"
+        ]
+      },
+      {
+        "blockIndex": 55,
+        "rowCount": 3,
+        "columnCount": 6,
+        "firstRow": [
+          "序号",
+          "名称",
+          "数量",
+          "品牌及型号",
+          "含税单价",
+          "含税总价"
+        ],
+        "textPreview": [
+          "序号",
+          "名称",
+          "数量",
+          "品牌及型号",
+          "含税单价",
+          "含税总价",
+          "1",
+          "样例管理系统",
+          "1",
+          "GEN-SYS V1.0",
+          "100.00 元",
+          "100.00 元"
+        ]
+      },
+      {
+        "blockIndex": 60,
+        "rowCount": 5,
+        "columnCount": 3,
+        "firstRow": [
+          "阶段",
+          "工作内容",
+          "交付结果"
+        ],
+        "textPreview": [
+          "阶段",
+          "工作内容",
+          "交付结果",
+          "启动准备",
+          "项目启动、现场确认、计划排期。",
+          "实施计划和现场确认记录。",
+          "安装调试",
+          "设备安装、系统配置、基础数据初始化。",
+          "可运行的系统和设备联调记录。",
+          "试运行",
+          "业务验证、问题修正、用户培训。",
+          "试运行问题闭环和培训记录。"
+        ]
+      }
+    ],
+    "images": [
+      {
+        "blockIndex": 29,
+        "paragraphText": "",
+        "relationshipId": "rId8",
+        "target": "media/4a5eb7171b58e08a6881721e3b43d5a44419a2be.png"
+      },
+      {
+        "blockIndex": 53,
+        "paragraphText": "",
+        "relationshipId": "rId8",
+        "target": "media/4a5eb7171b58e08a6881721e3b43d5a44419a2be.png"
+      },
+      {
+        "blockIndex": 73,
+        "paragraphText": "",
+        "relationshipId": "rId8",
+        "target": "media/4a5eb7171b58e08a6881721e3b43d5a44419a2be.png"
+      }
+    ],
+    "mediaEntries": [
+      "word/media/",
+      "word/media/4a5eb7171b58e08a6881721e3b43d5a44419a2be.png"
+    ],
+    "pageBreakIndexes": [
+      5,
+      8,
+      12,
+      19,
+      24,
+      27,
+      30,
+      33,
+      51,
+      58,
+      61,
+      64,
+      67,
+      71
+    ],
+    "tocBlocks": [
+      {
+        "blockIndex": 10,
+        "text": ""
+      }
+    ],
+    "footerEntries": [
+      "word/footer1.xml"
+    ]
+  },
+  "alignment": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "missingHeadings": [],
+      "extraHeadings": [],
+      "outOfOrderHeadings": [],
+      "missingTableHeaders": [],
+      "extraTableHeaders": [],
+      "layoutDiffs": [],
+      "summaryDiffs": [],
+      "referenceSummary": {
+        "blockCount": 76,
+        "headingCount": 25,
+        "tableCount": 11,
+        "imageReferenceCount": 3,
+        "mediaCount": 2,
+        "pageBreakCount": 14,
+        "tocFieldCount": 1,
+        "footerCount": 1,
+        "hasPageNumberFooter": true,
+        "footerText": "第  页"
+      },
+      "candidateSummary": {
+        "blockCount": 76,
+        "headingCount": 25,
+        "tableCount": 11,
+        "imageReferenceCount": 3,
+        "mediaCount": 2,
+        "pageBreakCount": 14,
+        "tocFieldCount": 1,
+        "footerCount": 1,
+        "hasPageNumberFooter": true,
+        "footerText": "第  页"
+      }
+    }
+  }
+}

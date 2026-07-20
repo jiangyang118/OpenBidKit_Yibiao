@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "concurrently -k -n vite,electron -c blue,magenta \"vite --host 127.0.0.1 --port 5173 --strictPort\" \"wait-on http://127.0.0.1:5173 && cross-env ELECTRON_RENDERER_URL=http://127.0.0.1:5173 electron .\"",
     "dev:local": "node scripts/dev-local.cjs",
+    "web": "npm run build && npm run web:serve",
+    "web:serve": "electron electron/webHost.cjs",
     "build": "tsc --noEmit && vite build",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "vitest run",
@@ -21,6 +23,7 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
     "smoke:electron-native": "electron scripts/electron-native-smoke.cjs",
     "smoke:release-config": "node scripts/release-config-smoke.cjs",
+    "sample:bid-document": "node scripts/generate-bid-document-sample.cjs",
     "start": "electron ."
   },
   "build": {

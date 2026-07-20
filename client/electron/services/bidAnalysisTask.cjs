@@ -119,6 +119,39 @@ const tasks = [
 7. 如果没有找到明确响应文件要求，请说明“未找到明确响应文件要求”，并列出可能相关的投标/响应文件格式段落摘要。
 8. 只输出整理结果，不要输出分析过程。`,
   },
+  {
+    id: 'proofMaterialMatrix', label: '证明材料矩阵', required: false, output: 'markdown', description: '检测报告、证书、盖章证明、产品彩页和参数确认要求。',
+    prompt: () => `任务：提取招标文件中所有与证明材料、检测报告、证书资质、厂家盖章文件相关的要求。
+
+请重点识别：
+1. 软件检测报告、CNAS/CMA、软件著作权、专利、国产化适配、体系认证等软件和公司证明。
+2. 硬件检测报告、检验报告、质检报告、出厂检验、产品型号、参数确认等设备证明。
+3. 厂家盖章功能证明、授权函、承诺函、产品彩页、功能清单、参数确认文件。
+4. 团队人员、项目经理、技术负责人、工程师、职称证书、人员证书。
+5. 原文要求证明材料出现在响应文件哪个章节、是否需要签字盖章、是否要求原件/复印件/扫描件。
+
+输出要求：
+1. 按“技术条款/采购要求 — 产品或能力 — 要求的证明材料 — 原文位置 — 装订/盖章要求”整理。
+2. 如果原文只要求“提供证明材料”但没有指定文件类型，要保留原文并标注“文件类型未明确”。
+3. 不要把封面图片等同于报告正文；报告类要求需标注是否要求测试范围、测试结论、关键指标或完整报告。
+4. 只输出整理结果，不要输出分析过程。`,
+  },
+  {
+    id: 'visualEvidenceRequirements', label: '图文证据要求', required: false, output: 'markdown', description: '功能截图、操作说明、产品图片、架构图和报表图要求。',
+    prompt: () => `任务：提取招标文件中所有需要用图片、截图、图示或操作说明支撑的要求。
+
+请重点识别：
+1. PC 后台、手机端、消费设备端、营养健康、订单管理、补贴管理、菜品管理、报表统计等功能截图要求。
+2. 称重台、消费机、绑盘机、托盘、电子价签、硬件外观、终端界面等产品图片或设备图片要求。
+3. 系统架构图、部署拓扑图、接口关系图、业务流程图、数据流转图、报表图等图示要求。
+4. 操作流程说明、配置说明、演示材料、现场演示、截图页或附件页要求。
+
+输出要求：
+1. 按“章节/功能场景 — 应提供图文证据 — 证明目的 — 原文位置 — 缺失风险”整理。
+2. 区分原文明确要求和根据功能验收需要重点补充的图文证据，补充项前缀使用“重点补充：”。
+3. 不要生成图片标题，不要编造已具备截图；只抽取要求和证据缺口。
+4. 只输出整理结果，不要输出分析过程。`,
+  },
   { id: 'agentInfo', label: '代理机构信息', required: false, output: 'json', description: '代理机构联系方式和账户信息。', prompt: () => jsonTask('提取代理机构信息', '提取代理机构名称、地址、联系人、电话、邮箱和银行账户信息。', `{"company_name":"公司名称","address":"地址","contact_person":"联系人","contact_phone":"联系电话","email":"联系邮箱","bank_account_name":"银行账户名称","bank_account_number":"银行账户账号","bank_account_address":"银行账户开户行","bank_account_address_detail":"银行账户开户行地址"}`) },
   { id: 'keyInfo', label: '投标关键节点', required: false, output: 'json', description: '公告、获取文件、递交、截止和开标信息。', prompt: () => jsonTask('提取投标关键节点', '提取招标公告发布日期、招标文件获取方式、售价、获取时间、提交地点、截止时间、开标时间、开标地点和其他注意事项。', `{"bid_announcement_time":"招标公告发布日期","bid_file_get_way":"招标文件获取方式","bid_file_price":"招标文件售价","get_bid_file_time":"获取招标文件时间","bid_document_submission_location":"投标文件提交地点","bid_submission_deadline":"投标截止时间","bid_opening_time":"开标时间","bid_opening_address":"开标地点","other_notes":"其他注意事项"}`) },
   { id: 'marginInfo', label: '投标保证金', required: false, output: 'json', description: '保证金金额、方式、截止和退还条件。', prompt: () => jsonTask('提取投标保证金信息', '提取投标保证金、缴纳方式、截止日期、退还条件、不予退还情形和其他注意事项。', `{"bidding_deposit":"投标保证金","payment_method":"缴纳方式","due_date":"截止日期","refund_conditions":"退还条件","non_refundable_conditions":"不予退还的情形","other_notes":"其他注意事项"}`) },
@@ -127,6 +160,36 @@ const tasks = [
   { id: 'openBid', label: '开标要求', required: false, output: 'json', description: '开标时间地点、参与要求、无效标和流程。', prompt: () => jsonTask('提取开标信息', '提取时间地点、参与要求、无效标认定、异议处理、开标流程。', `{"time_place":"时间地点","part_req":"参与要求","invalid_bid":"无效标认定","objection":"异议处理","bid_process":"开标流程"}`) },
   { id: 'evaluationBid', label: '评标要求', required: false, output: 'json', description: '评标委员会、评分构成、方法和原则。', prompt: () => jsonTask('提取评标信息', '提取评标委员会组成、职责、评分构成、评标方法类型、评标原则和方法细节、其他评标相关说明。', `{"committee":"评标委员会组成","duties":"评标委员会职责","scoring":"评分构成","method":"评标方法类型","principles":"评标原则和方法细节","others":"其他和评标相关的说明"}`) },
   { id: 'businessScoring', label: '商务评分要求', required: false, output: 'markdown', description: '商务评分因素，为商务方案准备。', prompt: () => '任务：提取招标文件中的商务评分因素，为编写投标文件中的商务方案做准备。整理成 Markdown，不要使用表格。仅输出整理结果。' },
+  {
+    id: 'companyTeamQualifications', label: '公司团队资质', required: false, output: 'markdown', description: '公司资质、业绩、团队人员、项目经理和人员证书要求。',
+    prompt: () => `任务：提取招标文件中对供应商公司资质、业绩、团队人员和人员证书的要求。
+
+请重点识别：
+1. 营业执照、体系认证、信用记录、荣誉、业绩合同、验收证明、用户证明。
+2. 项目经理、技术负责人、实施人员、售后人员、驻场人员、培训人员配置要求。
+3. 高级工程师、职称证书、资格证书、社保、劳动合同、授权证明等人员证明。
+4. 原文中对证书有效期、盖章、复印件、原件备查、项目经验年限、类似项目数量的要求。
+
+输出要求：
+1. 按“资质/人员类别 — 原文要求 — 证明文件 — 装订/盖章要求 — 对投标文件影响”整理。
+2. 没有明确要求的类别不要编造；但可在最后列“重点补充：人工标书通常需要核对的资质/人员证明缺口”。
+3. 只输出整理结果，不要输出分析过程。`,
+  },
+  {
+    id: 'deploymentSecurityInterfaces', label: '部署安全接口', required: false, output: 'markdown', description: '部署拓扑、数据安全、日志审计、备份容灾、接口对接和报表要求。',
+    prompt: () => `任务：提取招标文件中与系统部署、安全、接口、数据、报表和运维相关的要求。
+
+请重点识别：
+1. 部署方式、服务器/终端环境、网络环境、国产化适配、浏览器/操作系统/数据库/中间件要求。
+2. 权限控制、密码策略、通信安全、数据安全、日志审计、备份恢复、容灾、迁移和运维要求。
+3. 第三方系统接口、人员账户、订单、菜品、营养、设备、报表、一卡通、门禁、停车、监管平台等对接要求。
+4. 统计报表、经营驾驶舱、台账、数据导出、留痕追溯和验收数据要求。
+
+输出要求：
+1. 按“要求类别 — 原文要求 — 对技术方案章节的影响 — 应提供的图/表/接口清单/证明材料”整理。
+2. 原文未明确但对智慧食堂投标质量影响大的内容，可作为“重点补充”列出，每类不超过 3 条。
+3. 只输出整理结果，不要输出分析过程。`,
+  },
   { id: 'discardedBids', label: '无效标与废标项', required: false, output: 'markdown', description: '投标无效、废标相关风险项。', prompt: buildInvalidBidAndRejectionItemsPrompt },
   { id: 'signingProcess', label: '合同授予与签订', required: false, output: 'json', description: '中标公示、合同签订、履约保证金和合同文本。', prompt: () => jsonTask('提取合同授予和签订流程', '提取中标公示、合同签订、履约保证金、合同文本等信息。', `{"bid_notice":"中标公示","contract_sign":"合同签订","performance_bond":"履约保证金","contract_text":"合同文本"}`) },
   { id: 'terminationCondition', label: '合同解除和终止', required: false, output: 'json', description: '违约解除、不可抗力、合同终止和争议解决。', prompt: () => jsonTask('提取合同解除和终止条件', '提取违约解除、不可抗力、合同终止、争议解决等信息。', `{"breach_termination":"违约解除","force_majeure":"不可抗力","contract_termination":"合同终止","dispute_resolution":"争议解决"}`) },
@@ -141,6 +204,16 @@ function normalizeBidAnalysisTaskIds(taskIds) {
     .map((taskId) => String(taskId || '').trim())
     .filter(Boolean));
   return tasks.filter((task) => requestedIds.has(task.id)).map((task) => task.id);
+}
+
+function assertKnownBidAnalysisTaskIds(taskIds, fieldName) {
+  if (!Array.isArray(taskIds)) return;
+  const knownIds = new Set(tasks.map((task) => task.id));
+  const unknownIds = [...new Set(taskIds
+    .map((taskId) => String(taskId || '').trim())
+    .filter((taskId) => taskId && !knownIds.has(taskId)))];
+  if (!unknownIds.length) return;
+  throw new Error(`${fieldName || '解析项'}包含当前后台不认识的解析项：${unknownIds.join('、')}。请重启应用后重试，避免前后端版本不一致导致解析项被跳过。`);
 }
 
 function normalizeBidAnalysisConfig(mode, selectedTaskIds) {
@@ -210,6 +283,8 @@ function runInvalidBidAndRejectionItemsExtraction({ aiService, fileContent, sect
 }
 
 async function runBidAnalysisTask({ aiService, workspaceStore, updateTask, payload }) {
+  assertKnownBidAnalysisTaskIds(payload.selected_task_ids || payload.selectedTaskIds, '解析配置');
+  assertKnownBidAnalysisTaskIds(payload.task_ids || payload.taskIds, '本次解析任务');
   const config = normalizeBidAnalysisConfig(payload.mode, payload.selected_task_ids || payload.selectedTaskIds);
   const mode = config.mode;
   const selectedTaskIdSet = new Set(config.taskIds);
@@ -331,6 +406,7 @@ async function runBidAnalysisTask({ aiService, workspaceStore, updateTask, paylo
 
 module.exports = {
   buildInvalidBidAndRejectionItemsPrompt,
+  assertKnownBidAnalysisTaskIds,
   getBidAnalysisTaskById,
   getBidAnalysisTasks,
   runInvalidBidAndRejectionItemsExtraction,

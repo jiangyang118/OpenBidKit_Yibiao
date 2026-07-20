@@ -77,6 +77,7 @@ export type ImageKnowledgeArchiveSection = '图片素材图示' | '资质扫描�
 
 export interface ImageKnowledgeArchiveImportResult extends ImageKnowledgeUploadResult {
   archives: number;
+  categoryCounts?: Record<string, number>;
 }
 
 export interface ImageKnowledgeMarkdownReferenceRequest {

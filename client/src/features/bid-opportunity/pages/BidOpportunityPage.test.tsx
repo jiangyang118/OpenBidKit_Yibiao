@@ -142,6 +142,34 @@ describe('BidOpportunityPage', () => {
     expect(screen.getByText('历史中标相似度')).toBeInTheDocument();
   });
 
+  it('focuses one opportunity panel from the top display buttons', async () => {
+    renderPage();
+
+    await screen.findAllByText('产业园智慧运维平台建设项目');
+    fireEvent.click(screen.getByRole('button', { name: /看板全屏/ }));
+
+    const workspace = document.querySelector('.opportunity-workspace-grid');
+    expect(workspace).toHaveClass('is-focused-list');
+    expect(screen.getByLabelText('机会看板面板')).toHaveClass('is-focused');
+    expect(screen.getByLabelText('公告录入面板')).toHaveClass('is-hidden-by-focus');
+    expect(screen.getByLabelText('机会详情面板')).toHaveClass('is-hidden-by-focus');
+
+    fireEvent.click(screen.getByRole('button', { name: /看板全屏/ }));
+    expect(workspace).not.toHaveClass('is-focused-list');
+  });
+
+  it('collapses and expands opportunity panels', async () => {
+    renderPage();
+
+    const inputPanel = await screen.findByLabelText('公告录入面板');
+    fireEvent.click(within(inputPanel).getByRole('button', { name: '收起' }));
+
+    expect(inputPanel).toHaveClass('is-collapsed');
+
+    fireEvent.click(within(inputPanel).getByRole('button', { name: '展开' }));
+    expect(inputPanel).toHaveClass('is-expanded');
+  });
+
   it('saves announcement text through the bridge', async () => {
     renderPage();
 

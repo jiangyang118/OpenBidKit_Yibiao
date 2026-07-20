@@ -71,6 +71,8 @@ const scoreBreakdownLabels: Array<[keyof BidOpportunity['scoreBreakdown'], strin
   ['historicalSimilarity', '历史中标相似度'],
 ];
 
+type OpportunityPanelId = 'input' | 'list' | 'detail';
+
 const sampleAnnouncement = `项目名称：产业园智慧运维平台建设项目
 采购人：某产业园管理委员会
 预算金额：3200万元
@@ -122,6 +124,12 @@ function BidOpportunityPage() {
   const [attachmentKind, setAttachmentKind] = useState<BidOpportunityAttachmentKind>('announcement');
   const [savingFollowUp, setSavingFollowUp] = useState(false);
   const [importingAttachments, setImportingAttachments] = useState(false);
+  const [focusedPanel, setFocusedPanel] = useState<OpportunityPanelId | null>(null);
+  const [expandedPanels, setExpandedPanels] = useState<Record<OpportunityPanelId, boolean>>({
+    input: true,
+    list: true,
+    detail: true,
+  });
 
   const activeOpportunity = useMemo(
     () => state.opportunities.find((item) => item.id === state.activeOpportunityId) || state.opportunities[0] || null,
@@ -129,6 +137,14 @@ function BidOpportunityPage() {
   );
   const stats = useMemo(() => summarizeStats(state.opportunities), [state.opportunities]);
   const reminderCount = useMemo(() => state.opportunities.filter((item) => item.reminderAt).length, [state.opportunities]);
+  const panelButtons = useMemo(
+    () => [
+      { id: 'input' as const, label: '录入全屏', meta: sourceText.trim() ? '有草稿' : '待录入' },
+      { id: 'list' as const, label: '看板全屏', meta: `${state.opportunities.length} 条` },
+      { id: 'detail' as const, label: '详情全屏', meta: activeOpportunity ? `${activeOpportunity.score} 分` : '未选择' },
+    ],
+    [activeOpportunity, sourceText, state.opportunities.length],
+  );
 
   useEffect(() => {
     setFollowUpDraft({
@@ -438,6 +454,30 @@ function BidOpportunityPage() {
     }
   };
 
+  const focusPanel = (panel: OpportunityPanelId) => {
+    setFocusedPanel((current) => (current === panel ? null : panel));
+    setExpandedPanels((prev) => ({ ...prev, [panel]: true }));
+  };
+
+  const togglePanel = (panel: OpportunityPanelId) => {
+    const willCollapseFocusedPanel = expandedPanels[panel] && focusedPanel === panel;
+    if (willCollapseFocusedPanel) setFocusedPanel(null);
+    setExpandedPanels((prev) => ({ ...prev, [panel]: !prev[panel] }));
+  };
+
+  const panelClassName = (panel: OpportunityPanelId, baseClassName: string) => [
+    baseClassName,
+    'opportunity-panel-shell',
+    expandedPanels[panel] ? 'is-expanded' : 'is-collapsed',
+    focusedPanel === panel ? 'is-focused' : '',
+    focusedPanel && focusedPanel !== panel ? 'is-hidden-by-focus' : '',
+  ].filter(Boolean).join(' ');
+
+  const workspaceClassName = [
+    'opportunity-workspace-grid',
+    focusedPanel ? `is-focused is-focused-${focusedPanel}` : '',
+  ].filter(Boolean).join(' ');
+
   return (
     <div className="opportunity-workbench">
       <section className="opportunity-command-panel">
@@ -464,6 +504,19 @@ function BidOpportunityPage() {
             <strong>{stats.highScoreCount}</strong>
           </article>
         </div>
+        <div className="opportunity-focus-switcher" aria-label="投标机会显示模式">
+          {panelButtons.map((button) => (
+            <button
+              type="button"
+              className={`opportunity-focus-button${focusedPanel === button.id ? ' is-active' : ''}`}
+              onClick={() => focusPanel(button.id)}
+              key={button.id}
+            >
+              <strong>{button.label}</strong>
+              <span>{button.meta}</span>
+            </button>
+          ))}
+        </div>
         <div className="opportunity-command-actions">
           <button type="button" className="secondary-action" onClick={exportReport} disabled={!state.opportunities.length}>
             导出投标建议报告
@@ -474,87 +527,121 @@ function BidOpportunityPage() {
         </div>
       </section>
 
-      <div className="opportunity-workspace-grid">
-        <section className="opportunity-input-panel">
+      <div className={workspaceClassName}>
+        <section className={panelClassName('input', 'opportunity-input-panel')} aria-label="公告录入面板">
           <div className="panel-heading-row">
             <div>
               <span className="section-kicker">公告录入</span>
               <h3>新增投标机会</h3>
+              <small>{sourceText.trim() ? '已有公告草稿，可继续解析保存。' : '粘贴公告、导入文件或读取 URL。'}</small>
             </div>
-            <button type="button" className="secondary-action" onClick={() => setSourceText(sampleAnnouncement)}>填入样例</button>
+            <div className="opportunity-panel-actions">
+              <button type="button" className="secondary-action" onClick={() => focusPanel('input')}>
+                {focusedPanel === 'input' ? '退出全屏' : '全屏'}
+              </button>
+              <button type="button" className="secondary-action" onClick={() => togglePanel('input')}>
+                {expandedPanels.input ? '收起' : '展开'}
+              </button>
+            </div>
           </div>
-          <label className="form-field">
-            <span>机会标题</span>
-            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="可选，留空时自动从公告识别" />
-          </label>
-          <label className="form-field">
-            <span>公告 URL</span>
-            <input value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://..." />
-          </label>
-          <div className="opportunity-import-actions">
-            <button type="button" className="secondary-action" onClick={importDocument} disabled={savingMode !== null || importingMode !== null}>
-              {importingMode === 'document' ? '正在导入文件...' : '导入公告文件'}
-            </button>
-            <button type="button" className="secondary-action" onClick={importUrl} disabled={savingMode !== null || importingMode !== null || !sourceUrl.trim()}>
-              {importingMode === 'url' ? '正在读取 URL...' : '读取公告 URL'}
-            </button>
-          </div>
-          <label className="form-field is-textarea">
-            <span>公告原文</span>
-            <textarea value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="粘贴招标公告、采购公告或线索文本" />
-          </label>
-          <div className="opportunity-import-actions">
-            <button type="button" className="primary-action" onClick={saveOpportunityWithAi} disabled={savingMode !== null || importingMode !== null || !sourceText.trim()}>
-              {savingMode === 'ai' ? 'AI 解析中...' : 'AI 解析并保存'}
-            </button>
-            <button type="button" className="secondary-action" onClick={saveOpportunity} disabled={savingMode !== null || importingMode !== null || !sourceText.trim()}>
-              {savingMode === 'rule' ? '规则解析中...' : '规则解析保存'}
-            </button>
+          <div className="opportunity-panel-body">
+            <div className="opportunity-inline-actions">
+              <button type="button" className="secondary-action" onClick={() => setSourceText(sampleAnnouncement)}>填入样例</button>
+            </div>
+            <label className="form-field">
+              <span>机会标题</span>
+              <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="可选，留空时自动从公告识别" />
+            </label>
+            <label className="form-field">
+              <span>公告 URL</span>
+              <input value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://..." />
+            </label>
+            <div className="opportunity-import-actions">
+              <button type="button" className="secondary-action" onClick={importDocument} disabled={savingMode !== null || importingMode !== null}>
+                {importingMode === 'document' ? '正在导入文件...' : '导入公告文件'}
+              </button>
+              <button type="button" className="secondary-action" onClick={importUrl} disabled={savingMode !== null || importingMode !== null || !sourceUrl.trim()}>
+                {importingMode === 'url' ? '正在读取 URL...' : '读取公告 URL'}
+              </button>
+            </div>
+            <label className="form-field is-textarea">
+              <span>公告原文</span>
+              <textarea value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="粘贴招标公告、采购公告或线索文本" />
+            </label>
+            <div className="opportunity-import-actions">
+              <button type="button" className="primary-action" onClick={saveOpportunityWithAi} disabled={savingMode !== null || importingMode !== null || !sourceText.trim()}>
+                {savingMode === 'ai' ? 'AI 解析中...' : 'AI 解析并保存'}
+              </button>
+              <button type="button" className="secondary-action" onClick={saveOpportunity} disabled={savingMode !== null || importingMode !== null || !sourceText.trim()}>
+                {savingMode === 'rule' ? '规则解析中...' : '规则解析保存'}
+              </button>
+            </div>
           </div>
         </section>
 
-        <section className="opportunity-list-panel">
+        <section className={panelClassName('list', 'opportunity-list-panel')} aria-label="机会看板面板">
           <div className="panel-heading-row">
             <div>
               <span className="section-kicker">机会看板</span>
               <h3>线索列表</h3>
+              <small>{state.opportunities.length ? `${state.opportunities.length} 条机会，点击卡片查看详情。` : '暂无机会。'}</small>
             </div>
-            {loading ? <span className="demo-soft-pill">加载中</span> : null}
-          </div>
-          <div className="opportunity-real-list">
-            {state.opportunities.length ? state.opportunities.map((item) => (
-              <button
-                type="button"
-                className={`opportunity-real-card${activeOpportunity?.id === item.id ? ' is-active' : ''}`}
-                key={item.id}
-                onClick={() => setState((prev) => ({ ...prev, activeOpportunityId: item.id }))}
-              >
-                <span className={`opportunity-status is-${item.status}`}>{statusLabels[item.status]}</span>
-                <strong>{item.title}</strong>
-                <small>{item.parsedFields.region || '未识别区域'} · {item.recommendation}</small>
-                <em>{item.score}</em>
+            <div className="opportunity-panel-actions">
+              {loading ? <span className="demo-soft-pill">加载中</span> : null}
+              <button type="button" className="secondary-action" onClick={() => focusPanel('list')}>
+                {focusedPanel === 'list' ? '退出全屏' : '全屏'}
               </button>
-            )) : (
-              <div className="empty-panel">
-                <strong>暂无机会</strong>
-                <span>粘贴公告后会在这里形成线索看板。</span>
-              </div>
-            )}
+              <button type="button" className="secondary-action" onClick={() => togglePanel('list')}>
+                {expandedPanels.list ? '收起' : '展开'}
+              </button>
+            </div>
+          </div>
+          <div className="opportunity-panel-body">
+            <div className="opportunity-real-list">
+              {state.opportunities.length ? state.opportunities.map((item) => (
+                <button
+                  type="button"
+                  className={`opportunity-real-card${activeOpportunity?.id === item.id ? ' is-active' : ''}`}
+                  key={item.id}
+                  onClick={() => setState((prev) => ({ ...prev, activeOpportunityId: item.id }))}
+                >
+                  <span className={`opportunity-status is-${item.status}`}>{statusLabels[item.status]}</span>
+                  <strong>{item.title}</strong>
+                  <small>{item.parsedFields.region || '未识别区域'} · {item.recommendation}</small>
+                  <em>{item.score}</em>
+                </button>
+              )) : (
+                <div className="empty-panel">
+                  <strong>暂无机会</strong>
+                  <span>粘贴公告后会在这里形成线索看板。</span>
+                </div>
+              )}
+            </div>
           </div>
         </section>
 
-        <section className="opportunity-detail-panel">
+        <section className={panelClassName('detail', 'opportunity-detail-panel')} aria-label="机会详情面板">
           {activeOpportunity ? (
             <>
               <div className="panel-heading-row">
                 <div>
                   <span className="section-kicker">机会详情</span>
                   <h3>{activeOpportunity.title}</h3>
+                  <small>{activeOpportunity.parsedFields.region || '未识别区域'} · {activeOpportunity.recommendation}</small>
                 </div>
-                <strong className="opportunity-score">{activeOpportunity.score}</strong>
+                <div className="opportunity-panel-actions">
+                  <strong className="opportunity-score">{activeOpportunity.score}</strong>
+                  <button type="button" className="secondary-action" onClick={() => focusPanel('detail')}>
+                    {focusedPanel === 'detail' ? '退出全屏' : '全屏'}
+                  </button>
+                  <button type="button" className="secondary-action" onClick={() => togglePanel('detail')}>
+                    {expandedPanels.detail ? '收起' : '展开'}
+                  </button>
+                </div>
               </div>
 
-              <div className="opportunity-action-row">
+              <div className="opportunity-panel-body">
+                <div className="opportunity-action-row">
                 <select
                   value={activeOpportunity.status}
                   onChange={(event) => updateStatus(activeOpportunity.id, event.target.value as BidOpportunityStatus)}
@@ -768,12 +855,32 @@ function BidOpportunityPage() {
                   )) : <span className="is-low">暂无明显风险，建议继续补充企业资质和历史业绩匹配。</span>}
                 </div>
               </div>
+              </div>
             </>
           ) : (
-            <div className="empty-panel is-large">
-              <strong>选择或新增一个投标机会</strong>
-              <span>系统会展示解析字段、评分、风险和跟进状态。</span>
-            </div>
+            <>
+              <div className="panel-heading-row">
+                <div>
+                  <span className="section-kicker">机会详情</span>
+                  <h3>选择或新增一个投标机会</h3>
+                  <small>系统会展示解析字段、评分、风险和跟进状态。</small>
+                </div>
+                <div className="opportunity-panel-actions">
+                  <button type="button" className="secondary-action" onClick={() => focusPanel('detail')}>
+                    {focusedPanel === 'detail' ? '退出全屏' : '全屏'}
+                  </button>
+                  <button type="button" className="secondary-action" onClick={() => togglePanel('detail')}>
+                    {expandedPanels.detail ? '收起' : '展开'}
+                  </button>
+                </div>
+              </div>
+              <div className="opportunity-panel-body">
+                <div className="empty-panel is-large">
+                  <strong>选择或新增一个投标机会</strong>
+                  <span>系统会展示解析字段、评分、风险和跟进状态。</span>
+                </div>
+              </div>
+            </>
           )}
         </section>
       </div>

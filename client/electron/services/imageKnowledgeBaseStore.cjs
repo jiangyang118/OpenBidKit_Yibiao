@@ -9,6 +9,25 @@ const { getImageKnowledgeBaseImagesDir } = require('../utils/paths.cjs');
 const supportedExtensions = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
 const supportedArchiveExtensions = new Set(['.zip']);
 const historicalArchiveSections = new Set(['图片素材图示', '资质扫描管理']);
+const categorizedImageCategories = [
+  '产品截图',
+  '架构图/流程图',
+  '资质证书扫描',
+  '团队照片',
+  '交付现场',
+  '验收材料',
+  '荣誉证书',
+];
+const uncategorizedImageCategory = '待人工归类';
+const imageCategoryRules = [
+  { name: '产品截图', terms: ['产品截图', '截图', '界面', '后台', '前端', 'app', '小程序', '系统页面', '功能页'] },
+  { name: '架构图/流程图', terms: ['架构', '流程', '拓扑', '结构', '图示', '示意', '部署图', '网络图', '关系图'] },
+  { name: '资质证书扫描', terms: ['资质', '证书', '扫描', '营业执照', '许可证', '认证', '授权', '软著', '专利'] },
+  { name: '团队照片', terms: ['团队', '人员', '照片', '合影', '项目经理', '专家', '成员'] },
+  { name: '交付现场', terms: ['交付', '现场', '部署', '实施', '施工', '安装', '培训', '调试', '巡检'] },
+  { name: '验收材料', terms: ['验收', '报告', '签收', '确认', '测试', '证明', '交接', '回执'] },
+  { name: '荣誉证书', terms: ['荣誉', '奖项', '奖牌', '奖杯', '表彰', '优秀', '高新', '专精特新'] },
+];
 
 function now() {
   return new Date().toISOString();
@@ -34,6 +53,36 @@ function normalizeText(value, fallback = '') {
 function normalizeTags(tags) {
   const values = Array.isArray(tags) ? tags : String(tags || '').split(/[，,\s]+/);
   return [...new Set(values.map((tag) => String(tag || '').trim()).filter(Boolean))].slice(0, 24);
+}
+
+function normalizeClassifyText(value) {
+  return String(value || '').toLowerCase().replace(/\s+/g, '');
+}
+
+function safeArchiveEntryName(name) {
+  return String(name || '').replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+function classifyImageArchiveEntry(entryName) {
+  const normalized = safeArchiveEntryName(entryName);
+  const text = normalizeClassifyText(normalized);
+  for (const category of categorizedImageCategories) {
+    if (text.includes(normalizeClassifyText(category))) return category;
+  }
+  let best = { name: uncategorizedImageCategory, score: 0 };
+  for (const rule of imageCategoryRules) {
+    const score = rule.terms.reduce((sum, term) => (
+      text.includes(normalizeClassifyText(term)) ? sum + Math.max(1, normalizeClassifyText(term).length) : sum
+    ), 0);
+    if (score > best.score) {
+      best = { name: rule.name, score };
+    }
+  }
+  return best.score > 0 ? best.name : uncategorizedImageCategory;
+}
+
+function incrementCount(counts, key) {
+  counts[key] = Number(counts[key] || 0) + 1;
 }
 
 function createAssetId(contentHash) {
@@ -100,17 +149,85 @@ function createAssetUrl(storedPath) {
   return `yibiao-asset://image-knowledge-base/${encodeURIComponent(fileName)}`;
 }
 
+function stripInternalSourceText(value) {
+  return normalizeText(value, '')
+    .replace(/[,，;；。]?\s*从企业微盘[“"][^”"]+[”"]导入[。；;，,]?\s*/gu, '')
+    .replace(/[,，;；。]?\s*从[^。；;，,]*?导入[:：。；;，,]?.*$/gu, '')
+    .replace(/[,，;；。]?\s*相对路径[:：].*$/gu, '')
+    .replace(/[,，;；。]?\s*原始路径[:：].*$/gu, '')
+    .replace(/[,，;；]?\s*原始素材引用.*$/u, '')
+    .replace(/AI\s*生成/giu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isGenericImageTitle(value) {
+  const text = normalizeText(value, '').replace(/\.(png|jpe?g|webp|gif|pdf)$/i, '').trim();
+  return !text
+    || /^图像(?:\s*\(\d+\))?$/u.test(text)
+    || /^图片素材$/u.test(text)
+    || /^\d{1,3}$/u.test(text)
+    || /^[a-f0-9]{16,}$/iu.test(text)
+    || /^[0-9a-f]{8}-[0-9a-f-]{18,}$/iu.test(text)
+    || /^wechatimg\d+$/iu.test(text)
+    || /^screenshot[_-]?\d+/iu.test(text)
+    || /^img[_-]?\d+/iu.test(text);
+}
+
+function meaningfulFolderTitle(value) {
+  const parts = String(value || '')
+    .split(/[\\/]/)
+    .map((part) => stripInternalSourceText(part)
+      .replace(/^[【\[]?\d{2,4}[】\]]?/, '')
+      .replace(/^\d+[\s._-]*/, '')
+      .replace(/\s+/g, ' ')
+      .trim())
+    .filter((part) => part && !isGenericImageTitle(part));
+  return parts.slice().reverse().find((part) => /[\u3400-\u9fffA-Za-z]{2,}/u.test(part)) || '';
+}
+
+function normalizeCaptionTitle(title, fallback, asset = {}) {
+  let value = normalizeText(title, fallback || '图片素材')
+    .replace(/\.(png|jpe?g|webp|gif|pdf)$/i, '')
+    .replace(/^图[:：]\s*/u, '')
+    .replace(/^(\d{1,3}[-_])?(certificate|software|hardware|report|image|photo|screenshot)[-_]/i, '')
+    .replace(/^\d{1,3}[\s._-]+/, '')
+    .replace(/[（(]可后期完善[）)]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  value = stripInternalSourceText(value);
+
+  if (!value || isGenericImageTitle(value)) {
+    value = normalizeText(fallback, '图片素材')
+      .replace(/\.(png|jpe?g|webp|gif|pdf)$/i, '')
+      .replace(/^(\d{1,3}[-_])?(certificate|software|hardware|report|image|photo|screenshot)[-_]/i, '')
+      .replace(/^\d{1,3}[\s._-]+/, '')
+      .trim();
+  }
+  value = stripInternalSourceText(value);
+  if (!value || isGenericImageTitle(value)) {
+    value = meaningfulFolderTitle(asset.folder) || normalizeText(asset.category, '') || '证明材料页';
+  }
+  return value || '证明材料页';
+}
+
+function normalizeCaptionNote(value) {
+  const note = stripInternalSourceText(value);
+  return note && note !== '图片素材' ? note : '';
+}
+
 function buildMarkdownReference(asset) {
-  const title = normalizeText(asset.title, asset.file_name || '图片素材');
+  const title = normalizeCaptionTitle(asset.title, asset.file_name || '图片素材', asset);
+  const note = normalizeCaptionNote(asset.description);
+  const caption = note ? `图：${title}，${note}` : `图：${title}`;
   const assetUrl = createAssetUrl(asset.stored_path);
   if (!assetUrl) {
     throw new Error('图片素材文件路径无效');
   }
 
-  const description = normalizeText(asset.description || asset.scenario || asset.source);
   return [
     `![${title}](${assetUrl})`,
-    description ? `*图：${title}，${description}*` : `*图：${title}*`,
+    `*${caption}*`,
   ].join('\n\n');
 }
 
@@ -123,7 +240,10 @@ function createSearchTerms(values) {
     '资质', '证书', '荣誉', '授权', '案例', '现场', '照片', '机房', '部署', '拓扑',
     '网络', '设备', '服务器', '机柜', '电池', '监控', '平台', '架构', '流程',
     '施工', '运维', '数据', '安全', '团队', '产品', '系统', '方案', '示意',
-    '平面', '结构',
+    '平面', '结构', '检测', '检验', '报告', '测试报告', '性能测试', '质检', '出厂', 'CNAS', 'CMA',
+    '软著', '专利', '麒麟', '国产化', '称重', '绑盘', '智能台', '人员', '项目经理',
+    '高级工程师', '职称', '企业资质', '公司资质', '营业执照', '体系认证', 'ISO',
+    '质量管理', '环境管理', '职业健康', '信息安全', '服务管理',
   ];
   const terms = new Set();
   for (const value of values) {
@@ -142,6 +262,77 @@ function createSearchTerms(values) {
     }
   }
   return [...terms].slice(0, 48);
+}
+
+function textHasAny(value, terms) {
+  const text = normalizeSearchText(value);
+  return terms.some((term) => text.includes(normalizeSearchText(term)));
+}
+
+const certificateLikeCategoryTerms = ['资质', '证书', '扫描', '认证', '荣誉'];
+const certificateLikeAssetTerms = ['证书', '资质', '软著', '著作权', '专利', '认证', '营业执照', 'CNAS', 'CMA', '检测报告', '检验报告', '质检报告', '高级工程师', '职称'];
+const certificateIntentTerms = ['证书', '资质', '软著', '著作权', '专利', '认证', '营业执照', 'CNAS', 'CMA', '检测报告', '检验报告', '质检报告', '证明材料', '证明文件', '报告', '高级工程师', '职称'];
+const hardwareProofIntentTerms = ['硬件类', '硬件证明', '硬件检测', '硬件检验', '硬件设备', '产品规格', '设备实物', '设备图片', '检测报告', '检验报告', '质检报告'];
+const nonHardwareProofAssetTerms = ['软著', '著作权', '软件著作权', '人员', '项目经理', '技术负责人', '硬件实施工程师', '软件实施工程师', '培训讲师', '售后服务负责人', '高级工程师', '职称', '团队', '姜阳', '赖清涛', '赵野', '兰海军', '张帅', '柴玉龙'];
+const forbiddenMedicalReportAssetTerms = ['血常规', '医院', '病人', '病历', '体检', '医学', '血液分析仪', '自动血液', '检验报告单', '检测报告单', '天津市体育科学研究所'];
+
+function rowSearchText(row) {
+  const tags = safeJsonParse(row.tags_json, []);
+  return normalizeSearchText([
+    row.file_name,
+    row.title,
+    row.category,
+    row.folder,
+    row.description,
+    row.source,
+    row.scenario,
+    tags.join(' '),
+  ].join('\n'));
+}
+
+function isCertificateLikeAsset(row) {
+  const category = normalizeSearchText(row.category);
+  const text = rowSearchText(row);
+  return textHasAny(category, certificateLikeCategoryTerms) || textHasAny(text, certificateLikeAssetTerms);
+}
+
+function payloadSearchText(payload = {}) {
+  return normalizeSearchText([
+    payload.title,
+    payload.prompt,
+    payload.content,
+    ...(Array.isArray(payload.keywords) ? payload.keywords : []),
+    ...(Array.isArray(payload.preferredKeywords || payload.preferred_keywords) ? (payload.preferredKeywords || payload.preferred_keywords) : []),
+  ].join('\n'));
+}
+
+function payloadHasCertificateIntent(payload = {}) {
+  return textHasAny(payloadSearchText(payload), certificateIntentTerms);
+}
+
+function payloadHasHardwareProofIntent(payload = {}) {
+  return textHasAny(payloadSearchText(payload), hardwareProofIntentTerms);
+}
+
+function assetMatchesPreferredCategories(row, preferredCategories) {
+  if (!preferredCategories.length) return true;
+  const category = normalizeSearchText(row.category);
+  const folder = normalizeSearchText(row.folder);
+  return preferredCategories.some((preferredCategory) => (
+    category === preferredCategory
+    || category.includes(preferredCategory)
+    || folder.includes(preferredCategory)
+  ));
+}
+
+function isIncompatibleHardwareProofAsset(row, payload = {}) {
+  if (!payloadHasHardwareProofIntent(payload)) return false;
+  const text = rowSearchText(row);
+  return textHasAny(text, nonHardwareProofAssetTerms);
+}
+
+function isForbiddenMedicalReportAsset(row) {
+  return textHasAny(rowSearchText(row), forbiddenMedicalReportAssetTerms);
 }
 
 function scoreAutoReferenceAsset(row, payload = {}) {
@@ -168,8 +359,46 @@ function scoreAutoReferenceAsset(row, payload = {}) {
     payload.content,
     ...(Array.isArray(payload.keywords) ? payload.keywords : []),
   ]);
+  const preferredCategories = normalizeTags(payload.preferredCategories || payload.preferred_categories)
+    .map(normalizeSearchText)
+    .filter(Boolean);
+  const preferredKeywords = normalizeTags(payload.preferredKeywords || payload.preferred_keywords || payload.keywords)
+    .map(normalizeSearchText)
+    .filter(Boolean);
+
+  if (!assetMatchesPreferredCategories(row, preferredCategories)) {
+    return 0;
+  }
+  if (isCertificateLikeAsset(row) && !payloadHasCertificateIntent(payload)) {
+    return 0;
+  }
+  if (isForbiddenMedicalReportAsset(row)) {
+    return 0;
+  }
+  if (isIncompatibleHardwareProofAsset(row, payload)) {
+    return 0;
+  }
 
   let score = 0;
+  for (const preferredCategory of preferredCategories) {
+    if (!preferredCategory) continue;
+    if (category === preferredCategory) {
+      score += 16;
+    } else if (category.includes(preferredCategory) || folder.includes(preferredCategory)) {
+      score += 10;
+    }
+  }
+  for (const keyword of preferredKeywords) {
+    if (!keyword) continue;
+    if (title === keyword) {
+      score += 20;
+    } else if (title.includes(keyword) || keyword.includes(title)) {
+      score += 14;
+    }
+    if (folder.includes(keyword) || category.includes(keyword) || tagText.includes(keyword)) {
+      score += 8;
+    }
+  }
   if (queryTitle && title && (queryTitle.includes(title) || title.includes(queryTitle))) {
     score += 12;
   }
@@ -434,6 +663,98 @@ function createImageKnowledgeBaseStore({ app, db }) {
     };
   }
 
+  function deriveCategorizedArchiveEntryMetadata(archivePath, entryName) {
+    const archiveName = path.basename(archivePath);
+    const archiveTitle = path.basename(archiveName, path.extname(archiveName));
+    const normalizedEntryName = safeArchiveEntryName(entryName);
+    const entryDir = path.posix.dirname(normalizedEntryName);
+    const category = classifyImageArchiveEntry(normalizedEntryName);
+    const entryTitle = path.basename(normalizedEntryName, path.extname(normalizedEntryName));
+    const folderParts = [category, archiveTitle];
+    if (entryDir && entryDir !== '.') {
+      folderParts.push(entryDir);
+    }
+    return {
+      fileName: path.basename(normalizedEntryName),
+      title: entryTitle,
+      originalPath: `${archivePath}::${normalizedEntryName}`,
+      category,
+      folder: folderParts.join(' / '),
+      source: `分类压缩包：${archiveName}`,
+      scenario: category,
+      description: `从分类压缩包“${archiveName}”中的“${normalizedEntryName}”导入。`,
+      tags: [category, archiveTitle, ...entryDir.split('/').filter((part) => part && part !== '.')],
+    };
+  }
+
+  async function importCategorizedArchives() {
+    const result = await dialog.showOpenDialog({
+      title: '选择图片知识库压缩包',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: '图片知识库压缩包', extensions: [...supportedArchiveExtensions].map((item) => item.slice(1)) },
+        { name: '所有文件', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || !result.filePaths.length) {
+      return { ...list(), imported: 0, skipped: 0, archives: 0, categoryCounts: {}, message: '已取消选择' };
+    }
+
+    let imported = 0;
+    let skipped = 0;
+    let archives = 0;
+    let unknownCount = 0;
+    const categoryCounts = {};
+
+    for (const archivePath of result.filePaths) {
+      const ext = path.extname(archivePath).toLowerCase();
+      if (!supportedArchiveExtensions.has(ext)) {
+        skipped += 1;
+        continue;
+      }
+      archives += 1;
+      const zip = new AdmZip(archivePath);
+      for (const entry of zip.getEntries()) {
+        const entryName = safeArchiveEntryName(entry.entryName);
+        const entryExt = path.extname(entryName).toLowerCase();
+        if (entry.isDirectory || entryName.startsWith('__MACOSX/') || path.basename(entryName).startsWith('.') || !supportedExtensions.has(entryExt)) {
+          skipped += 1;
+          continue;
+        }
+        try {
+          const metadata = deriveCategorizedArchiveEntryMetadata(archivePath, entryName);
+          const item = importImageBuffer({
+            ...metadata,
+            buffer: entry.getData(),
+          });
+          if (item.imported) {
+            imported += 1;
+            incrementCount(categoryCounts, metadata.category);
+            if (metadata.category === uncategorizedImageCategory) unknownCount += 1;
+          }
+          if (item.skipped) skipped += 1;
+        } catch (error) {
+          console.warn('[image-knowledge-base] 分类压缩包图片导入失败', {
+            archive: path.basename(archivePath),
+            entry: entryName,
+            message: error.message || String(error),
+          });
+          skipped += 1;
+        }
+      }
+    }
+
+    const unknownMessage = unknownCount ? `，${unknownCount} 张进入“${uncategorizedImageCategory}”` : '';
+    return {
+      ...list(),
+      imported,
+      skipped,
+      archives,
+      categoryCounts,
+      message: imported ? `已从 ${archives} 个压缩包导入 ${imported} 张图片${unknownMessage}${skipped ? `，跳过 ${skipped} 项` : ''}` : `未导入新的图片${skipped ? `，跳过 ${skipped} 项` : ''}`,
+    };
+  }
+
   function updateAsset(id, patch) {
     const imageId = normalizeText(id);
     if (!imageId) throw new Error('图片 ID 不能为空');
@@ -693,15 +1014,16 @@ function createImageKnowledgeBaseStore({ app, db }) {
     return createMarkdownReferenceForAsset(existing, payload);
   }
 
-  function createAutoMarkdownReference(payload = {}) {
+  function createAutoReferenceCandidates(payload = {}) {
     const targetType = normalizeText(payload.targetType, 'technical-plan');
     const targetId = normalizeText(payload.targetId);
     if (!targetId) throw new Error('引用目标不能为空');
 
     const requestedIds = normalizeAssetIds(payload.imageIds || payload.image_ids || payload.assetIds || payload.asset_ids);
     const requestedIdSet = new Set(requestedIds);
+    const excludedIds = new Set(normalizeAssetIds(payload.excludeImageIds || payload.exclude_image_ids));
     const rows = db.prepare('SELECT * FROM image_knowledge_assets ORDER BY updated_at DESC, created_at DESC').all()
-      .filter((row) => !requestedIdSet.size || requestedIdSet.has(row.image_id));
+      .filter((row) => (!requestedIdSet.size || requestedIdSet.has(row.image_id)) && !excludedIds.has(row.image_id));
     const minScore = Math.max(1, Math.round(Number(payload.minScore ?? payload.min_score) || 4));
     const candidates = rows
       .map((row) => ({ row, score: scoreAutoReferenceAsset(row, payload) }))
@@ -712,6 +1034,11 @@ function createImageKnowledgeBaseStore({ app, db }) {
         if (refDelta !== 0) return refDelta;
         return String(b.row.updated_at || b.row.created_at || '').localeCompare(String(a.row.updated_at || a.row.created_at || ''));
       });
+    return { targetType, targetId, candidates };
+  }
+
+  function createAutoMarkdownReference(payload = {}) {
+    const { targetType, targetId, candidates } = createAutoReferenceCandidates(payload);
 
     if (!candidates.length) {
       return { matched: false, markdown: '', asset: null, score: 0 };
@@ -732,6 +1059,42 @@ function createImageKnowledgeBaseStore({ app, db }) {
     };
   }
 
+  function createAutoMarkdownReferences(payload = {}) {
+    const { targetType, targetId, candidates } = createAutoReferenceCandidates(payload);
+    const limit = Math.max(1, Math.min(Math.round(Number(payload.limit ?? payload.maxCount ?? payload.max_count) || 1), 6));
+
+    if (!candidates.length) {
+      return { matched: false, markdown: '', assets: [], references: [], score: 0 };
+    }
+
+    const picked = candidates.slice(0, limit);
+    const markdownParts = [];
+    const assets = [];
+    const references = [];
+    let state = null;
+    for (const item of picked) {
+      const result = createMarkdownReferenceForAsset(item.row, {
+        ...payload,
+        imageId: item.row.image_id,
+        targetType,
+        targetId,
+      });
+      markdownParts.push(result.markdown);
+      assets.push(rowToAsset(item.row));
+      references.push(result.reference);
+      state = result.state;
+    }
+
+    return {
+      matched: true,
+      markdown: markdownParts.join('\n\n'),
+      assets,
+      references,
+      state,
+      score: picked[0]?.score || 0,
+    };
+  }
+
   function listReferences(imageId) {
     const normalizedImageId = normalizeText(imageId);
     if (!normalizedImageId) throw new Error('图片 ID 不能为空');
@@ -746,6 +1109,7 @@ function createImageKnowledgeBaseStore({ app, db }) {
     list,
     uploadImages,
     importHistoricalArchives,
+    importCategorizedArchives,
     updateAsset,
     batchUpdateAssets,
     renameTag,
@@ -754,6 +1118,7 @@ function createImageKnowledgeBaseStore({ app, db }) {
     batchDeleteAssets,
     createMarkdownReference,
     createAutoMarkdownReference,
+    createAutoMarkdownReferences,
     getOutlineReferences,
     listReferences,
   };

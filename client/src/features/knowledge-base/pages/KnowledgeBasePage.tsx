@@ -331,6 +331,7 @@ function KnowledgeBasePage() {
   const [folderDropTargetId, setFolderDropTargetId] = useState<string | null>(null);
   const [documentDropTarget, setDocumentDropTarget] = useState<KnowledgeDocumentDropTarget | null>(null);
   const [dragSaving, setDragSaving] = useState(false);
+  const [importingCategorizedArchive, setImportingCategorizedArchive] = useState(false);
   const autoMatchingIdsRef = useRef(new Set<string>());
   const documentParseNoticeIdsRef = useRef(new Set<string>());
   const viewerRequestIdRef = useRef(0);
@@ -697,6 +698,35 @@ function KnowledgeBasePage() {
     }
   };
 
+  const importCategorizedArchives = async () => {
+    if (migrationRunning) {
+      showToast('知识库迁移中，请稍候', 'info');
+      return;
+    }
+    const importer = window.yibiao?.knowledgeBase.importCategorizedArchives;
+    if (!importer) {
+      showToast('当前环境不支持导入分类压缩包，请在桌面客户端中使用', 'error');
+      return;
+    }
+
+    try {
+      setImportingCategorizedArchive(true);
+      const result = await importer();
+      if (result.index) {
+        applyKnowledgeIndex(result.index);
+      }
+      if (!result.success) {
+        showToast(result.message || '未导入支持的文档', 'info');
+        return;
+      }
+      showToast(result.message, 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '分类压缩包导入失败', 'error');
+    } finally {
+      setImportingCategorizedArchive(false);
+    }
+  };
+
   const renameFolder = async (folderId: string, currentName: string) => {
     if (migrationRunning) {
       showToast('知识库迁移中，请稍候', 'info');
@@ -993,6 +1023,9 @@ function KnowledgeBasePage() {
         </div>
         <div className="knowledge-toolbar-actions">
           <button type="button" className="secondary-action" onClick={() => setShowCreateFolder((value) => !value)} disabled={migrationRunning || listLoading}>新建文件夹</button>
+          <button type="button" className="secondary-action" onClick={() => { void importCategorizedArchives(); }} disabled={loading || migrationRunning || importingCategorizedArchive || listLoading}>
+            {importingCategorizedArchive ? '正在导入...' : '导入分类压缩包'}
+          </button>
           <button type="button" className="primary-action" onClick={uploadDocuments} disabled={loading || migrationRunning || !activeFolder}>
             {migrationRunning ? '迁移中...' : loading ? '处理中...' : '上传文档'}
           </button>

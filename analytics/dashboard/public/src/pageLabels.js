@@ -15,6 +15,7 @@ export const pageLabels = {
   'existing-plan-expansion/content-edit': '已有方案扩写 - 生成正文',
   'existing-plan-expansion/expand': '已有方案扩写 - 扩写改写',
   'business-bid': '商务标',
+  'bid-document': '完整标书生成',
   'knowledge-base': '知识库',
   'document-knowledge-base': '文档知识库',
   'image-knowledge-base': '图片知识库',

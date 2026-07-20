@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const { createNoopDeveloperLogger } = require('../utils/developerLog.cjs');
 const { countReadableWords } = require('../utils/wordCount.cjs');
+const { getMatureBidContentRules, getMatureBidPlanningRules } = require('./bidWritingGuide.cjs');
 
 const IMAGE_STYLES = new Set(['engineering_diagram', 'realistic_photo']);
 const DEFAULT_CONTENT_CONCURRENCY = 5;
@@ -15,7 +16,9 @@ const OUTLINE_EXPANSION_STEPS_PER_ROUND = 6;
 const OUTLINE_EXPANSION_TARGET_RATIO = 0.8;
 const EARLY_CONTENT_PROBE_COUNT = 3;
 const MIN_SECTION_EXPANSION_INCREMENT = 800;
-const CONSISTENCY_AUDIT_GROUP_WORD_LIMIT = 300000;
+const CONSISTENCY_AUDIT_GROUP_WORD_LIMIT = 30000;
+const CONSISTENCY_AUDIT_GROUP_CHAR_LIMIT = 60000;
+const CONSISTENCY_AUDIT_GROUP_SECTION_LIMIT = 8;
 const CONSISTENCY_REPAIR_MAX_ATTEMPTS = 2;
 const ORIGINAL_PLAN_SEGMENT_MAX_CHARS = 6000;
 const ORIGINAL_COVERAGE_REPAIR_MAX_ATTEMPTS = 2;
@@ -124,11 +127,20 @@ function normalizeGeneratedMarkdown(content) {
     .map((line) => {
       const normalizedLine = line.replace(/<br\s*\/?\s*>/gi, '<br />');
       if (normalizedLine.trim().startsWith('|')) {
-        return normalizedLine;
+        return normalizePagePlaceholders(normalizedLine);
       }
-      return normalizedLine.replace(/\s*<br \/>\s*/g, '  \n');
+      return normalizePagePlaceholders(normalizedLine.replace(/\s*<br \/>\s*/g, '  \n'));
     })
     .join('\n');
+}
+
+function normalizePagePlaceholders(value) {
+  return String(value || '')
+    .replace(/P\s*__\s*(?:至|-|—|~)\s*P\s*__/gi, '导出时按最终装订页码回填')
+    .replace(/P\s*__/gi, '导出时按最终装订页码回填')
+    .replace(/第\s*__\s*页\s*(?:至|-|—|~)\s*第\s*__\s*页/g, '导出时按最终装订页码回填')
+    .replace(/第\s*__\s*页/g, '导出时按最终装订页码回填')
+    .replace(/页码拟编入\s*[:：]?\s*导出时按最终装订页码回填/g, '页码由导出定稿阶段按最终装订页码回填');
 }
 
 function normalizeMermaidCode(value) {
@@ -372,7 +384,7 @@ function normalizeContentPlan(value, allowedKnowledgeItemIds, allowedFactTitles)
 }
 
 function normalizeIllustrationType(value) {
-  return ['ai', 'mermaid', 'none'].includes(value) ? value : 'none';
+  return ['ai', 'mermaid', 'knowledge', 'none'].includes(value) ? value : 'none';
 }
 
 function createStoredContentPlan(plan, illustrationType) {
@@ -696,6 +708,8 @@ function buildChapterContentPlanMessages({ chapter, parentChapters, siblingChapt
   const chapterId = chapter.id || 'unknown';
   const chapterTitle = chapter.title || '未命名章节';
   const chapterDescription = chapter.description || '';
+  const evidenceProofChapter = isEvidenceProofChapter(chapter);
+  const visualStyleChapter = isCompetitorStyleVisualChapter(chapter);
   const tableRequirementLabel = TABLE_REQUIREMENT_LABELS[tableRequirement] || TABLE_REQUIREMENT_LABELS.heavy;
   const tablePlanningAllowed = tableRequirement !== 'none';
   const tableLimitInstruction = tableRequirement === 'heavy'
@@ -723,7 +737,11 @@ function buildChapterContentPlanMessages({ chapter, parentChapters, siblingChapt
 12. realistic_photo 表示专业实景示意风，适合设备、场地、机房、施工现场、检测工具、运维操作等真实场景表现。
 13. knowledge.item_ids 只能从本小节已筛选的参考知识库轻量条目 id 中选择；可以多选，可以为空数组；不要编造 id，不要输出 reason。优先选择 relevance_reason 与当前章节直接相关的条目。
 14. facts.titles 只能从全局事实变量标题清单中选择；请选择编写本章节正文时会用到的变量组标题，可以多选，可以为空数组；不要编造标题，不要输出具体变量内容。
-15. 编排判断必须结合 Step02 关键解析结果和全局事实变量标题，不要规划会造成时间、地点、人员、设备、标准或服务承诺前后不一致的表达。`,
+15. 编排判断必须结合 Step02 关键解析结果和全局事实变量标题，不要规划会造成时间、地点、人员、设备、标准或服务承诺前后不一致的表达。
+16. 遇到“厂家盖章、功能证明、承诺函、产品彩页、功能清单、参数确认、检测报告、检验报告、软件著作权、资质证书、企业资质、公司资质、团队人员、人员证书、项目经理证书、职称证书”等证明材料类章节时，应优先选择标题、简介或相关性解释中包含盖章、授权、承诺、彩页、功能清单、参数、检测报告、测试报告、性能测试报告、检验报告、质检报告、出厂检验、CNAS、CMA、软著、证书、专利、国产化、麒麟、质量管理、环境管理、职业健康、信息安全、ISO、营业执照、项目经理、高级工程师、职称、产品技术支持材料的知识条目。已有报告、证书或图片证据时，通常不需要再生成大表；正文应围绕实际证据材料、报告正文口径和装订口径组织。
+17. 报告类材料不能只引用封面、扫描件或证书图片。只要参考素材中存在报告正文、测试范围、测试环境、测试方法、测试结论、关键指标或问题闭环记录，就必须优先选择这些原文信息；证书/封面图片只能作为附件页，不得替代报告正文。
+18. 遇到产品功能、后台/移动端/终端界面、硬件设备、系统架构、业务流程、公司资质、团队人员、检测报告、软著、专利、国产化适配等章节时，正文后续必须配套真实图片知识库证据；编排时要让章节标题、image.title、image.reason 和 knowledge.item_ids 能共同指向对应素材，便于系统命中产品图片、团队资质、公司资质、硬件设备图片和系统架构图。
+19. ${getMatureBidPlanningRules()}`,
     },
   ];
 
@@ -732,6 +750,20 @@ function buildChapterContentPlanMessages({ chapter, parentChapters, siblingChapt
     content: `本小节参考知识库轻量条目（已按章节相关性预筛选，只包含 id、标题、简介和相关性解释，不包含正文；如无合适条目，knowledge.item_ids 返回空数组）：
 ${renderKnowledgeItemsForPrompt(knowledgeItems)}`,
   });
+
+  if (evidenceProofChapter) {
+    messages.push({
+      role: 'user',
+      content: '本小节属于证明材料/盖章证明/检测证书/企业资质/团队人员证明类章节。编排时不能只写泛泛的响应承诺，不能以大表替代附件证据；请优先选用可支撑附件装订的报告正文、测试范围、测试环境、测试结论、关键指标、证书、质检、出厂检验、CNAS/CMA、软著、专利、国产化、质量管理、环境管理、职业健康、信息安全、ISO、营业执照、项目经理职称证书、团队人员证书、产品图、功能页面和盖章确认材料。若只有封面或证书图片而没有报告正文，应明确该图片只作为附件页，正文需补充报告原文或OCR摘录；若没有直接证明材料，正文应输出待补盖章、待补同型号检测报告或待补团队证书材料，而不是编造成已具备证明。',
+    });
+  }
+
+  if (visualStyleChapter) {
+    messages.push({
+      role: 'user',
+      content: '本小节属于竞品智慧食堂方案中的高配图章节。编排时优先选择与后台管理、手机端、消费终端、称重设备、绑盘设备、营养健康、订餐、钱包补贴、报表驾驶舱、部署架构、安全控制、检测报告正文或证书附件直接相关的知识条目；若已有真实图片/报告素材，优先规划使用素材而不是 AI 生图。',
+    });
+  }
 
   if (String(projectOverview || '').trim()) {
     messages.push({ role: 'user', content: `项目概述信息：\n${projectOverview}` });
@@ -813,10 +845,184 @@ function formatKnowledgeContentsForPrompt(contents) {
     .join('\n\n');
 }
 
+const EVIDENCE_PROOF_TERMS = [
+  '厂家加盖公章功能证明',
+  '厂家盖章',
+  '盖章证明',
+  '功能证明',
+  '证明材料',
+  '承诺函',
+  '产品彩页',
+  '功能清单',
+  '参数确认',
+  '检测报告',
+  '检验报告',
+  '软件著作权',
+  '资质证书',
+  '企业资质',
+  '公司资质',
+  '营业执照',
+  '体系认证',
+  '质量管理',
+  '环境管理',
+  '职业健康',
+  '信息安全',
+  '团队',
+  '人员证书',
+  '项目经理',
+  '高级工程师',
+  '职称证书',
+];
+
+const COMPETITOR_STYLE_SECTION_TERMS = [
+  '总体架构',
+  '系统架构',
+  '功能架构',
+  '解决方案',
+  '应用效果',
+  '软硬件产品组成',
+  '场景',
+  '功能',
+  '基础管理',
+  '多食堂',
+  '档口',
+  '设备管理',
+  '会员',
+  '钱包',
+  '支付',
+  '报表',
+  '营养',
+  '订餐',
+  '称重',
+  '绑盘',
+  '消费机',
+  '托盘',
+  '后台',
+  '移动端',
+  '手机端',
+  '部署',
+  '安全',
+  '对接',
+  '接口',
+  '数据',
+  '权限',
+];
+
+function isCompetitorStyleVisualChapter(chapter) {
+  const text = [
+    chapter?.id,
+    chapter?.title,
+    chapter?.description,
+    chapter?.source_requirement_title,
+  ].map((value) => String(value || '')).join(' ');
+  return COMPETITOR_STYLE_SECTION_TERMS.some((term) => text.includes(term));
+}
+
+const VISUAL_EVIDENCE_PROFILES = [
+  {
+    name: '资质与团队证明',
+    terms: ['公司资质', '企业资质', '主体资质', '营业执照', '体系认证', '质量管理', '环境管理', '职业健康', '信息安全', '团队', '人员', '项目经理', '高级工程师', '职称', '证书', '软著', '软件著作权', 'CNAS', 'CMA', '检测报告', '检验报告', '专利', '国产化', '麒麟'],
+    preferredCategories: ['企业资质证书', '资质扫描管理'],
+    keywords: ['营业执照', '质量管理体系认证证书', '环境管理体系认证证书', '职业健康安全管理体系认证证书', '智慧营养健康餐厅CNAS证书', '智慧营养健康餐厅管理系统V1软著', '智慧营养健康餐厅管理系统V2软著证书', '数字化餐厅管理平台V1软著', '麒麟认证证书', '姜阳-高级工程师证书', '姜阳', '赖清涛', '赵野', '兰海军', '张帅', '柴玉龙', '项目经理', '技术负责人', '硬件实施工程师', '软件实施工程师', '培训讲师', '售后服务负责人', '高级工程师', '证书', '软著', '专利'],
+    limit: 4,
+  },
+  {
+    name: '硬件设备实物',
+    terms: ['硬件', '设备', '终端', '称重', '绑盘', '消费机', '托盘', '智能台', '结算称', '取餐柜', '一体机', '收银机', '双屏', '卧式'],
+    preferredCategories: ['图片素材图示', '产品图片知识库'],
+    keywords: ['称重结算称原图', '双屏式消费机原图', '卧式消费机', '配套八孔托盘', '智能称重收银机正面', '智能称重收银机侧面', '智能绑盘终端正面', '智能绑盘终端左侧', '智能绑盘终端界面', '450型膳识智能台正面', '450型膳识智能台侧面', '450型膳识智能台尺寸', '460型膳识智能台单秤', '460型膳识智能台双秤', '设备图片'],
+    limit: 4,
+  },
+  {
+    name: '系统架构与流程',
+    terms: ['总体架构', '系统架构', '功能架构', '技术架构', '部署架构', '拓扑', '流程', '业务流程', '对接流程', '接口', '网络', '数据流', '安全架构'],
+    preferredCategories: ['图片素材图示', '产品图片知识库'],
+    keywords: ['本项目总体架构图', '业务流程拓扑图', '绑盘打餐流程', '架构图', '拓扑图', '流程图', '部署图'],
+    limit: 3,
+  },
+  {
+    name: '系统功能截图',
+    terms: ['系统功能', '功能截图', '操作说明', 'PC端', '后台', '移动端', '手机端', '小程序', '首页', '订单', '营养', '菜品', '报表', '统计', '钱包', '补贴', '餐厅管理', '人员管理', '消费订单'],
+    preferredCategories: ['图片素材图示', '产品图片知识库'],
+    keywords: ['PC首页', '移动端首页', '移动端订单', '移动端营养日报', '统计报表-菜品营养统计', '餐厅管理-菜品管理', '订单管理-消费订单', '人员管理-机构人员', '后台首页', '数据查询与导出'],
+    limit: 3,
+  },
+];
+
+function getVisualEvidenceText(context, contentPlan, baseContent = '') {
+  const { item, parentChapters, siblingChapters } = context || {};
+  return [
+    item?.id,
+    item?.title,
+    item?.description,
+    item?.source_requirement_title,
+    contentPlan?.image?.title,
+    contentPlan?.image?.reason,
+    ...(parentChapters || []).map((chapter) => chapter.title),
+    ...(siblingChapters || []).map((chapter) => chapter.title),
+    String(baseContent || '').slice(0, 1200),
+  ].map((value) => String(value || '')).join(' ');
+}
+
+function visualEvidenceProfileForContext(context, contentPlan, baseContent = '') {
+  const text = getVisualEvidenceText(context, contentPlan, baseContent);
+  const matchedProfiles = VISUAL_EVIDENCE_PROFILES.filter((profile) => (
+    profile.terms.some((term) => text.includes(term))
+  ));
+  const required = matchedProfiles.length > 0
+    || isEvidenceProofChapter(context?.item)
+    || isCompetitorStyleVisualChapter(context?.item);
+  const keywords = new Set([
+    context?.item?.title,
+    contentPlan?.image?.title,
+    contentPlan?.image?.reason,
+  ].filter(Boolean));
+  const preferredCategories = new Set();
+  let limit = required ? 2 : 1;
+
+  for (const profile of matchedProfiles) {
+    profile.keywords.forEach((keyword) => keywords.add(keyword));
+    profile.preferredCategories.forEach((category) => preferredCategories.add(category));
+    limit = Math.max(limit, profile.limit || 1);
+  }
+
+  if (isEvidenceProofChapter(context?.item)) {
+    preferredCategories.add('企业资质证书');
+    preferredCategories.add('资质扫描管理');
+    limit = Math.max(limit, 4);
+  }
+  if (isCompetitorStyleVisualChapter(context?.item)) {
+    preferredCategories.add('图片素材图示');
+    preferredCategories.add('产品图片知识库');
+    limit = Math.max(limit, 2);
+  }
+
+  return {
+    required,
+    limit: Math.max(1, Math.min(limit, 5)),
+    preferredCategories: [...preferredCategories],
+    keywords: [...keywords].filter(Boolean),
+    minScore: required ? 2 : 4,
+    matchedProfileNames: matchedProfiles.map((profile) => profile.name),
+  };
+}
+
+function isEvidenceProofChapter(chapter) {
+  const text = [
+    chapter?.id,
+    chapter?.title,
+    chapter?.description,
+    chapter?.source_requirement_title,
+  ].map((value) => String(value || '')).join(' ');
+  return EVIDENCE_PROOF_TERMS.some((term) => text.includes(term));
+}
+
 function buildChapterContentMessages({ chapter, parentChapters, siblingChapters, projectOverview, selectedFactsText, regenerateRequirement, contentPlan, knowledgeContents }) {
   const chapterId = chapter.id || 'unknown';
   const chapterTitle = chapter.title || '未命名章节';
   const chapterDescription = chapter.description || '';
+  const evidenceProofChapter = isEvidenceProofChapter(chapter);
+  const visualStyleChapter = isCompetitorStyleVisualChapter(chapter);
   const messages = [
     {
       role: 'system',
@@ -835,7 +1041,19 @@ function buildChapterContentMessages({ chapter, parentChapters, siblingChapters,
 10. 严禁使用 Markdown 标题语法（#、##、###、####、#####、######），也不要生成与当前章节同级或下级的伪目录标题。
 11. 如需在正文中分层表达，只能使用普通段落、列表、表格或加粗引导语，例如 **实施要点：**。
 12. 直接返回章节内容，不生成标题，不要任何额外说明。
-13. 如果本章节需要使用的全局事实变量中包含相关内容，必须优先使用变量值，不得前后矛盾。`,
+13. 如果本章节需要使用的全局事实变量中包含相关内容，必须优先使用变量值，不得前后矛盾。
+14. 涉及“厂家盖章、功能证明、承诺函、产品彩页、功能清单、参数确认、检测报告、检验报告、软件著作权、资质证书、企业资质、公司资质、营业执照、体系认证、团队人员、人员证书、项目经理证书、职称证书”等证明材料时，必须写成可装订的证明材料清单、附件要求和缺失补齐边界；不得只在响应表中写“提供某某证明”而没有对应材料来源、文件类型或补盖章要求。
+15. 证明材料类章节可以列正式附件名称或拟装订材料名称，但不得暴露“知识库”“历史文档”“参考资料”“AI生成”“导入来源”、内部路径或内部素材处理痕迹。
+16. 如果现有素材只能证明格式、样式或历史案例，必须写明当前项目需重新按采购人、项目名称、产品型号和责任主体出具并盖章；不得把样式文件表述为当前项目已盖章证明。
+17. 如果章节已经或将会装入证书、专利、检测报告、产品截图等图片材料，不要再在表格中单独输出“系统功能截图及操作说明/提供关键页面截图”这类空泛行；应把已装入图片写成直接证据，未装入的页面或操作说明只列为“待补页面证明材料”或“待补操作说明”。
+18. 对“功能证明材料与检测报告响应”这类章节，优先写实际证据：软著、CNAS/CMA检测或测试报告、测试范围、测试环境、测试结论、关键指标、质检/出厂检验报告、专利、国产化证书、产品图片和功能页面截图；少写“建立机制、逐项梳理、后续提供”等方法论铺垫。
+19. 报告类材料不得只放封面或证书图片。图片可以作为附件页，但正文必须引用报告原文可核验内容，例如报告名称、测试对象、测试范围、测试方法、测试环境、测试结论、性能指标、问题记录和整改边界；如当前只有扫描件或图片而无OCR正文，应写明需补报告原文摘录或OCR文本后再作为正文依据。
+20. 团队和人员章节不得只写岗位表。若素材中存在项目经理、技术负责人、工程师等人员证书或职称证书，应写入对应人员、证书名称、适用职责和附件装订要求；若只有人员名单而无证书，应标注待补人员证书或授权证明。
+21. 公司资质章节不得只写“公司具备资质”。若素材中存在营业执照、质量管理体系、环境管理体系、职业健康安全管理体系、信息安全管理体系、IT服务管理、国产化适配、软著、专利等证书，应按证书名称、有效期、支撑事项和附件页组织。
+22. 不得输出“免费二次开发支持”“免费二次开发”“免费配合二次开发”“软件免费升级”“软件终身免费升级”“终身免费升级”“终身升级维护”等过度承诺表达。相关内容统一写为“项目相关功能优化配合”“升级维护服务”“按合同及投标响应边界执行”“系统对接配合”。
+23. 硬件检测报告必须核对产品型号。若报告是同系列但型号不同，例如 R500 报告对应 450/460 型投标设备，只能写“同系列样例，待补同型号报告”，不得写成同型号已证明。
+24. 对将要插入图片证据的产品、硬件、资质、团队、架构和流程章节，正文必须先写清图片所证明的对象、型号、功能边界、适用场景或附件装订口径，避免图片孤立出现。
+25. ${getMatureBidContentRules()}`,
     },
   ];
 
@@ -847,11 +1065,20 @@ function buildChapterContentMessages({ chapter, parentChapters, siblingChapters,
   if (knowledgeContents?.length) {
     messages.push({
       role: 'user',
-      content: '参考正文素材使用规则：以下内容只作为可吸收的技术素材。请改写为当前项目语境下的投标技术方案正文，不要照抄，不要提到“知识库”“历史文档”“参考资料”或素材来源。',
+      content: evidenceProofChapter
+        ? '参考正文素材使用规则：以下内容只作为可吸收的技术素材。证明材料类章节应优先提取可装订的正式报告正文、测试范围、测试环境、测试结论、关键指标、证书、质检/出厂检验、软著、专利、国产化认证、营业执照、质量管理体系、环境管理体系、职业健康安全管理体系、信息安全管理体系、团队人员证书、项目经理职称证书、产品图和功能页面名称；不要把报告封面或证书图片当作报告正文，不要照抄，不要提到“知识库”“历史文档”“参考资料”或内部来源。'
+        : '参考正文素材使用规则：以下内容只作为可吸收的技术素材。请改写为当前项目语境下的投标技术方案正文，不要照抄，不要提到“知识库”“历史文档”“参考资料”或素材来源。',
     });
     messages.push({
       role: 'user',
       content: `参考正文素材：\n${formatKnowledgeContentsForPrompt(knowledgeContents)}`,
+    });
+  }
+
+  if (visualStyleChapter) {
+    messages.push({
+      role: 'user',
+      content: '本小节属于成熟竞品方案中通常采用图文支撑的章节。正文写法应避免只有抽象承诺：先说明业务场景和管理对象，再写具体功能/操作流程，并点明应配套的后台截图、移动端截图、终端界面、设备图片、架构图、报表图、检测报告正文或证书附件。若当前素材没有对应图片或报告原文，应写成待补材料清单，不得编造成已经具备。',
     });
   }
 
@@ -2562,7 +2789,11 @@ function hasExistingIllustration(content, illustrationType) {
 
   const hasMarkdownImage = /!\[[^\]]*\]\([^)]*\)/.test(text) || /<img\b[^>]*>/i.test(text);
   const hasMermaidBlock = /```\s*mermaid[\s\S]*?```/i.test(text);
+  const hasImageKnowledgeReference = /yibiao-asset:\/\/image-knowledge-base\//i.test(text);
 
+  if (illustrationType === 'knowledge') {
+    return hasImageKnowledgeReference;
+  }
   if (illustrationType === 'ai' || illustrationType === 'mermaid') {
     return hasMarkdownImage || hasMermaidBlock;
   }
@@ -3050,6 +3281,7 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
   let selectedAiImageIds = new Set();
   let aiImageTargets = [];
   let mermaidImageTargets = [];
+  let knowledgeImageTargets = [];
   let sections = createInitialSections(leaves, fullRegenerate ? {} : storedPlan.contentGenerationSections);
   const touchedItemIds = new Set(contentRuntime.touched_item_ids);
   let tasksToRun = leaves.filter(({ item }) => {
@@ -3499,6 +3731,7 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
     selectedAiImageIds = new Set();
     aiImageTargets = [];
     mermaidImageTargets = [];
+    knowledgeImageTargets = [];
 
     for (const context of targets) {
       const illustrationType = normalizeIllustrationType(getIllustrationType(context));
@@ -3507,11 +3740,14 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
         aiImageTargets.push(context);
       } else if (illustrationType === 'mermaid') {
         mermaidImageTargets.push(context);
+      } else if (illustrationType === 'knowledge') {
+        knowledgeImageTargets.push(context);
       }
     }
 
     imageStats.ai.planned = aiImageTargets.length;
     imageStats.mermaid.planned = mermaidImageTargets.length;
+    imageStats.knowledge.planned = knowledgeImageTargets.length;
   }
 
   function persistContentPlans(targets, getIllustrationType) {
@@ -3625,19 +3861,25 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
     );
     aiImageTargets = tasksToRun.filter(({ item }) => selectedAiImageIds.has(item.id));
     mermaidImageTargets = mermaidCandidates.filter(({ item }) => !selectedAiImageIds.has(item.id));
+    knowledgeImageTargets = referenceImageKnowledgeAssetIds.length ? tasksToRun : [];
     imageStats.mermaid.planned = mermaidImageTargets.length;
     imageStats.mermaid.skipped += Math.max(0, mermaidCandidates.length - mermaidImageTargets.length);
     imageStats.ai.planned = selectedAiImageIds.size;
     imageStats.ai.skipped += Math.max(0, aiImageCandidates.length - selectedAiImageIds.size);
+    imageStats.knowledge.planned = knowledgeImageTargets.length;
 
-    logs = [...logs, `整体编排完成：表格候选 ${tableCandidates.length} 个，${runLimits.maxTablesForRun === null ? '保持现有编排' : `入选 ${selectedTableIds.size} 个`}；AI 生图候选 ${aiImageCandidates.length} 张，入选 ${selectedAiImageIds.size} 张；Mermaid 候选 ${mermaidCandidates.length} 张，执行 ${mermaidImageTargets.length} 张。`];
+    logs = [...logs, `整体编排完成：表格候选 ${tableCandidates.length} 个，${runLimits.maxTablesForRun === null ? '保持现有编排' : `入选 ${selectedTableIds.size} 个`}；图片知识库候选 ${knowledgeImageTargets.length} 个小节；AI 生图候选 ${aiImageCandidates.length} 张，入选 ${selectedAiImageIds.size} 张；Mermaid 候选 ${mermaidCandidates.length} 张，执行 ${mermaidImageTargets.length} 张。`];
     const mermaidImageIds = new Set(mermaidImageTargets.map(({ item }) => item.id));
+    const knowledgeImageIds = new Set(knowledgeImageTargets.map(({ item }) => item.id));
     persistContentPlans(tasksToRun, ({ item }) => {
       if (selectedAiImageIds.has(item.id)) {
         return 'ai';
       }
       if (mermaidImageIds.has(item.id)) {
         return 'mermaid';
+      }
+      if (knowledgeImageIds.has(item.id)) {
+        return 'knowledge';
       }
       return 'none';
     });
@@ -4723,40 +4965,54 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
           ...context,
           content,
           words: countContentWords(content),
+          chars: String(content || '').length,
         };
       })
       .filter(({ item, content }) => sections[item.id]?.status === 'success' && String(content || '').trim());
   }
 
   function buildConsistencyAuditGroups(targets) {
-    const totalWords = (targets || []).reduce((sum, item) => sum + item.words, 0);
     if (!targets?.length) {
       return [];
     }
-
-    let groupCount = 1;
-    if (totalWords > CONSISTENCY_AUDIT_GROUP_WORD_LIMIT) {
-      groupCount = 2;
-      while (totalWords / groupCount > CONSISTENCY_AUDIT_GROUP_WORD_LIMIT) {
-        groupCount += 1;
-      }
-    }
-    const targetWords = Math.max(1, Math.ceil(totalWords / groupCount));
+    const totalWords = (targets || []).reduce((sum, item) => sum + item.words, 0);
+    const totalChars = (targets || []).reduce((sum, item) => sum + (item.chars || String(item.content || '').length), 0);
     const groups = [];
-    let current = { index: 1, items: [], words: 0, targetWords };
+    let current = {
+      index: 1,
+      items: [],
+      words: 0,
+      chars: 0,
+      targetWords: CONSISTENCY_AUDIT_GROUP_WORD_LIMIT,
+      targetChars: CONSISTENCY_AUDIT_GROUP_CHAR_LIMIT,
+      sectionLimit: CONSISTENCY_AUDIT_GROUP_SECTION_LIMIT,
+    };
 
     for (const target of targets) {
-      if (current.items.length && current.words + target.words > targetWords && groups.length < groupCount - 1) {
+      const targetChars = target.chars || String(target.content || '').length;
+      const wouldExceedWordLimit = current.words + target.words > CONSISTENCY_AUDIT_GROUP_WORD_LIMIT;
+      const wouldExceedCharLimit = current.chars + targetChars > CONSISTENCY_AUDIT_GROUP_CHAR_LIMIT;
+      const wouldExceedSectionLimit = current.items.length >= CONSISTENCY_AUDIT_GROUP_SECTION_LIMIT;
+      if (current.items.length && (wouldExceedWordLimit || wouldExceedCharLimit || wouldExceedSectionLimit)) {
         groups.push(current);
-        current = { index: groups.length + 1, items: [], words: 0, targetWords };
+        current = {
+          index: groups.length + 1,
+          items: [],
+          words: 0,
+          chars: 0,
+          targetWords: CONSISTENCY_AUDIT_GROUP_WORD_LIMIT,
+          targetChars: CONSISTENCY_AUDIT_GROUP_CHAR_LIMIT,
+          sectionLimit: CONSISTENCY_AUDIT_GROUP_SECTION_LIMIT,
+        };
       }
       current.items.push(target);
       current.words += target.words;
+      current.chars += targetChars;
     }
     if (current.items.length) {
       groups.push(current);
     }
-    return groups.map((group, index) => ({ ...group, index: index + 1, total: groups.length, totalWords }));
+    return groups.map((group, index) => ({ ...group, index: index + 1, total: groups.length, totalWords, totalChars }));
   }
 
   async function repairConsistencySection({ context, conflicts }) {
@@ -4987,16 +5243,22 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
       group_count: auditGroups.length,
       concurrency: contentConcurrency,
       group_word_limit: CONSISTENCY_AUDIT_GROUP_WORD_LIMIT,
+      group_char_limit: CONSISTENCY_AUDIT_GROUP_CHAR_LIMIT,
+      group_section_limit: CONSISTENCY_AUDIT_GROUP_SECTION_LIMIT,
       groups: auditGroups.map((group) => ({
         index: group.index,
         total: group.total,
         words: group.words,
+        chars: group.chars,
         target_words: group.targetWords,
+        target_chars: group.targetChars,
         total_words: group.totalWords,
+        total_chars: group.totalChars,
         sections: group.items.map(({ item, words, content }) => ({
           id: item.id,
           title: item.title || '未命名章节',
           words,
+          chars: String(content || '').length,
           content_metrics: textMetrics(content),
         })),
       })),
@@ -5010,6 +5272,7 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
           index: group.index,
           total: group.total,
           words: group.words,
+          chars: group.chars,
           allowed_ids: [...allowedIds],
         });
         const response = await aiService.collectJsonResponse({
@@ -5142,6 +5405,64 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
     return `${String(content || '').trimEnd()}\n\n${normalizedMarkdown}`;
   }
 
+  async function runImageKnowledgeIllustration(context) {
+    const { item } = context;
+    const contentPlan = contentPlans.get(item.id) || normalizeContentPlan({}, allowedKnowledgeItemIds, allowedFactTitles);
+    const baseContent = getCurrentSuccessfulContent(item);
+
+    if (!baseContent.trim()) {
+      imageStats.knowledge.skipped += 1;
+      contentStats.illustration_completed += 1;
+      logs = [...logs, `跳过图片知识库配图：${item.id} ${item.title || '未命名章节'}，正文未成功生成。`];
+      updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, workspaceStore.loadTechnicalPlan());
+      return;
+    }
+
+    if (hasExistingIllustration(baseContent, 'knowledge')) {
+      imageStats.knowledge.skipped += 1;
+      contentStats.illustration_completed += 1;
+      logs = [...logs, `跳过图片知识库配图：${item.id} ${item.title || '未命名章节'}，已存在图片素材引用。`];
+      updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, workspaceStore.loadTechnicalPlan());
+      return;
+    }
+
+    if (!imageKnowledgeBaseStore?.createAutoMarkdownReference) {
+      imageStats.knowledge.skipped += 1;
+      contentStats.illustration_completed += 1;
+      logs = [...logs, `跳过图片知识库配图：${item.id} ${item.title || '未命名章节'}，图片知识库服务不可用。`];
+      updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, workspaceStore.loadTechnicalPlan());
+      return;
+    }
+
+    imageStats.knowledge.attempted += 1;
+    try {
+      const payload = buildImageKnowledgeReferencePayload(context, contentPlan, baseContent);
+      const result = imageKnowledgeBaseStore.createAutoMarkdownReferences
+        ? imageKnowledgeBaseStore.createAutoMarkdownReferences(payload)
+        : imageKnowledgeBaseStore.createAutoMarkdownReference(payload);
+      if (!result?.matched || !result.markdown) {
+        imageStats.knowledge.skipped += 1;
+        contentStats.illustration_completed += 1;
+        logs = [...logs, `图片知识库配图未命中：${item.id} ${item.title || '未命名章节'}。`];
+        updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, workspaceStore.loadTechnicalPlan());
+        return;
+      }
+      const content = appendImageKnowledgeMarkdown(baseContent, result.markdown);
+      imageStats.knowledge.success += 1;
+      contentStats.illustration_completed += 1;
+      const assetTitles = Array.isArray(result.assets) && result.assets.length
+        ? result.assets.map((asset) => asset.title || asset.fileName).filter(Boolean).slice(0, 3).join('、')
+        : result.asset?.title || item.title || '技术方案配图';
+      logs = [...logs, `图片知识库配图完成：${item.id} ${assetTitles}${Array.isArray(result.assets) && result.assets.length > 3 ? '等' : ''}。`];
+      saveSection(item, { status: 'success', content, error: undefined }, content, { logs });
+    } catch (error) {
+      imageStats.knowledge.failed += 1;
+      contentStats.illustration_completed += 1;
+      logs = [...logs, `图片知识库配图失败：${item.id} ${item.title || '未命名章节'}，${error.message || String(error)}，已保留正文。`];
+      updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, workspaceStore.loadTechnicalPlan());
+    }
+  }
+
   function transferAiPlanToImageKnowledge() {
     imageStats.ai.planned = Math.max(0, imageStats.ai.planned - 1);
     imageStats.knowledge.planned += 1;
@@ -5151,10 +5472,14 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
 
   function buildImageKnowledgeReferencePayload(context, contentPlan, baseContent) {
     const { item, parentChapters, siblingChapters } = context;
+    const visualEvidenceProfile = visualEvidenceProfileForContext(context, contentPlan, baseContent);
     return {
       targetType: 'technical-plan-content',
       targetId: item.id,
       imageIds: referenceImageKnowledgeAssetIds,
+      limit: visualEvidenceProfile.limit,
+      minScore: visualEvidenceProfile.minScore,
+      preferredCategories: visualEvidenceProfile.preferredCategories,
       title: contentPlan.image.title || item.title || '技术方案配图',
       prompt: contentPlan.image.prompt,
       content: [
@@ -5166,6 +5491,7 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
         item.title,
         contentPlan.image.title,
         contentPlan.image.style,
+        ...visualEvidenceProfile.keywords,
         ...(parentChapters || []).map((chapter) => chapter.title),
         ...(siblingChapters || []).map((chapter) => chapter.title),
       ].filter(Boolean),
@@ -5178,14 +5504,20 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
     }
     const { item } = context;
     try {
-      const result = imageKnowledgeBaseStore.createAutoMarkdownReference(buildImageKnowledgeReferencePayload(context, contentPlan, baseContent));
+      const payload = buildImageKnowledgeReferencePayload(context, contentPlan, baseContent);
+      const result = imageKnowledgeBaseStore.createAutoMarkdownReferences
+        ? imageKnowledgeBaseStore.createAutoMarkdownReferences(payload)
+        : imageKnowledgeBaseStore.createAutoMarkdownReference(payload);
       if (!result?.matched || !result.markdown) {
         return false;
       }
       const content = appendImageKnowledgeMarkdown(baseContent, result.markdown);
       transferAiPlanToImageKnowledge();
       contentStats.illustration_completed += 1;
-      logs = [...logs, `图片知识库配图完成：${item.id} ${result.asset?.title || contentPlan.image.title || '技术方案配图'}，已跳过 AI 生图。`];
+      const assetTitles = Array.isArray(result.assets) && result.assets.length
+        ? result.assets.map((asset) => asset.title || asset.fileName).filter(Boolean).slice(0, 3).join('、')
+        : result.asset?.title || contentPlan.image.title || '技术方案配图';
+      logs = [...logs, `图片知识库配图完成：${item.id} ${assetTitles}${Array.isArray(result.assets) && result.assets.length > 3 ? '等' : ''}，已跳过 AI 生图。`];
       saveSection(item, { status: 'success', content, error: undefined }, content, { logs });
       return true;
     } catch (error) {
@@ -5278,12 +5610,12 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
   }
 
   async function runIllustrations() {
-    const illustrationTotal = aiImageTargets.length + mermaidImageTargets.length;
+    const illustrationTotal = knowledgeImageTargets.length + aiImageTargets.length + mermaidImageTargets.length;
     contentStats.phase = 'illustrating';
     contentStats.illustration_total = illustrationTotal;
     contentStats.illustration_completed = 0;
     logs = [...logs, illustrationTotal
-      ? `开始配图：AI 生图 ${aiImageTargets.length} 张（并发 ${AI_IMAGE_CONCURRENCY}），Mermaid 图 ${mermaidImageTargets.length} 张（并发 ${MERMAID_IMAGE_CONCURRENCY}）。`
+      ? `开始配图：图片知识库 ${knowledgeImageTargets.length} 个小节，AI 生图 ${aiImageTargets.length} 张（并发 ${AI_IMAGE_CONCURRENCY}），Mermaid 图 ${mermaidImageTargets.length} 张（并发 ${MERMAID_IMAGE_CONCURRENCY}）。`
       : '本次没有需要执行的配图。'];
     updateTask({ status: 'running', progress: progressFor(leaves, sections), logs, stats: statsSnapshot() }, workspaceStore.loadTechnicalPlan());
 
@@ -5292,6 +5624,7 @@ async function runContentGenerationTask({ aiService, workspaceStore, knowledgeBa
     }
 
     await Promise.all([
+      runItemsWithWorkerPool(knowledgeImageTargets, AI_IMAGE_CONCURRENCY, runImageKnowledgeIllustration, isPauseRequested),
       runItemsWithWorkerPool(aiImageTargets, AI_IMAGE_CONCURRENCY, runAiIllustration, isPauseRequested),
       runItemsWithWorkerPool(mermaidImageTargets, MERMAID_IMAGE_CONCURRENCY, runMermaidIllustration, isPauseRequested),
     ]);
@@ -5412,4 +5745,7 @@ module.exports = {
   buildOriginalCommitmentSummary,
   rankKnowledgeItemsForChapter,
   renderKnowledgeItemsForPrompt,
+  __test__: {
+    normalizeGeneratedMarkdown,
+  },
 };

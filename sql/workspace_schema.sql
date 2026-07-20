@@ -1251,3 +1251,21 @@ CREATE TABLE IF NOT EXISTS bid_market_opportunity_scores (
 
 CREATE INDEX IF NOT EXISTS idx_bid_market_opportunity_scores_total
 ON bid_market_opportunity_scores(total_score DESC);
+
+-- ============================================================================
+-- 通用完整标书生成器 bid_document_*（v39 已落地）
+-- ============================================================================
+
+-- 当前项目的完整标书草稿。模板包、项目基础数据、分项报价、附件映射和最近构建日志均以 JSON 存储，
+-- 由 Main 侧 bidDocumentStore 统一读写，Renderer 不直接持久化业务权威状态。
+CREATE TABLE IF NOT EXISTS bid_document_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  template_id TEXT NOT NULL DEFAULT 'generic-response',
+  project_data_json TEXT NOT NULL DEFAULT '{}',
+  quote_items_json TEXT NOT NULL DEFAULT '[]',
+  asset_map_json TEXT NOT NULL DEFAULT '{}',
+  asset_package_json TEXT,
+  last_build_log_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);

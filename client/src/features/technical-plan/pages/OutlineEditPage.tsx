@@ -207,6 +207,14 @@ function includesKeyword(value: string, keyword: string) {
   return value.toLowerCase().includes(keyword);
 }
 
+function mergeUniqueIds(prev: string[], ids: string[]) {
+  const next = new Set(prev);
+  ids.forEach((id) => {
+    if (id) next.add(id);
+  });
+  return [...next];
+}
+
 function OutlineEditPage({
   projectOverview,
   techRequirements,
@@ -821,6 +829,8 @@ function OutlineEditPage({
     const selectedImageAssets = draftImageKnowledgeAssetIds
       .map((assetId) => imageKnowledgeState.assets.find((asset) => asset.id === assetId))
       .filter((asset): asset is ImageKnowledgeAsset => Boolean(asset));
+    const selectedDocumentIdSet = new Set(draftKnowledgeDocumentIds);
+    const selectedImageAssetIdSet = new Set(draftImageKnowledgeAssetIds);
     const visibleFolders = knowledgeIndex.folders.flatMap((folder) => {
       const folderDocuments = availableDocuments.filter((document) => document.folder_id === folder.id);
       const folderMatched = keyword ? includesKeyword(folder.name, keyword) : false;
@@ -851,6 +861,11 @@ function OutlineEditPage({
       }, new Map<string, ImageKnowledgeAsset[]>()),
     ).sort(([left], [right]) => left.localeCompare(right, 'zh-CN'));
     const selectedReferenceCount = draftKnowledgeDocumentIds.length + draftImageKnowledgeAssetIds.length;
+    const allDocumentIds = availableDocuments.map((document) => document.id);
+    const allImageAssetIds = availableImageAssets.map((asset) => asset.id).filter(Boolean);
+    const allDocumentsSelected = allDocumentIds.length > 0 && allDocumentIds.every((id) => selectedDocumentIdSet.has(id));
+    const allImagesSelected = allImageAssetIds.length > 0 && allImageAssetIds.every((id) => selectedImageAssetIdSet.has(id));
+    const allReferencesSelected = allDocumentsSelected && allImagesSelected;
 
     if (!availableDocuments.length && !availableImageAssets.length) {
       return <div className="outline-knowledge-empty">暂无已完成的知识库文档或图片素材，可先到知识库上传并处理完成后再选择。</div>;
@@ -867,6 +882,33 @@ function OutlineEditPage({
           />
           <span>{keyword ? `匹配 ${visibleDocumentCount} 个文档 / ${visibleImageAssets.length} 张图片` : `共 ${availableDocuments.length} 个文档 / ${availableImageAssets.length} 张图片`}</span>
         </div>
+        <div className="outline-knowledge-bulk-actions" aria-label="知识库批量选择">
+          <button
+            type="button"
+            onClick={() => setDraftKnowledgeDocumentIds((prev) => mergeUniqueIds(prev, allDocumentIds))}
+            disabled={generating || !allDocumentIds.length || allDocumentsSelected}
+          >
+            一键全选文档
+          </button>
+          <button
+            type="button"
+            onClick={() => setDraftImageKnowledgeAssetIds((prev) => mergeUniqueIds(prev, allImageAssetIds))}
+            disabled={generating || !allImageAssetIds.length || allImagesSelected}
+          >
+            一键全选图片
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDraftKnowledgeDocumentIds((prev) => mergeUniqueIds(prev, allDocumentIds));
+              setDraftImageKnowledgeAssetIds((prev) => mergeUniqueIds(prev, allImageAssetIds));
+            }}
+            disabled={generating || (!allDocumentIds.length && !allImageAssetIds.length) || allReferencesSelected}
+          >
+            一键全选全部
+          </button>
+          <span>图片分组较多时可直接全选全部图片素材。</span>
+        </div>
         <div className="outline-knowledge-grid">
           <div className="outline-knowledge-browser">
             <div className="outline-knowledge-pane-head">
@@ -876,7 +918,7 @@ function OutlineEditPage({
             <div className="outline-knowledge-folder-list compact">
               {visibleFolders.length ? visibleFolders.map(({ folder, documents }) => {
                 const expanded = keyword ? true : expandedKnowledgeFolderIds.has(folder.id);
-                const selectedCount = documents.filter((document) => draftKnowledgeDocumentIds.includes(document.id)).length;
+                const selectedCount = documents.filter((document) => selectedDocumentIdSet.has(document.id)).length;
 
                 return (
                   <section className="outline-knowledge-folder compact" key={folder.id}>
@@ -894,7 +936,7 @@ function OutlineEditPage({
                     {expanded && (
                       <div className="outline-knowledge-document-list compact">
                         {documents.map((document) => {
-                          const selected = draftKnowledgeDocumentIds.includes(document.id);
+                          const selected = selectedDocumentIdSet.has(document.id);
 
                           return (
                             <label className={`outline-knowledge-document compact${selected ? ' is-selected' : ''}`} key={document.id}>
@@ -915,7 +957,7 @@ function OutlineEditPage({
                 );
               }) : <div className="outline-knowledge-empty compact">没有匹配的知识库文档</div>}
               {imageGroups.length ? imageGroups.map(([groupName, assets]) => {
-                const selectedCount = assets.filter((asset) => draftImageKnowledgeAssetIds.includes(asset.id)).length;
+                const selectedCount = assets.filter((asset) => selectedImageAssetIdSet.has(asset.id)).length;
 
                 return (
                   <section className="outline-knowledge-folder compact" key={`image-${groupName}`}>
@@ -932,7 +974,7 @@ function OutlineEditPage({
                     </div>
                     <div className="outline-knowledge-document-list compact">
                       {assets.map((asset) => {
-                        const selected = draftImageKnowledgeAssetIds.includes(asset.id);
+                        const selected = selectedImageAssetIdSet.has(asset.id);
                         const title = asset.title || asset.fileName;
 
                         return (
@@ -1188,6 +1230,31 @@ function OutlineEditPage({
                   <strong>按评分项对齐</strong>
                   <span>一级目录完全和技术评分项要求一致，二三级目录由 AI 生成。</span>
                 </button>
+              </div>
+            </section>
+
+            <section className="outline-generation-config-section outline-bid-quality-guide">
+              <div className="outline-generation-config-head">
+                <strong>人工标书增强</strong>
+                <span>已内置商务、证明材料和图文证据规则</span>
+              </div>
+              <div className="outline-bid-quality-grid">
+                <div>
+                  <strong>商务技术一体</strong>
+                  <span>目录同时覆盖投标函、报价、商务响应、合同条款、技术方案和实施服务。</span>
+                </div>
+                <div>
+                  <strong>证明材料优先</strong>
+                  <span>从知识库匹配检测报告正文、CNAS/CMA、软件著作权、厂家盖章证明和团队证书。</span>
+                </div>
+                <div>
+                  <strong>图文证据完整</strong>
+                  <span>功能截图、产品图片、设备界面、架构图、报表图和证书附件会进入目录描述。</span>
+                </div>
+                <div>
+                  <strong>正式投标口径</strong>
+                  <span>避免出现 AI、原始素材引用、导入来源、免费二次开发、软件免费升级等表述。</span>
+                </div>
               </div>
             </section>
 

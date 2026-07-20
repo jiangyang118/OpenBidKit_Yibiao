@@ -23,6 +23,7 @@ function ImageKnowledgeBasePage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [importingSection, setImportingSection] = useState<ImageKnowledgeArchiveSection | ''>('');
+  const [importingCategorizedArchive, setImportingCategorizedArchive] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [category, setCategory] = useState('');
   const [folder, setFolder] = useState('');
@@ -121,6 +122,26 @@ function ImageKnowledgeBasePage() {
       showToast(error instanceof Error ? error.message : '历史压缩包导入失败', 'error');
     } finally {
       setImportingSection('');
+    }
+  };
+
+  const importCategorizedArchives = async () => {
+    const importer = window.yibiao?.imageKnowledgeBase?.importCategorizedArchives;
+    if (!importer) {
+      showToast('当前环境不支持导入分类压缩包，请在桌面客户端中使用', 'error');
+      return;
+    }
+    setImportingCategorizedArchive(true);
+    try {
+      const result = await importer();
+      setState({ assets: result.assets, categories: result.categories, folders: result.folders, tags: result.tags });
+      setActiveId(result.assets[0]?.id || null);
+      setSelectedIds([]);
+      showToast(result.message, result.imported ? 'success' : 'info');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '分类压缩包导入失败', 'error');
+    } finally {
+      setImportingCategorizedArchive(false);
     }
   };
 
@@ -273,13 +294,16 @@ function ImageKnowledgeBasePage() {
           <p>集中管理投标文件中常用的产品图、流程图、现场照片、荣誉证书、资质扫描件和截图素材。</p>
         </div>
         <div className="image-knowledge-import-actions">
-          <button type="button" className="secondary-action" onClick={() => { void importHistoricalArchives('图片素材图示'); }} disabled={Boolean(importingSection) || uploading}>
+          <button type="button" className="secondary-action" onClick={() => { void importCategorizedArchives(); }} disabled={Boolean(importingSection) || uploading || importingCategorizedArchive}>
+            {importingCategorizedArchive ? '正在导入...' : '导入分类压缩包'}
+          </button>
+          <button type="button" className="secondary-action" onClick={() => { void importHistoricalArchives('图片素材图示'); }} disabled={Boolean(importingSection) || uploading || importingCategorizedArchive}>
             {importingSection === '图片素材图示' ? '正在导入...' : '导入图片素材图示'}
           </button>
-          <button type="button" className="secondary-action" onClick={() => { void importHistoricalArchives('资质扫描管理'); }} disabled={Boolean(importingSection) || uploading}>
+          <button type="button" className="secondary-action" onClick={() => { void importHistoricalArchives('资质扫描管理'); }} disabled={Boolean(importingSection) || uploading || importingCategorizedArchive}>
             {importingSection === '资质扫描管理' ? '正在导入...' : '导入资质扫描管理'}
           </button>
-          <button type="button" className="primary-action" onClick={uploadImages} disabled={uploading || Boolean(importingSection)}>
+          <button type="button" className="primary-action" onClick={uploadImages} disabled={uploading || Boolean(importingSection) || importingCategorizedArchive}>
             {uploading ? '正在上传...' : '上传图片'}
           </button>
         </div>

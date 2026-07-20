@@ -250,6 +250,7 @@ function filterTextModelsForProvider(provider: TextModelProvider, models: string
 const imageProviders: Array<{ value: ImageModelProvider; label: string }> = [
   { value: 'jinlong', label: '金龙中转站【推荐】' },
   { value: 'volcengine', label: '火山方舟' },
+  { value: 'codex-gpt-image', label: 'Codex GPT-image-2' },
   { value: 'google-ai-studio', label: 'Google AI Studio' },
   { value: 'custom', label: '自定义 OpenAI-like' },
 ];
@@ -271,6 +272,16 @@ const imageProviderDefaults: ImageModelProfiles = {
     api_key: '',
     model_name: '',
     request_mode: 'stream',
+    status: 'untested',
+    tested_at: '',
+    last_error: '',
+  },
+  'codex-gpt-image': {
+    provider: 'codex-gpt-image',
+    base_url: 'https://api.openai.com/v1',
+    api_key: '',
+    model_name: 'gpt-image-2',
+    request_mode: 'normal',
     status: 'untested',
     tested_at: '',
     last_error: '',
@@ -300,6 +311,7 @@ const imageProviderDefaults: ImageModelProfiles = {
 const imageProviderApiKeyUrls: Record<ImageModelProvider, string> = {
   jinlong: 'https://s.markup.com.cn/jl',
   volcengine: 'https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey',
+  'codex-gpt-image': 'https://platform.openai.com/api-keys',
   'google-ai-studio': 'https://aistudio.google.com/api-keys',
   custom: '',
 };
@@ -307,6 +319,7 @@ const imageProviderApiKeyUrls: Record<ImageModelProvider, string> = {
 const imageProviderLabels: Record<ImageModelProvider, string> = {
   jinlong: '金龙中转站',
   volcengine: '火山方舟',
+  'codex-gpt-image': 'Codex GPT-image-2',
   'google-ai-studio': 'Google AI Studio',
   custom: '自定义生图服务',
 };
@@ -314,6 +327,7 @@ const imageProviderLabels: Record<ImageModelProvider, string> = {
 function getImageBaseUrlDescription(provider: ImageModelProvider) {
   if (provider === 'jinlong') return '金龙中转站 OpenAI 兼容接口地址';
   if (provider === 'volcengine') return '火山方舟 OpenAI 兼容接口地址';
+  if (provider === 'codex-gpt-image') return 'OpenAI 图片生成接口地址，默认使用 api.openai.com/v1';
   if (provider === 'custom') return '填写兼容 OpenAI /images/generations 的接口地址';
   return 'Google Gemini API REST 地址';
 }
@@ -321,6 +335,7 @@ function getImageBaseUrlDescription(provider: ImageModelProvider) {
 function getImageApiKeyDescription(provider: ImageModelProvider) {
   if (provider === 'jinlong') return '用于调用金龙中转站图片生成 API';
   if (provider === 'volcengine') return '用于调用火山方舟图片生成 API';
+  if (provider === 'codex-gpt-image') return '用于调用 GPT-image-2 图片生成 API，仅保存在本机配置文件中';
   if (provider === 'custom') return '用于调用自定义 OpenAI-like 生图接口';
   return '用于调用 Google AI Studio Gemini API';
 }
@@ -328,6 +343,7 @@ function getImageApiKeyDescription(provider: ImageModelProvider) {
 function getImageModelDescription(provider: ImageModelProvider) {
   if (provider === 'jinlong') return '填写金龙中转站已开通的生图模型名称';
   if (provider === 'volcengine') return '填写火山方舟控制台中已开通的模型或推理接入点 ID';
+  if (provider === 'codex-gpt-image') return '默认使用 Codex 中的 GPT-image-2 生图模型';
   if (provider === 'custom') return '填写自定义接口支持的生图模型名称';
   return '选择或填写支持图片生成的 Gemini 模型';
 }
@@ -335,6 +351,7 @@ function getImageModelDescription(provider: ImageModelProvider) {
 function getImageModelPlaceholder(provider: ImageModelProvider) {
   if (provider === 'jinlong') return '请输入已开通的生图模型名称';
   if (provider === 'volcengine') return '请输入已开通的模型或推理接入点 ID';
+  if (provider === 'codex-gpt-image') return 'gpt-image-2';
   if (provider === 'custom') return '请输入 OpenAI-like 生图模型名称';
   return 'gemini-3.1-flash-image-preview';
 }
@@ -506,7 +523,7 @@ const initialState: SettingsPageState = {
   },
   textModelProfiles: createDefaultTextModelProfiles(),
   imageModel: {
-    ...imageProviderDefaults.jinlong,
+    ...imageProviderDefaults['codex-gpt-image'],
   },
   imageModelProfiles: createDefaultImageModelProfiles(),
   fileParser: {
@@ -1227,6 +1244,28 @@ function SettingsPage({ onDeveloperModeChange, onAppearanceChange }: SettingsPag
   const fetchImageModels = async () => {
     try {
       setLoadingModels('image');
+      if (state.imageModel.provider === 'codex-gpt-image') {
+        const models = ['gpt-image-2'];
+        setImageModels(models);
+        setState((prev) => ({
+          ...prev,
+          ...(() => {
+            const imageModel = models.includes(prev.imageModel.model_name)
+              ? prev.imageModel
+              : resetImageModelStatus({ ...prev.imageModel, model_name: models[0] });
+            return {
+              imageModel,
+              imageModelProfiles: {
+                ...prev.imageModelProfiles,
+                [prev.imageModel.provider]: imageProfileFromState(imageModel),
+              },
+            };
+          })(),
+        }));
+        showToast('已载入 Codex GPT-image-2 生图模型', 'success');
+        return;
+      }
+
       if (state.imageModel.provider === 'jinlong' || state.imageModel.provider === 'custom') {
         const providerLabel = imageProviderLabels[state.imageModel.provider];
         const baseUrl = state.imageModel.provider === 'custom'
@@ -2023,6 +2062,7 @@ function SettingsPage({ onDeveloperModeChange, onAppearanceChange }: SettingsPag
           <div className="about-grid">
             <div><span>当前版本</span><strong>{appVersion || '...'}</strong></div>
             <div><span>GitHub 仓库</span><a href="https://github.com/FB208/OpenBidKit_Yibiao" target="_blank" rel="noreferrer">FB208/OpenBidKit_Yibiao</a></div>
+            <div><span>产品说明</span><a href="./openbidkit-yibiao-latest.html" target="_blank" rel="noreferrer">OpenBidKit 功能复现说明</a></div>
             <div>
               <span>自动更新</span>
               <strong>{updateStatusText}</strong>

@@ -1,0 +1,854 @@
+{
+  "version": 1,
+  "title": "Bid document project config schema",
+  "templateId": "smart-canteen-response",
+  "availableTemplateIds": [
+    "smart-canteen-response",
+    "generic-response"
+  ],
+  "defaultTemplateId": "generic-response",
+  "required": [
+    "version",
+    "templateId",
+    "projectData",
+    "quoteItems",
+    "assetMap"
+  ],
+  "topLevelFields": {
+    "version": "number, must be 1",
+    "exportedAt": "optional ISO datetime string",
+    "templateId": "string, must match projectData.templateId and selected template",
+    "projectData": "BidDocumentProjectData",
+    "quoteItems": "BidDocumentQuoteItem[]",
+    "assetMap": "Record<string, BidDocumentAssetRef>",
+    "assetPackage": "optional sidecar-directory or material-collection-package metadata"
+  },
+  "projectDataFields": {
+    "templateId": "string, must match top-level templateId",
+    "projectName": "string",
+    "purchaserName": "string",
+    "supplierName": "string",
+    "totalWithTax": "number > 0",
+    "totalWithoutTax": "number > 0 and <= totalWithTax",
+    "taxPolicy": "optional BidDocumentTaxPolicy",
+    "paymentTerms": "BidDocumentPaymentTerm[], ratios must sum to 100",
+    "disabledSectionIds": "optional string[] of optional section ids"
+  },
+  "paymentTermFields": {
+    "stage": "string, required, rendered in payment table",
+    "ratio": "number > 0; all payment term ratios must sum to 100",
+    "text": "string, required, rendered in payment table and scanned by payment profile checks"
+  },
+  "paymentTermValidationRules": [
+    "paymentTerms must be a non-empty array.",
+    "paymentTerms[*].stage and paymentTerms[*].text must be non-empty strings.",
+    "paymentTerms[*].ratio must be positive and all ratios must sum to 100.",
+    "Configured paymentRequiredText must be present in paymentTerms stage+text.",
+    "Configured paymentForbiddenText must be absent from paymentTerms stage+text."
+  ],
+  "quoteItemFields": {
+    "name": "string",
+    "quantity": "number > 0",
+    "brandModel": "string",
+    "unitPriceWithTax": "number > 0",
+    "totalWithTax": "number > 0, must equal quantity * unitPriceWithTax",
+    "taxRate": "optional number between 0 and 1; when category and matching tax policy rate are present, taxRate must match that policy rate",
+    "category": "optional software|hardware|service|material|other; software/hardware/material map to softwareHardwareRate, service maps to serviceRate, other maps to defaultRate"
+  },
+  "assetRefFields": {
+    "key": "string, required, must equal its assetMap object key",
+    "title": "string, required, formal caption inserted before the asset image",
+    "filePath": "string, absolute path or relative path from this config file; image/scan file signature must match extension",
+    "type": "image|scan|document, required; image/scan are embedded as pictures; document is allowed only for optional original files and is checked as a real file/listed by filename",
+    "required": "boolean",
+    "sectionId": "string, required, must exist in the selected template sections",
+    "templateId": "optional string, must match top-level templateId when present"
+  },
+  "assetRefValidationRules": [
+    "assetMap.<key>.key must equal <key>.",
+    "assetMap.<key>.title must not be empty.",
+    "assetMap.<key>.type must be one of image, scan, document.",
+    "assetMap.<key>.required must be boolean.",
+    "assetMap.<key>.sectionId must exist in the selected template sections.",
+    "Every key listed in template.requiredAssetKeys must exist as an assetMap record; otherwise validation returns missing_required_asset_mapping.",
+    "Template packages should also declare those required keys in template.assetDefinitions so project config and material package examples expose a补料入口.",
+    "template.requiredAssetKeys is authoritative; matching assetMap rows are treated as required even if a template asset definition was accidentally marked optional.",
+    "Required assets must use type=image or type=scan so formal proof materials are inserted into Word as real pictures.",
+    "Assets attached to disabled optional sections are not inserted, file-checked, or scanned for forbidden words until that section is enabled.",
+    "image/scan assets must use .png, .jpg, .jpeg, .gif, .bmp and the file header must match the extension.",
+    "optional document assets must point to a real non-empty file; they are listed by filename and are not counted as embedded Word images."
+  ],
+  "sectionTemplateValidationRules": [
+    "section.id and section.title must be unique and non-empty.",
+    "section.level must be an integer from 0 to 3; levels 1-3 map to Word heading styles.",
+    "level 2/3 sections must declare parentId, and parentId must reference an existing direct parent section.",
+    "parent sections must appear before child sections, and parent chains must not contain cycles."
+  ],
+  "buildLogFields": {
+    "passed": "boolean",
+    "errors": "string[]",
+    "preflightCheckKeys": [
+      "templateCheck",
+      "quoteCheck",
+      "paymentCheck",
+      "titleCheck",
+      "identityCheck",
+      "forbiddenWordsCheck",
+      "assetCheck",
+      "sectionSelectionCheck",
+      "sectionCheck"
+    ],
+    "postGenerationCheckKeys": [
+      "docxOpenCheck",
+      "docxContentCheck",
+      "docxSectionOrderCheck",
+      "docxTableCheck",
+      "docxQuoteIntegrityCheck",
+      "docxLayoutCheck",
+      "docxTocCheck",
+      "docxStyleCheck",
+      "docxTechnicalDensityCheck",
+      "docxPageBreakCheck",
+      "imageInsertionCheck",
+      "docxAssetPlacementCheck",
+      "docxForbiddenWordsCheck"
+    ],
+    "importCheckKeys": [
+      "quoteResolutionCheck"
+    ],
+    "validationResultShape": "BidDocumentValidationResult"
+  },
+  "readinessReportFields": {
+    "desktopShape": "BidDocumentReadinessReport with camelCase fields",
+    "cliShape": "same report with snake_case aliases documented in BidDocumentReadinessReport.cliFieldAliases",
+    "quoteReconciliation": "BidDocumentQuoteReconciliation; row-level and project-level quote differences",
+    "quoteResolutionActions": "BidDocumentQuoteResolutionAction[]; manual actions for unresolved quote differences",
+    "assetInventory": "BidDocumentAssetInventoryItem[]; full material collection list for enabled sections",
+    "blockers": "Record<string, string[]> grouped by quote/payment/identity/forbiddenWords/assets/sections/template/demoAssets/other",
+    "checks": "BidDocumentReadinessCheckSummary[] derived from buildLog check fields",
+    "buildLog": "BidDocumentBuildLog"
+  },
+  "assetTypeEnum": [
+    "image",
+    "scan",
+    "document"
+  ],
+  "allowedSectionIds": [
+    "cover",
+    "supplier-and-authorized-representative",
+    "toc",
+    "quote-summary",
+    "quote-detail",
+    "legal-representative-id",
+    "authorization-letter",
+    "supplier-basic-info",
+    "qualification-documents",
+    "technical-solution",
+    "project-understanding",
+    "overall-architecture",
+    "core-business-flow",
+    "key-function-design",
+    "third-party-interface-boundary",
+    "data-security-operations",
+    "delivery-results",
+    "detailed-functions",
+    "function-parameter-response",
+    "supporting-equipment",
+    "implementation-plan",
+    "after-sales-plan",
+    "warranty-period",
+    "other-materials",
+    "contract-case-proof",
+    "backup-service"
+  ],
+  "allowedSectionTitles": {
+    "cover": "封面",
+    "supplier-and-authorized-representative": "供应商及授权代表页",
+    "toc": "目录",
+    "quote-summary": "一、报价一览表",
+    "quote-detail": "1-2 分项报价表",
+    "legal-representative-id": "二、法定代表人身份证明",
+    "authorization-letter": "三、法定代表人授权委托书",
+    "supplier-basic-info": "四、供应商基本情况表",
+    "qualification-documents": "五、供应商资格证明文件",
+    "technical-solution": "六、技术方案",
+    "project-understanding": "项目理解",
+    "overall-architecture": "总体架构",
+    "core-business-flow": "核心业务流程",
+    "key-function-design": "关键功能设计",
+    "third-party-interface-boundary": "第三方接口边界",
+    "data-security-operations": "数据安全与运维设计",
+    "delivery-results": "交付成果",
+    "detailed-functions": "详细功能介绍",
+    "function-parameter-response": "关键功能参数响应",
+    "supporting-equipment": "相关配套设备",
+    "implementation-plan": "七、项目实施方案",
+    "after-sales-plan": "八、产品售后方案",
+    "warranty-period": "九、质保期",
+    "other-materials": "十、其他材料",
+    "contract-case-proof": "合同案例证明",
+    "backup-service": "后备服务"
+  },
+  "requiredAssetKeys": [
+    "business_license",
+    "iso9001",
+    "iso20000",
+    "iso27001",
+    "software_copyright",
+    "domestic_certificate",
+    "cnas_report",
+    "other_certificate",
+    "backend_platform_screenshot",
+    "dish_management_screenshot",
+    "statistics_report_screenshot",
+    "mobile_app_screenshot",
+    "weighing_device_image",
+    "binding_machine_image",
+    "dual_screen_pos_image",
+    "weighing_pos_image",
+    "tray_image",
+    "contract_case_scan"
+  ],
+  "assetMappingExample": {
+    "business_license": {
+      "key": "business_license",
+      "title": "营业执照",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "iso9001": {
+      "key": "iso9001",
+      "title": "ISO9001 质量管理体系认证证书",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "iso20000": {
+      "key": "iso20000",
+      "title": "ISO20000 信息技术服务管理体系认证证书",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "iso27001": {
+      "key": "iso27001",
+      "title": "ISO27001 信息安全管理体系认证证书",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "software_copyright": {
+      "key": "software_copyright",
+      "title": "智慧营养健康餐厅管理系统 V1.0 软件著作权证书",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "domestic_certificate": {
+      "key": "domestic_certificate",
+      "title": "国产化证书",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "cnas_report": {
+      "key": "cnas_report",
+      "title": "CNAS 检测报告",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "other_certificate": {
+      "key": "other_certificate",
+      "title": "其他证书",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "backend_platform_screenshot": {
+      "key": "backend_platform_screenshot",
+      "title": "后台管理平台截图",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "dish_management_screenshot": {
+      "key": "dish_management_screenshot",
+      "title": "菜品管理界面截图",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "statistics_report_screenshot": {
+      "key": "statistics_report_screenshot",
+      "title": "统计报表截图",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "mobile_app_screenshot": {
+      "key": "mobile_app_screenshot",
+      "title": "移动端截图",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "weighing_device_image": {
+      "key": "weighing_device_image",
+      "title": "智能称重设备图片",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "binding_machine_image": {
+      "key": "binding_machine_image",
+      "title": "智能绑盘机图片",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "dual_screen_pos_image": {
+      "key": "dual_screen_pos_image",
+      "title": "双屏消费机图片",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "weighing_pos_image": {
+      "key": "weighing_pos_image",
+      "title": "称重消费机图片",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "tray_image": {
+      "key": "tray_image",
+      "title": "托盘图片",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "contract_case_scan": {
+      "key": "contract_case_scan",
+      "title": "合同案例证明扫描件",
+      "filePath": "",
+      "type": "image",
+      "required": true,
+      "sectionId": "other-materials",
+      "templateId": "smart-canteen-response"
+    }
+  },
+  "assetPackageFields": {
+    "type": "optional sidecar-directory|material-collection-package",
+    "path": "optional relative path from this config file",
+    "demoOnly": "optional boolean; true blocks formal Word export",
+    "copiedCount": "optional number",
+    "assets": "optional copied asset list"
+  },
+  "validationNotes": [
+    "Do not edit generated schema files into project config files.",
+    "Do not use demoOnly assets for formal Word export.",
+    "Relative asset paths are resolved from the project config JSON directory.",
+    "Quote rows are authoritative; the generator does not invent missing quote differences.",
+    "The reader rejects missing top-level templateId, projectData.templateId, quoteItems[], or assetMap{} instead of falling back to template sample data.",
+    "The reader rejects top-level templateId and projectData.templateId mismatches before validation, material-package, readiness-report, or Word-build side effects.",
+    "The reader rejects unsupported project config versions; version must be 1.",
+    "Default no-template calls use generic-response; project-specific blueprints such as smart-canteen-response must be selected explicitly."
+  ],
+  "schema": {
+    "BidDocumentTemplate": {
+      "required": [
+        "id",
+        "name",
+        "documentTitle",
+        "industry",
+        "sections",
+        "requiredAssetKeys",
+        "validationProfile"
+      ],
+      "fields": {
+        "id": "string",
+        "name": "string",
+        "documentTitle": "string",
+        "industry": "string",
+        "sections": "BidDocumentSectionTemplate[]",
+        "requiredAssetKeys": "string[]",
+        "assetDefinitions": "optional BidDocumentAssetDefinition[]; requiredAssetKeys must be declared here when provided by a built-in or custom template",
+        "validationProfile": "BidDocumentValidationProfile"
+      }
+    },
+    "BidDocumentAssetDefinition": {
+      "required": [
+        "key",
+        "title",
+        "sectionId"
+      ],
+      "fields": {
+        "key": "string, unique within template.assetDefinitions",
+        "title": "string, default formal caption for this asset",
+        "sectionId": "string, must reference a template section",
+        "type": "optional image|scan|document; defaults to image in built-in templates",
+        "required": "optional boolean; default requirement used by generated assetMap examples"
+      },
+      "validationRules": [
+        "assetDefinitions[*].key must be unique and non-empty.",
+        "assetDefinitions[*].title and sectionId must not be empty.",
+        "assetDefinitions[*].sectionId must exist in template.sections.",
+        "Every key in template.requiredAssetKeys must have a matching assetDefinitions entry when assetDefinitions is supplied.",
+        "Asset definitions referenced by template.requiredAssetKeys cannot set required=false; requiredAssetKeys is authoritative for formal material collection."
+      ]
+    },
+    "BidDocumentSectionTemplate": {
+      "required": [
+        "id",
+        "title",
+        "level",
+        "required"
+      ],
+      "fields": {
+        "id": "string, unique within template",
+        "title": "string, unique within template and rendered as the Word heading",
+        "level": "number, 0-3; 0 is cover/toc-like non-heading, 1-3 map to Word Heading 1-3",
+        "required": "boolean; required sections cannot be disabled",
+        "parentId": "required for level 2/3 sections; must reference an existing direct parent that appears before the child"
+      },
+      "validationRules": [
+        "section.id must be unique and non-empty.",
+        "section.title must be unique and non-empty.",
+        "section.level must be an integer from 0 to 3.",
+        "level 2/3 sections must declare parentId.",
+        "parentId must reference an existing section whose level is exactly one less than the child level.",
+        "parent section must appear before child section in template.sections.",
+        "section parent chains must not contain cycles."
+      ]
+    },
+    "BidDocumentProjectData": {
+      "required": [
+        "templateId",
+        "projectName",
+        "purchaserName",
+        "supplierName",
+        "totalWithTax",
+        "totalWithoutTax",
+        "paymentTerms"
+      ],
+      "fields": {
+        "templateId": "string",
+        "projectName": "string",
+        "purchaserName": "string",
+        "supplierName": "string",
+        "totalWithTax": "number",
+        "totalWithoutTax": "number",
+        "taxPolicy": "object",
+        "paymentTerms": "BidDocumentPaymentTerm[]",
+        "disabledSectionIds": "string[]?"
+      }
+    },
+    "BidDocumentTaxPolicy": {
+      "required": [],
+      "fields": {
+        "description": "optional string; must not contain forbidden placeholder words",
+        "softwareHardwareRate": "optional number, for software/hardware tax rate such as 0.13",
+        "serviceRate": "optional number, for service tax rate such as 0.06",
+        "defaultRate": "optional number, fallback tax rate when no category-specific rate applies"
+      },
+      "validationRules": [
+        "Tax policy rate fields must be numbers between 0 and 1 when provided.",
+        "quoteItems with category software, hardware, or material must match softwareHardwareRate when both category and taxRate are provided.",
+        "quoteItems with category service must match serviceRate when both category and taxRate are provided.",
+        "quoteItems with category other must match defaultRate when defaultRate and taxRate are provided."
+      ]
+    },
+    "BidDocumentPaymentTerm": {
+      "required": [
+        "stage",
+        "ratio",
+        "text"
+      ],
+      "fields": {
+        "stage": "string, required, rendered in payment terms table and scanned for forbidden words",
+        "ratio": "number, required; all payment term ratios must sum to 100",
+        "text": "string, required, rendered in payment terms table and scanned for required/forbidden profile text"
+      },
+      "validationRules": [
+        "paymentTerms must be a non-empty array.",
+        "paymentTerms[*].stage and paymentTerms[*].text must not be empty.",
+        "paymentTerms[*].ratio must be a positive number.",
+        "all payment term ratios must sum to 100.",
+        "template validationProfile.paymentRequiredText must appear in stage+text when configured.",
+        "template validationProfile.paymentForbiddenText must not appear in stage+text when configured."
+      ]
+    },
+    "BidDocumentValidationProfile": {
+      "required": [
+        "requiredSectionIds"
+      ],
+      "fields": {
+        "requiredSectionIds": "non-empty string[]; every id must exist in template.sections and be marked required=true",
+        "quoteTotalWithTax": "optional number > 0; when set, project totalWithTax must match this value",
+        "requiredModels": "optional string[]; each listed model must appear in quoteItems.brandModel",
+        "paymentRequiredText": "optional non-empty string; must appear in paymentTerms stage+text",
+        "paymentForbiddenText": "optional non-empty string; must not appear in paymentTerms stage+text",
+        "requiredDocumentTitleText": "optional non-empty string; must appear in template.documentTitle/project title checks"
+      },
+      "validationRules": [
+        "requiredSectionIds must be a non-empty array with no empty or duplicate ids.",
+        "requiredSectionIds entries must exist in template.sections and those sections must be required=true.",
+        "quoteTotalWithTax, when configured, must be greater than 0.",
+        "requiredModels, when configured, must be an array with no empty or duplicate model names.",
+        "paymentRequiredText, paymentForbiddenText, and requiredDocumentTitleText must be non-empty when configured."
+      ]
+    },
+    "BidDocumentQuoteItem": {
+      "required": [
+        "name",
+        "quantity",
+        "brandModel",
+        "unitPriceWithTax",
+        "totalWithTax"
+      ],
+      "fields": {
+        "name": "string",
+        "quantity": "number",
+        "brandModel": "string",
+        "unitPriceWithTax": "number",
+        "totalWithTax": "number",
+        "taxRate": "number?",
+        "category": "software|hardware|service|material|other?"
+      },
+      "validationRules": [
+        "quantity, unitPriceWithTax, and totalWithTax must be positive numbers.",
+        "quantity * unitPriceWithTax must equal totalWithTax after currency rounding.",
+        "category, when provided, must be software|hardware|service|material|other.",
+        "taxRate, when provided, must be a number between 0 and 1 and match projectData.taxPolicy for its category."
+      ]
+    },
+    "BidDocumentAssetRef": {
+      "required": [
+        "key",
+        "title",
+        "filePath",
+        "type",
+        "required",
+        "sectionId"
+      ],
+      "fields": {
+        "key": "string",
+        "title": "string",
+        "filePath": "string",
+        "type": "image|scan|document; required formal proof materials must use image or scan",
+        "required": "boolean",
+        "sectionId": "string",
+        "templateId": "string?"
+      },
+      "validationRules": [
+        "assetMap.<key>.key must equal <key>.",
+        "assetMap.<key>.title and sectionId must not be empty.",
+        "assetMap.<key>.required must be a boolean; string values such as \"false\" are invalid and never used as requirement flags.",
+        "sectionId must exist in the selected template sections.",
+        "required assets, including keys listed in template.requiredAssetKeys, must use type=image or type=scan so they are inserted into Word as real pictures.",
+        "type=document is allowed only for optional original files; document assets are listed by filename and are not counted as embedded Word images."
+      ]
+    },
+    "BidDocumentBuildLog": {
+      "required": [
+        "passed",
+        "errors",
+        "templateCheck",
+        "quoteCheck",
+        "paymentCheck",
+        "titleCheck",
+        "identityCheck",
+        "forbiddenWordsCheck",
+        "assetCheck",
+        "sectionSelectionCheck",
+        "sectionCheck"
+      ],
+      "fields": {
+        "passed": "boolean",
+        "errors": "string[]",
+        "outputPath": "string?",
+        "templateCheck": "BidDocumentValidationResult",
+        "quoteCheck": "BidDocumentValidationResult",
+        "paymentCheck": "BidDocumentValidationResult",
+        "titleCheck": "BidDocumentValidationResult",
+        "identityCheck": "BidDocumentValidationResult",
+        "forbiddenWordsCheck": "BidDocumentValidationResult",
+        "assetCheck": "BidDocumentValidationResult",
+        "sectionSelectionCheck": "BidDocumentValidationResult",
+        "sectionCheck": "BidDocumentValidationResult",
+        "docxOpenCheck": "BidDocumentValidationResult",
+        "docxContentCheck": "BidDocumentValidationResult",
+        "docxSectionOrderCheck": "BidDocumentValidationResult",
+        "docxTableCheck": "BidDocumentValidationResult",
+        "docxQuoteIntegrityCheck": "BidDocumentValidationResult",
+        "docxLayoutCheck": "BidDocumentValidationResult",
+        "docxTocCheck": "BidDocumentValidationResult",
+        "docxStyleCheck": "BidDocumentValidationResult",
+        "docxTechnicalDensityCheck": "BidDocumentValidationResult",
+        "docxPageBreakCheck": "BidDocumentValidationResult",
+        "imageInsertionCheck": "BidDocumentValidationResult",
+        "docxAssetPlacementCheck": "BidDocumentValidationResult",
+        "docxForbiddenWordsCheck": "BidDocumentValidationResult",
+        "quoteResolutionCheck": "BidDocumentValidationResult"
+      },
+      "preflightCheckKeys": [
+        "templateCheck",
+        "quoteCheck",
+        "paymentCheck",
+        "titleCheck",
+        "identityCheck",
+        "forbiddenWordsCheck",
+        "assetCheck",
+        "sectionSelectionCheck",
+        "sectionCheck"
+      ],
+      "postGenerationCheckKeys": [
+        "docxOpenCheck",
+        "docxContentCheck",
+        "docxSectionOrderCheck",
+        "docxTableCheck",
+        "docxQuoteIntegrityCheck",
+        "docxLayoutCheck",
+        "docxTocCheck",
+        "docxStyleCheck",
+        "docxTechnicalDensityCheck",
+        "docxPageBreakCheck",
+        "imageInsertionCheck",
+        "docxAssetPlacementCheck",
+        "docxForbiddenWordsCheck"
+      ],
+      "importCheckKeys": [
+        "quoteResolutionCheck"
+      ],
+      "validationRules": [
+        "Preflight build logs always include every preflightCheckKeys entry.",
+        "When preflight fails, postGenerationCheckKeys entries remain present with errors=[\"not_run\"].",
+        "When a Word file is written, postGenerationCheckKeys entries contain the real generated-docx checks.",
+        "Import workflows may include importCheckKeys entries such as quoteResolutionCheck for material-package quote decisions.",
+        "The build fails when any BidDocumentValidationResult in either check group has passed=false."
+      ]
+    },
+    "BidDocumentReadinessReport": {
+      "required": [
+        "ready",
+        "templateId",
+        "projectName",
+        "purchaserName",
+        "supplierName",
+        "quoteTotal",
+        "targetTotal",
+        "quoteDifference",
+        "quoteReconciliation",
+        "quoteResolutionActions",
+        "assetPackage",
+        "assetInventory",
+        "blockers",
+        "missingAssets",
+        "checks",
+        "buildLog"
+      ],
+      "fields": {
+        "ready": "boolean; true only when buildLog.passed=true and no formal-build blockers remain",
+        "templateId": "string",
+        "projectName": "string",
+        "purchaserName": "string",
+        "supplierName": "string",
+        "quoteTotal": "number; sum of quoteItems.totalWithTax",
+        "targetTotal": "number; projectData.totalWithTax",
+        "quoteDifference": "number; targetTotal - quoteTotal",
+        "quoteReconciliation": "BidDocumentQuoteReconciliation",
+        "quoteResolutionActions": "BidDocumentQuoteResolutionAction[]",
+        "assetPackage": "object|null; sidecar/demo/material-package metadata preserved from project config",
+        "assetInventory": "BidDocumentAssetInventoryItem[]",
+        "blockers": "Record<string, string[]>; grouped formal-build blockers",
+        "missingAssets": "BidDocumentMissingAsset[]",
+        "checks": "BidDocumentReadinessCheckSummary[]",
+        "buildLog": "BidDocumentBuildLog"
+      },
+      "cliFieldAliases": {
+        "templateId": "template_id",
+        "projectName": "project_name",
+        "purchaserName": "purchaser_name",
+        "supplierName": "supplier_name",
+        "quoteTotal": "quote_total",
+        "targetTotal": "target_total",
+        "quoteDifference": "quote_difference",
+        "quoteReconciliation": "quote_reconciliation",
+        "quoteResolutionActions": "quote_resolution_actions",
+        "assetPackage": "asset_package",
+        "assetInventory": "asset_inventory",
+        "missingAssets": "missing_assets",
+        "buildLog": "build_log"
+      },
+      "validationRules": [
+        "Desktop reports use camelCase fields; CLI reports keep snake_case aliases for compatibility.",
+        "quoteDifference is positive when quoteItems total is lower than projectData.totalWithTax.",
+        "assetInventory includes only assets attached to enabled sections or unknown sections that must be fixed.",
+        "demoOnly asset packages must appear as demoAssets blockers and assetCheck errors.",
+        "checks entries are derived from BidDocumentBuildLog *Check fields and use status passed|failed|not_run."
+      ]
+    },
+    "BidDocumentQuoteReconciliation": {
+      "required": [
+        "items",
+        "quoteTotal",
+        "computedQuoteTotal",
+        "targetTotal",
+        "quoteDifference",
+        "rowDifferenceTotal"
+      ],
+      "fields": {
+        "items": "BidDocumentQuoteReconciliationItem[]",
+        "quoteTotal": "number; sum of declaredTotalWithTax",
+        "computedQuoteTotal": "number; sum of quantity * unitPriceWithTax",
+        "targetTotal": "number; projectData.totalWithTax",
+        "quoteDifference": "number; targetTotal - quoteTotal",
+        "rowDifferenceTotal": "number; sum of declaredTotalWithTax - computedTotalWithTax by row"
+      }
+    },
+    "BidDocumentQuoteReconciliationItem": {
+      "required": [
+        "index",
+        "name",
+        "brandModel",
+        "quantity",
+        "unitPriceWithTax",
+        "declaredTotalWithTax",
+        "computedTotalWithTax",
+        "difference",
+        "status"
+      ],
+      "fields": {
+        "index": "number, 1-based",
+        "name": "string",
+        "brandModel": "string",
+        "quantity": "number",
+        "unitPriceWithTax": "number",
+        "declaredTotalWithTax": "number",
+        "computedTotalWithTax": "number",
+        "difference": "number; declaredTotalWithTax - computedTotalWithTax",
+        "taxRate": "optional number|string",
+        "category": "optional string",
+        "status": "passed|failed"
+      }
+    },
+    "BidDocumentQuoteResolutionAction": {
+      "required": [
+        "key",
+        "title",
+        "action"
+      ],
+      "fields": {
+        "key": "confirm_project_total|add_confirmed_quote_item|correct_existing_quote_items",
+        "title": "string",
+        "action": "string; human action required before the generator changes formal quote data"
+      }
+    },
+    "BidDocumentAssetInventoryItem": {
+      "required": [
+        "key",
+        "title",
+        "sectionId",
+        "sectionTitle",
+        "required",
+        "type",
+        "filePath",
+        "status",
+        "suggestedFileName",
+        "collectionNote"
+      ],
+      "fields": {
+        "key": "string",
+        "title": "string",
+        "sectionId": "string",
+        "sectionTitle": "string",
+        "required": "boolean",
+        "type": "image|scan|document",
+        "filePath": "string",
+        "status": "present|demo_only|missing_required|missing_optional",
+        "suggestedFileName": "string",
+        "collectionNote": "string"
+      }
+    },
+    "BidDocumentMissingAsset": {
+      "required": [
+        "key",
+        "title",
+        "sectionId",
+        "required",
+        "filePath"
+      ],
+      "fields": {
+        "key": "string",
+        "title": "string",
+        "sectionId": "string",
+        "required": "boolean",
+        "filePath": "string"
+      }
+    },
+    "BidDocumentReadinessCheckSummary": {
+      "required": [
+        "key",
+        "passed",
+        "status",
+        "errors",
+        "details"
+      ],
+      "fields": {
+        "key": "string; a BidDocumentBuildLog *Check field name",
+        "passed": "boolean",
+        "status": "passed|failed|not_run",
+        "errors": "string[]",
+        "details": "object"
+      }
+    },
+    "BidDocumentValidationResult": {
+      "required": [
+        "passed",
+        "errors",
+        "details"
+      ],
+      "fields": {
+        "passed": "boolean",
+        "errors": "string[]; empty when passed=true, otherwise machine-readable or human-readable blocker strings",
+        "details": "object; check-specific counters, missing keys, totals, placements, or extracted docx facts"
+      }
+    }
+  }
+}

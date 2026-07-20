@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "templateId": "generic-response",
+  "projectData": {
+    "templateId": "generic-response",
+    "projectName": "通用完整标书校验项目",
+    "purchaserName": "样例采购人",
+    "supplierName": "样例供应商",
+    "totalWithTax": 300,
+    "totalWithoutTax": 265.49,
+    "taxPolicy": {
+      "softwareHardwareRate": 0.13,
+      "serviceRate": 0.06
+    },
+    "paymentTerms": [
+      {
+        "stage": "到货",
+        "ratio": 50,
+        "text": "设备到现场支付合同总价款的 50%。"
+      },
+      {
+        "stage": "验收",
+        "ratio": 50,
+        "text": "设备调试合格后支付合同总价款的 50%。"
+      }
+    ]
+  },
+  "quoteItems": [
+    {
+      "name": "样例管理系统",
+      "quantity": 1,
+      "brandModel": "GEN-SYS V1.0",
+      "unitPriceWithTax": 100,
+      "totalWithTax": 100,
+      "taxRate": 0.13,
+      "category": "software"
+    },
+    {
+      "name": "样例终端设备",
+      "quantity": 2,
+      "brandModel": "GEN-DEVICE-100",
+      "unitPriceWithTax": 100,
+      "totalWithTax": 200,
+      "taxRate": 0.13,
+      "category": "hardware"
+    }
+  ],
+  "assetMap": {
+    "qualification_scan": {
+      "key": "qualification_scan",
+      "title": "资质证明扫描件",
+      "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/assets/qualification_scan.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "generic-response"
+    },
+    "solution_screenshot": {
+      "key": "solution_screenshot",
+      "title": "系统或产品截图",
+      "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/assets/solution_screenshot.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "generic-response"
+    },
+    "contract_case_scan": {
+      "key": "contract_case_scan",
+      "title": "合同案例证明扫描件",
+      "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/assets/contract_case_scan.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "other-materials",
+      "templateId": "generic-response"
+    }
+  }
+}

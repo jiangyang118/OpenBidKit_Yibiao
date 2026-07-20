@@ -8,7 +8,9 @@ const { applyNativeThemeSource } = require('./utils/nativeTheme.cjs');
 const { getConfigFilePath, getGeneratedImagesDir, getGpuStartupProbePath, getImportedImagesDir } = require('./utils/paths.cjs');
 
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
-const iconPath = path.join(__dirname, '../assets/icon.ico');
+const iconPath = process.platform === 'darwin'
+  ? path.join(__dirname, '../assets/icon_256.png')
+  : path.join(__dirname, '../assets/icon.ico');
 const packagedIndexUrl = pathToFileURL(path.join(__dirname, '../dist/index.html')).toString();
 const GPU_HARDWARE_ACCELERATION_TRIAL_ARG = '--yibiao-trial-hardware-acceleration';
 const FORCE_DISABLE_GPU_ARGS = ['--disable-gpu', '--disable-hardware-acceleration'];
@@ -219,6 +221,13 @@ function relaunchWithGpuDisabled() {
 }
 
 const gpuStartupState = configureGpuHardwareAcceleration();
+
+// Electron uses its own default icon in development mode unless the Dock icon
+// is set explicitly. Keep the dev app visually consistent with packaged builds.
+if (process.platform === 'darwin' && app.dock) {
+  app.setName('易标投标工具箱');
+  app.dock.setIcon(iconPath);
+}
 
 protocol.registerSchemesAsPrivileged([{
   scheme: 'yibiao-asset',

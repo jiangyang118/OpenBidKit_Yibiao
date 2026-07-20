@@ -1,0 +1,671 @@
+# 通用标书生成器 P0 验收快照
+
+生成时间：2026-06-20 14:25
+
+## 当前结论
+
+- 当前实现已经从“技术方案扩写”推进为通用完整响应文件生成器：模板包、项目数据、分项报价、付款条款、附件 asset mapping、Word builder 和校验层分离。
+- 核心生成器保持通用：智慧食堂数据只作为 `smart-canteen-response` 蓝本和样例配置，不写死在引擎层。
+- 当前不能生成智慧食堂正式可递交 Word：缺官方参考响应文件、真实附件资产，且 6 行分项报价合计为 133050，与项目含税总价 135050 差 2000。
+
+## 核心代码文件
+
+- `client/electron/services/bidDocumentTemplates.cjs`
+- `client/electron/services/bidDocumentValidation.cjs`
+- `client/electron/services/bidDocumentWordBuilder.cjs`
+- `client/electron/services/bidDocumentReadinessReport.cjs`
+- `client/electron/services/bidDocumentProjectConfig.cjs`
+- `client/electron/services/bidDocumentStore.cjs`
+- `client/electron/ipc/bidDocumentIpc.cjs`
+- `client/src/features/bid-document/`
+- `agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_*.cjs`
+
+## 数据 schema 和配置证据
+
+- SQLite：`bid_document_state.asset_package_json` 已持久化 `assetPackage` 元数据。
+- Renderer/IPC 类型：`client/src/features/bid-document/types.ts`、`client/src/shared/types/ipc.ts`。
+- 模板信息导出：`output/bid-document-samples/smart-canteen-template-info.json`。
+- 通用配置样例：`output/bid-document-samples/generic-response-project-config.json`。
+- 通用初始化配置 schema：`output/bid-document-samples/generic-response-init-config.schema.json`。
+- 智慧食堂配置样例：`output/bid-document-samples/smart-canteen-init-config.json`。
+- 智慧食堂初始化配置 schema：`output/bid-document-samples/smart-canteen-init-config.schema.json`。
+- 默认模板入口：无模板 id 的模板查询、样例构造和桌面首次 `loadState()` 使用 `generic-response`；智慧食堂作为显式 `smart-canteen-response` 蓝本模板选择。
+- 项目配置 schema 会说明 `version/templateId/projectData/quoteItems/assetMap/assetPackage`、报价行字段、附件相对路径和 `demoOnly` 阻断规则。
+- 桌面导入、CLI 校验、正式构建、缺口报告、材料包导出和材料包导入都会校验项目配置 `version=1`；非支持版本以 `unsupported_project_config_version` 失败，且不会导入草稿或生成派生文件。
+- 项目配置读取层同时要求顶层 `templateId`、`projectData.templateId`、`quoteItems[]` 和 `assetMap{}` 存在，且顶层 `templateId` 必须与 `projectData.templateId` 一致；缺字段或模板身份不一致会以 `invalid_project_config` 失败，不会套用模板样例项目数据、报价行或附件映射。
+- 项目配置 schema 已同步模板身份一致性规则；`projectDataFields.templateId` 和 `validationNotes` 明确顶层 `templateId` 与 `projectData.templateId` 不一致会在 reader 阶段失败，并阻止后续校验、材料包、准备度报告或 Word 构建副作用。
+- 项目配置 schema 已同步默认模板规则；通用/智慧食堂 init-config schema 均包含 `defaultTemplateId=generic-response` 和“项目蓝本模板必须显式选择”的说明，避免无参生成回落到智慧食堂。
+- 底层主体一致性校验也要求 `projectData.templateId` 存在并与 `template.id` 匹配；直接调用 `validateBidDocumentProject()` 时不能绕过项目配置 schema 的模板身份要求。
+- 模板章节树结构校验会拦截重复章节标题、二级/三级章节缺少父级、父级层级不低于子级、父子层级跳级、子章节早于父章节出现、父级循环等坏模板；启用章节计算也有循环保护，避免通用模板包配置错误导致递归失控。
+- 模板章节树已补齐分项报价父级；`quote-detail` 明确挂到 `quote-summary`，导出的 smart-canteen template-info 已同步该结构，通用/智慧食堂初始化配置和 schema 已按当前模板注册表重生成。
+- 模板章节 schema 已补齐；template-info 导出 `BidDocumentSectionTemplate`，init-config schema 导出 `sectionTemplateValidationRules`，明确 `parentId`、标题唯一、层级连续、父级先于子级和禁止循环规则。
+- 模板可选章节与必备章节关系已补强；必选章节或 `validationProfile.requiredSectionIds` 不能放在可选父章节下，项目数据也不能关闭包含必备后代的可选章节。
+- `validationProfile.requiredSectionIds` 与章节 `required` 标记已强一致；profile 必备章节必须标记 `required=true`，章节启用计算和禁用校验也会把 profile 必备章节视为必选。
+- 模板 profile 必备章节声明完整性已补强；`validationProfile.requiredSectionIds` 必须是非空数组，空 id 和重复 id 会被模板自检拦截。
+- 模板 profile 可选约束字段结构已补强；声明 `quoteTotalWithTax`、`requiredModels`、付款关键文本或标题关键文本时必须是可执行的正数、数组或非空字符串，型号列表会拦截空值和重复值。
+- 付款条款、税率口径和 validationProfile schema 已补齐；template-info 导出 `BidDocumentTaxPolicy`、`BidDocumentPaymentTerm`、`BidDocumentValidationProfile`，init-config schema 导出 `paymentTermFields` 和 `paymentTermValidationRules`。
+- 报价税率口径已纳入 `quoteCheck`；`projectData.taxPolicy` 的税率字段必须是 0-1 之间的数字，已填写 `quoteItems.taxRate/category` 时会按软件/硬件/材料匹配 `softwareHardwareRate`、服务匹配 `serviceRate`、其他在声明 `defaultRate` 时匹配默认税率。
+- 材料包报价决策回填已复用正式报价校验；`quote-resolution.json` 通过动作级形态校验后，还会对应用后的完整报价表运行 `validateQuoteTotals()`，税率、分类、总价或行内金额不符合规则时不会应用报价决策。
+- 构建日志 schema 已补齐；template-info 导出 `BidDocumentBuildLog` 和 `BidDocumentValidationResult`，init-config schema 导出 `buildLogFields`，明确预检检查组和生成后 docx 检查组字段。
+- 构建日志 schema 已补齐导入阶段检查组；template-info 和 init-config schema 均导出 `importCheckKeys: ['quoteResolutionCheck']`，并声明 `quoteResolutionCheck` 为 `BidDocumentValidationResult`。
+- 准备度报告 schema 已补齐；template-info 导出 `BidDocumentReadinessReport`、报价核对、报价处理建议、附件清单、缺失附件和校验摘要等子结构，init-config schema 导出 `readinessReportFields` 并说明桌面 camelCase 与 CLI snake_case alias。
+- 模板附件定义 schema 已补齐；`BidDocumentTemplate.assetDefinitions` 和 `BidDocumentAssetDefinition` 会随 template-info/init-config schema 导出，内置通用模板和智慧食堂蓝本均显式声明默认附件 key、正式标题、所属章节、类型和必填状态。
+- 模板附件定义自检已补齐；模板提供 `assetDefinitions` 时，重复 key、缺标题、错章节、错类型和 `requiredAssetKeys` 漏定义会被 `templateCheck` 拦截，避免新模板声明了必填附件但没有补料入口。
+- 默认附件映射生成已收敛到模板 `assetDefinitions`；通用模板、智慧食堂蓝本和后续自定义模板都会通过同一构造函数生成 assetMap，避免新增行业模板时回落到通用附件或混入无关 key。
+- 必填附件口径已与模板 profile 对齐；`requiredAssetKeys` 是正式材料必填权威来源，命中该列表的附件映射会被强制标为必填，模板自检也会拒绝 `assetDefinitions.required=false` 的矛盾配置。
+- 附件映射 `required` 字段已收紧为必填 boolean；手写或导入项目配置中的字符串 `"false"`、缺字段或其他非 boolean 值会被 `assetCheck` 以 `invalid_asset_required_values` 阻断，不会再被 JavaScript truthy 规则误当成正式必填材料。
+- Renderer 构建日志类型已与 Main/schema 对齐；`BidDocumentBuildLog` 前端类型不再把模板、标题、章节启用或生成后 docx 检查字段标为可选，`BidDocumentValidationResult.details` 也按 schema 改为必填。
+- Store 模板错误路径已与 build log 强契约对齐；未知模板或模板解析失败时，桌面 `validate()` 与 `exportWord()` 也返回完整 `BidDocumentBuildLog`，非 `templateCheck` 检查项为 `not_run`。
+- Store 持久化旧模板错误路径已与 build log 强契约对齐；SQLite 中保存的模板 id 已不可用时，`loadState()` 回落默认通用模板，同时保留完整 `BidDocumentBuildLog`，非 `templateCheck` 检查项为 `not_run`。
+- 准备度报告和材料包模板错误路径已与 build log 强契约对齐；桌面 `exportReadinessReport()`、`exportAssetCollectionPackage()`、`importAssetCollectionPackage()` 和 `importProjectConfig()` 遇到未知模板时也返回完整 `BidDocumentBuildLog`。
+- CLI 模板错误路径已与 build log 强契约对齐；`bid-document-validate-config`、`bid-document-build-config`、`bid-document-readiness-report` 和 `bid-document-asset-package` 遇到未知模板时也输出完整 `build_log`，并保持失败时不生成 Word 或材料包。
+- CLI 材料包导入模板错误路径已与 build log 强契约对齐；`bid-document-import-asset-package` 遇到未知模板时输出完整 `build_log`，并保持失败时不写 updated project config。
+- 材料包 manifest 模板不匹配路径已与 build log 强契约对齐；`asset-manifest.json.templateId` 与当前项目模板不一致时，桌面和 CLI 都返回 `asset_package_template_mismatch`、完整 `buildLog/build_log`，且不回填附件或写出 updated config。
+- 完整标书运行时 IPC 通道已与页面能力对齐；preload 暴露的 `bid-document:export-readiness-report`、`bid-document:export-asset-collection-package`、`bid-document:import-asset-collection-package` 已加入 workspace database IPC guard，数据库检查/升级或不可用状态下也会返回受控错误。
+- 完整标书 bridge 类型契约已与运行时对齐；`WindowYibiao.bidDocument.saveState()` 可携带 `assetPackage`，并有源码级测试校验 preload 的 `bidDocument` 方法均在共享 IPC 类型中声明。
+- 桌面页面导入失败 build log 展示已补齐；材料包导入或项目配置导入返回失败但携带 `buildLog` 时，页面会保留并展示构建日志。
+- 桌面页面报价决策校验展示已补齐；材料包导入返回 `quoteResolutionCheck` 时，构建日志会显示“报价决策校验”和具体错误。
+- 桌面页面导入检查条件展示已补齐；普通校验/正式构建日志不显示“报价决策校验：未运行”，只有材料包导入实际返回 `quoteResolutionCheck` 时才显示该行。
+- 完整标书页面模板说明已改为动态文案；默认通用模板显示“当前使用通用响应文件模板...”，智慧食堂模板才显示“当前以智慧食堂响应文件模板作为蓝本...”，避免通用生成器入口被旧蓝本文案误导。
+- 完整标书页面项目切换状态已收口；成功导入新的项目配置后会清空上一项目的材料包状态卡，避免继续展示旧 `asset-manifest`、`quote-resolution` 或材料目录。
+- 完整标书项目配置导出取消路径已收口；桌面保存对话框取消时返回受控 `success=false,canceled=true`，不会因未声明变量抛出运行时异常。
+- 附件图片格式白名单已抽为单一来源：桌面选择器、生成前附件校验、Word 图片插入、材料包建议扩展名和项目配置 schema 文案共用 `bidDocumentAssets.cjs` 的 `png/jpg/jpeg/gif/bmp`。
+- `document` 类型附件桌面选择能力已补齐：页面传递附件 `type`，原始文件类附件使用“原始文件或证明材料”过滤器，图片/扫描件仍使用图片过滤器。
+- 附件映射行已显示材料必填状态、附件类型和模板 id，补料人员可直接区分图片/扫描件/原始文件以及必填/可选材料。
+- 附件映射行已显示章节启用状态；已关闭可选章节下的附件会标记“章节已关闭”，提示该材料当前不参与正式构建。
+- 页面附件缺失摘要已与正式校验口径对齐；已关闭可选章节下的必填附件不会进入“缺失必填”计数。
+- 报价差额摘要已前置展示；页面在分项合计与项目含税总价不一致时直接显示“分项少 ... 元”或“分项多 ... 元”，一致时显示“报价一致”。
+- 模板必填附件与项目 asset mapping 契约已补强；模板 `requiredAssetKeys` 中缺少对应 `assetMap` 记录时会返回 `missing_required_asset_mapping`，避免模板声明了必填材料但页面/配置没有可补料入口。
+- 附件映射结构必须完整：`assetMap.<key>.key` 等于 map key，`title/type/sectionId` 必填，`type` 为 `image|scan|document`，`sectionId` 指向模板章节。
+- 项目配置 schema 已补齐附件映射规则证据：同名 `*.schema.json` 包含 `assetTypeEnum`、`allowedSectionIds`、`allowedSectionTitles`、`requiredAssetKeys`、`assetMappingExample` 和 `assetRefValidationRules`。
+- 项目配置 schema 已同步禁用可选章节附件口径；`assetRefValidationRules` 明确已关闭可选章节下的附件不会插入 Word、不会校验文件、也不会扫描禁用词，启用后恢复正式校验。
+- 已安装 CLI E2E 已覆盖同一 schema 规则，确认 `bid-document-init-config` 端到端写出的同名 schema 也包含禁用可选章节附件不插入、不校验文件、不扫描禁用词的契约。
+- 附件类型已分层：`image/scan` 必须能作为图片插入 Word，`document` 必须是真实非空文件并在正文列出正式标题和原始文件名，不计入图片插入数量或邻接图片检查。
+- 必填附件类型约束已收紧：模板 `requiredAssetKeys` 或附件自身 `required=true` 的正式材料必须使用 `image` 或 `scan`，`document` 仅允许作为可选原始文件列示，不能替代扫描件、截图或设备图片插入 Word。
+- 项目配置可追加挂在模板已有章节下的额外附件 key，不会在样例合并时静默丢弃；追加附件仍需通过标题、类型、章节、真实文件和禁用词校验。
+- 准备度报告和材料收集包已同步 `document` 附件口径：建议文件名保留现有原始文件后缀，缺省为 `.pdf`，收集说明区分原始文件与扫描件/截图，manifest schema 写明 `image/scan` 与 `document` 的类型规则。
+- 准备度报告和材料包 schema 已同步必填附件图片化口径；`asset-manifest.schema.json` 明确 `document` 仅用于可选原始文件，必填材料必须补真实图片/扫描件。
+- 准备度 Markdown 渲染已收敛为单一来源；桌面 `exportReadinessReport()` 和 CLI `bid-document-readiness-report` 共用 `renderReadinessReportMarkdown()`，报价核对、附件清单、阻断项和 Markdown 转义规则不再两处分叉维护。
+- Markdown 附件清单已补齐“类型”和“处理说明”列；桌面准备度报告、CLI 准备度报告和材料收集包 Markdown 均会直接展示 `image/scan/document` 及真实材料要求。
+- 生成前禁用词预校验已覆盖 `projectData.taxPolicy.description`；税率口径说明中的“请填写/待补”等未完成痕迹会在 Word 生成前被 `forbiddenWordsCheck` 阻断。
+- 生成前禁用词预校验已覆盖 Word 付款表节点字段和 `document` 附件原始文件名；`paymentTerms.stage` 或原始文件名中的“待补/请填写”等未完成痕迹会在 Word 生成前被阻断。
+- 付款条款 profile 校验已覆盖 `paymentTerms.stage + paymentTerms.text`；智慧食堂模板的 12 个月必填口径和 3 个月禁用口径即使写在付款节点名称中也会被拦截。
+- 生成前禁用词预校验的附件扫描范围已与可选章节启用状态对齐；已关闭可选章节下的可选附件不会因为标题或文件名中的未完成字样阻断正式构建，启用章节、必填附件和未知章节附件仍继续拦截。
+- CLI `bid-document-validate-config` 已覆盖同一行为：关闭 `backup-service` 后，标题含“待补”且文件路径不存在的可选附件不会触发禁用词或缺失文件错误；启用章节和未知章节仍走既有校验。
+- CLI `bid-document-build-config` 已覆盖同一正式生成行为：关闭 `backup-service` 后，标题含“待补”且文件路径不存在的可选附件不会阻断通用 Word 生成，也不会进入成品 `word/document.xml`。
+- 准备度报告和材料收集包已与启用章节口径对齐；关闭 `backup-service` 后，该章节下的可选附件不会进入桌面/CLI 缺口报告、Excel/Markdown 附件清单或材料包 manifest。
+- 附件必填校验已与关闭可选章节口径对齐；关闭 `backup-service` 后，即使该章节下附件标记为 `required=true` 或命中模板 `requiredAssetKeys`，也不会误报 `missing_assets`。
+- Word 成品内容校验已增加禁用章节反向检查；如果已关闭章节标题或该章节附件标题出现在最终 `word/document.xml`，`validateDocxContent()` 会失败，避免关闭章节内容泄漏到正式响应文件。
+- 材料收集包建议文件名已增加 Windows 保留设备名防护；清洗后为 `CON/PRN/AUX/NUL/COM1-LPT9` 等名称时会自动加 `_` 前缀，并去除末尾点/空格，避免生成 Windows 无法创建的 `targetFile`。
+- 材料收集包和 CLI 准备度报告的 Markdown 表格已增加动态单元格转义；报价名称、附件标题、阻断原因和报价处理建议中的 `|` 会转义为 `\|`，换行会转换为 `<br>`，避免业务补料清单表格被用户输入破坏。
+- 桌面端“导出缺口报告”Markdown 已同步同一套表格转义口径；报价核对、报价差额处理建议、附件清单、缺失附件和校验项中的动态字段会处理 `|` 与换行，避免桌面导出的准备度报告和 CLI 输出不一致。
+- 准备度报告与材料收集包 Markdown 的摘要行、阻断项标题和列表已增加行内清洗；项目名称、采购人、供应商、模板名、阻断项分组和阻断原因中的 `|` 会转义，换行会压成单行，避免用户输入或路径/错误文本把 Markdown 结构拆成伪章节。
+- 准备度阻断分类与缺失附件提取已收敛为单一来源；桌面准备度报告和 CLI 准备度报告共用 `classifyReadinessErrors()` 与 `extractReadinessMissingAssets()`，避免报价、付款、附件、模板、演示附件等分组口径漂移。
+- 项目配置 envelope 读取与相对附件路径解析已收敛为单一来源；桌面项目配置导入和 CLI 校验、构建、准备度报告、材料包导出、材料包导入共用 `bidDocumentProjectConfig.cjs`，避免 `version/templateId/projectData.templateId/quoteItems/assetMap` 契约和 sidecar 相对路径解析规则漂移。
+- 项目配置模板身份读取边界已收紧；共享 reader 会在读取阶段拒绝顶层 `templateId` 与 `projectData.templateId` 不一致的配置，避免错模板配置继续进入模板加载、准备度、材料包或 Word 构建流程。
+- 项目配置模板身份 schema 证据已补齐；通用和智慧食堂 init-config schema 均会导出同一条 reader 边界规则，便于业务侧和后续 agent 在改 JSON 前看到失败原因。
+- CLI 初始化配置 schema 防回归已补齐；`bid-document-init-config` 的 core 测试会直接检查输出 schema 中的模板身份一致性说明和 reader 阶段 mismatch 阻断说明。
+- 演示附件正式构建保护已收敛为单一来源；桌面校验/准备度/材料包/正式 Word 和 CLI 构建/准备度/材料包共用 `applyDemoAssetPackageGuard()`，CLI 准备度报告的 blockers 与 `build_log.assetCheck.errors` 都会明确输出 `demo_assets_not_allowed_for_formal_build`。
+- 准备度报告对象构造已收敛为单一来源；桌面准备度报告、桌面材料包、CLI 准备度报告和 CLI 材料包共用 `createReadinessReport()`，CLI 仅通过 `toSnakeReadinessReport()` 保留对外 snake_case JSON 字段。
+
+## 附件 asset mapping 示例
+
+- 材料包目录：`output/bid-document-samples/smart-canteen-asset-package/`
+- 材料包 manifest：`output/bid-document-samples/smart-canteen-asset-package/asset-manifest.json`
+- 材料包 manifest schema：`output/bid-document-samples/smart-canteen-asset-package/asset-manifest.schema.json`
+- 报价处理决定文件：`output/bid-document-samples/smart-canteen-asset-package/quote-resolution.json`
+- 报价处理 schema：`output/bid-document-samples/smart-canteen-asset-package/quote-resolution.schema.json`
+- 材料收集清单：`output/bid-document-samples/smart-canteen-asset-package/材料收集清单.md`
+- 当前样例包含 18 个附件 key，demo sidecar 文件会被标记为 `demo_only`，正式 Word 导出会被 `demo_assets_not_allowed_for_formal_build` 阻断。
+- 当前样例 `replacementRequiredAssetCount=18`，表示 18 个演示附件均需替换为真实材料；该口径与 `missingRequiredAssetCount` 分离，避免把 demo 材料误读成正式齐套。
+- 材料包同时包含正式构建阻断项、报价核对摘要和报价差额处理建议，业务侧可以按同一包补齐真实附件与报价确认。
+- 桌面页面导出材料包后会展示输出目录、材料清单、manifest、`asset-manifest.schema.json` 和 `quote-resolution.json` 路径；导入材料包后会展示报价决策是否应用、动作和错误列表。
+- `asset-manifest.schema.json` 会列出 manifest version、必填字段、材料状态枚举、附件字段和计数字段；导入材料包时会拒绝不支持的 `asset-manifest.json` version。
+- 材料包导入会校验 `asset-manifest.json` 的 `targetFile` 边界；附件文件只能来自材料包目录内的相对路径，越界路径或指向包外的符号链接会失败。
+- 附件预校验会校验图片文件头，`.png/.jpg/.jpeg/.gif/.bmp` 必须与真实文件签名匹配，文本文件改扩展名会被 `invalid_asset_file_signature` 阻断。
+- `quote-resolution.json` 会按动作校验数据形态：确认总价只接受 `projectDataPatch`，新增分项只接受 `quoteItemsAppend`，修正已有分项只接受 `quoteItemsReplacement`，动作和数据不匹配时拒绝应用。
+- `quote-resolution.json` 会限制可回填字段：`projectDataPatch` 只允许 `totalWithTax`、`totalWithoutTax` 和 `taxPolicy`，报价行必须包含名称、品牌型号、数量、含税单价和含税合计，且行内合计必须等于数量乘单价。
+- `quote-resolution.schema.json` 会列出 `selectedAction` 枚举、动作级允许/禁止数据区、允许的项目字段、报价行字段说明和身份规则；桌面端和 CLI 导出材料包时都会返回该 schema 路径。
+- `quote-resolution.schema.json` 的 `identityRules` 明确 `version` 必须为 1，`templateId` 必须匹配 `asset-manifest.json`，否则导入返回 `unsupported_quote_resolution_version` 或 `quote_resolution_template_mismatch` 且不应用报价决策。
+- `quote-resolution.schema.json` 的 `validationRules` 明确报价决策应用后还会复跑正式报价校验；错误税率、错误分类、错误总价或行内金额不一致的报价行不会进入项目配置。
+
+## 自动校验函数
+
+- 生成前校验：`validateBidDocumentProject()`。
+- 项目配置 envelope 校验：`readBidDocumentProjectConfig()`、`resolveProjectConfigAssetMap()`。
+- Word 构建与生成后校验：`writeBidDocumentWordFile()`。
+- 演示附件正式构建保护：`applyDemoAssetPackageGuard()`。
+- 准备度报告：`createReadinessReport()`、`toSnakeReadinessReport()`、`buildReadinessReportExcelBuffer()`、`buildAssetInventory()`、`buildQuoteReconciliation()`。
+- 准备度阻断分类：`classifyReadinessErrors()`、`extractReadinessMissingAssets()`。
+- 报价差额处理建议：`buildQuoteResolutionActions()`。
+- 参考文件对齐：`analyzeBidReferenceDocument()`、`compareBidReferenceAnalyses()`。
+
+## 样本文档和构建日志
+
+- 通用正式样本文档：`output/bid-document-samples/generic-response-from-config.docx`。
+- 通用构建日志：`output/bid-document-samples/generic-response-from-config.build.json`。
+- 智慧食堂正式构建阻断日志：`output/bid-document-samples/smart-canteen-readiness.json`。
+- 智慧食堂准备度 Markdown：`output/bid-document-samples/smart-canteen-readiness.md`。
+- 智慧食堂准备度 Excel：`output/bid-document-samples/smart-canteen-readiness.xlsx`。
+
+## 当前构建日志要点
+
+- 报价校验：未通过，`quote_items total should equal project totalWithTax: expected 135050, got 133050`。
+- 逐项报价核对：6 行行内计算均通过，`rowDifferenceTotal=0`，项目级差额为 2000。
+- 报价税率口径校验：智慧食堂样例 6 行 `taxRate/category` 均符合软硬件 13% 口径；若软件/硬件/材料误填 6%、服务误填 13%、分类写成模板外值或 taxPolicy 税率超出 0-1，会在 `quoteCheck` 阻断。
+- 报价差额处理建议：已输出“确认项目含税总价”“新增经确认的真实分项”“修正已有报价行”三条人工决策路径，不自动虚构 2000 元分项。
+- 材料收集包：已同步写入阻断项、报价核对摘要和报价差额处理建议，不再只是附件文件夹骨架。
+- 报价处理回填：材料包导入会读取 `quote-resolution.json`，只有人工选择合法动作并提供实际数据时才应用到 `projectData` 或 `quoteItems`，随后继续运行正式校验。
+- 报价处理防误用：材料包导入会拒绝“选择确认项目总价但提交新增报价行”等动作/数据不匹配场景，并把错误写入 `quoteResolutionCheck`，不会修改项目总价或追加无效报价行。
+- 报价决策后置校验：错误 `quote-resolution.json` 不再只依赖最终 build log 兜底；应用后报价不符合税率或金额规则时，`quoteResolutionApplied=false`，错误写入 `quoteResolutionCheck`，原报价数据保持不变。
+- 报价处理身份校验：材料包导入会校验 `quote-resolution.json` 的 `version` 与 `templateId`，跨模板或旧版本决策文件不会被应用。
+- 报价处理身份 schema 校验：`quote-resolution.schema.json` 已同步写出版本和模板身份规则，业务侧可在填写报价决策文件前看到 `unsupported_quote_resolution_version` 与 `quote_resolution_template_mismatch` 的阻断口径。
+- 材料包 manifest 防误用：材料包导入会校验 `asset-manifest.json` 的 `version`，不支持的版本直接失败，不会回填附件或写出更新配置。
+- 附件路径边界校验：材料包导入会拒绝 `targetFile` 绝对路径、`../` 越界路径和指向包外的符号链接，避免被手改 manifest 后把非材料包文件回填为正式附件。
+- 附件文件签名校验：图片附件必须通过扩展名对应的文件头校验，假 `.png`、假 `.jpg` 等不会进入正式构建。
+- 附件映射结构校验：key 错位、标题为空、类型错写或章节不存在会进入 `assetCheck.errors`，正式构建不会等到 Word 插入阶段才失败。
+- 附件映射 required 类型校验：`assetMap.<key>.required` 必须是 boolean，字符串 `"false"`、缺字段或其他类型会进入 `assetCheck.errors`，并在 details 中写入 `invalid_asset_required_values`。
+- 必填附件映射校验：`requiredAssetKeys` 中缺少对应 `assetMap` 记录会进入 `assetCheck.errors`，错误码为 `missing_required_asset_mapping`。
+- 必填附件类型校验：必填材料使用 `document` 类型会进入 `assetCheck.errors`，错误码为 `required_asset_must_be_image_or_scan`，避免 PDF/Office 原始文件替代正式扫描件入册。
+- 项目配置版本校验：非 `version=1` 的项目配置会被 `unsupported_project_config_version` 阻断，桌面导入不保存草稿，CLI 校验/构建不写出 validation/build 派生 JSON，构建不创建 Word。
+- 项目配置必填字段与模板身份校验：缺顶层 `templateId`、`projectData.templateId`、`quoteItems[]`、`assetMap{}`，或顶层模板 id 与项目数据模板 id 不一致的配置会被 `invalid_project_config` 阻断，不会使用模板默认报价或附件作为兜底，也不会继续写出派生校验文件。
+- 项目配置 schema 校验：导出的同名 `.schema.json` 已声明 `projectData.templateId` 必须匹配顶层 `templateId`，并说明模板身份不一致会在 reader 阶段阻断所有后续副作用。
+- 桌面可见状态：材料包导入/导出结果不会只停留在 toast，页面会保留最近材料包状态卡，便于复核报价决策文件路径和应用结果。
+- 付款条款校验：通过，付款周期为 12 个月口径。
+- 主体一致性校验：通过，项目名称、采购人、供应商一致。
+- 禁用词校验：通过。
+- 附件校验：demo sidecar 文件存在，但被标记为 `demo_only`，正式构建仍阻断。
+- 章节校验：通过，必备章节存在。
+- 模板标题唯一性校验：重复章节标题会失败并输出 `duplicateSectionTitles`，避免目录和正文定位歧义。
+- 模板嵌套父级校验：二级/三级章节缺少 `parentId` 会失败并输出 `missingNestedParentIds`，避免分项报价表等子章节脱离父章节。
+- 模板章节 schema 校验：template-info 与 init-config schema 均包含章节模板规则，后续新增模板包可直接按 schema 配置章节树。
+- 模板父子层级连续性校验：已声明 `parentId` 的章节必须比父章节正好深一级，避免一级标题直接挂三级标题。
+- 模板父子顺序校验：子章节早于父章节出现会失败，避免正式响应文件章节树顺序和正文渲染顺序不一致。
+- 可选章节校验：关闭可选章节时会检查其后代，若包含必选章节或 profile 必备章节会失败，避免间接隐藏必备响应内容。
+- Profile 必备章节校验：profile 必备章节必须在模板中标记 `required=true`，并在启用计算中按必选章节处理。
+- Profile 完整性校验：profile 必备章节声明缺失、为空、包含空 id 或重复 id 时会失败，避免必备章节后续退化为零检查。
+- Profile 可选字段校验：报价总价、必备型号、付款关键文本和标题关键文本如果声明了就必须可执行，空型号、重复型号和空关键文本会失败。
+- 付款与 profile schema 校验：schema 明确付款比例合计 100、付款关键文本/禁用文本、税率口径说明、必备章节、必备型号和总价 profile 规则。
+- Build log schema 校验：schema 明确 `templateCheck/quoteCheck/paymentCheck/titleCheck/identityCheck/forbiddenWordsCheck/assetCheck/sectionSelectionCheck/sectionCheck` 预检组，以及 `docxOpenCheck/docxContentCheck/docxSectionOrderCheck/docxTableCheck/docxQuoteIntegrityCheck/docxLayoutCheck/docxTocCheck/docxStyleCheck/docxTechnicalDensityCheck/docxPageBreakCheck/imageInsertionCheck/docxAssetPlacementCheck/docxForbiddenWordsCheck` 生成后检查组。
+- 预检失败日志完整性校验：报价、附件或模板等预检失败时，生成后检查组保持 `not_run`，并包含 `docxForbiddenWordsCheck`，与导出的 `BidDocumentBuildLog.postGenerationCheckKeys` 一致。
+- Store 错误路径日志完整性校验：桌面 validate/exportWord 遇到未知模板时仍返回完整 `BidDocumentBuildLog`，便于页面、IPC 和后续 agent 按统一结构展示。
+- 准备度/材料包错误路径日志完整性校验：桌面准备度报告、材料包导出、材料包导入和项目配置导入遇到未知模板时仍返回完整 `BidDocumentBuildLog`，避免用户只能看到普通错误而看不到统一构建日志。
+- CLI 错误路径日志完整性校验：配置校验、正式构建、准备度报告和材料包导出命令遇到未知模板时仍输出完整 `build_log`，自动化可统一读取 `templateCheck` 与后置检查 `not_run`。
+- CLI 材料包导入错误路径日志完整性校验：材料包导入命令遇到未知模板时仍输出完整 `build_log`，且不写更新后的项目配置，避免错误回填污染配置文件。
+- 页面错误路径日志展示校验：材料包导入/项目配置导入失败但返回完整 `buildLog` 时，页面切到“生成与校验”并展示具体检查项错误。
+- 页面报价决策日志展示校验：材料包导入失败且 `quoteResolutionCheck` 携带错误时，页面构建日志会显示“报价决策校验”和 `quote_resolution_action_payload_mismatch` 等具体错误。
+- 页面导入检查条件展示校验：普通构建日志不显示“报价决策校验”，材料包导入错误日志仍显示“报价决策校验”。
+- Schema 导入检查组校验：template-info 和 init-config schema 会导出 `importCheckKeys`，其中包含 `quoteResolutionCheck`，便于 CLI、桌面和后续 agent 消费材料包导入阶段的报价决策检查。
+- 附件格式能力一致性校验：Store 文件选择器、Validation 文件签名校验、WordBuilder `ImageRun` 类型、ReadinessReport 建议扩展名和 Templates schema 文案均读取同一份图片格式白名单。
+- 附件选择能力校验：Renderer 传递 `asset.type` 到桌面 bridge，Store 会按 `image/scan` 或 `document` 输出不同文件过滤器，确保原始证明文件类附件可在桌面端选择。
+- 附件映射页面可见性校验：附件资产行会显示“必填材料/可选材料”“图片/扫描件/原始文件”和模板 id，避免关键映射字段只存在于 JSON 或构建日志中。
+- 附件章节启用状态校验：页面会按模板章节树和 `disabledSectionIds` 展示“章节已启用/章节已关闭”，关闭可选章节下的附件不会被误认为会进入正式 Word。
+- 附件缺失摘要口径校验：页面摘要中的“缺失必填”数量忽略已关闭可选章节附件，与生成前 `validateAssets()` 和材料包口径一致。
+- 报价差额页面可见性校验：智慧食堂 133050 vs 135050 这类差额会在摘要卡片前置显示为“分项少 2000.00 元”，分项报价高于项目总价时显示“分项多 ... 元”，不必等运行校验才发现。
+- 生成后 Word 检查：智慧食堂正式 Word 未生成，因此 docx 后置检查为 `not_run`。
+
+## 已运行验证
+
+- `node --check client/electron/services/bidDocumentReadinessReport.cjs`
+- `node --check client/electron/ipc/index.cjs`
+- `node --check client/electron/services/bidDocumentTemplates.cjs`
+- `node --check client/electron/services/sqliteDatabase.cjs`
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `node --check client/electron/services/bidDocumentWordBuilder.cjs`
+- `node --check client/electron/services/bidDocumentStore.cjs`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_init_config.cjs`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_asset_package.cjs`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_import_asset_package.cjs`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_readiness_report.cjs`
+- `cd client && npm run test:unit -- BidDocumentPage`
+- `cd client && npm run test:unit -- BidDocumentPage bidDocumentStore`（38 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（80 tests）
+- `cd client && npm run test:unit -- bidDocument`（96 tests）
+- `node --check client/electron/services/bidDocumentReadinessReport.cjs`
+- `cd client && npm run test:unit -- bidDocumentStore.test.ts`（36 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_import_asset_package_rejects_quote_resolution_tax_policy_mismatch -v`
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_import_asset_package_command_rejects_quote_resolution_tax_policy_mismatch -v`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-asset-package --input output/bid-document-samples/smart-canteen-init-config.json --output-dir output/bid-document-samples/smart-canteen-asset-package`
+- `cd client && npm run test:unit -- bidDocument planCompletionAudit.test.ts`（148 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`
+- `git diff --check`
+- `cd client && npm run test:unit -- bidDocumentTemplates bidDocument`（97 tests）
+- `cd client && npm run test:unit -- bidDocumentValidation bidDocumentWordBuilder bidDocumentTemplates`（59 tests）
+- `cd client && npm run test:unit -- bidDocument`（99 tests）
+- `cd client && npm run test:unit -- bidDocument`（100 tests）
+- `cd client && npm run test:unit -- bidDocumentTemplates.test.ts bidDocumentStore.test.ts`（42 tests）
+- `cd client && npm run test:unit -- planCompletionAudit.test.ts`（4 tests）
+- `cd client && npm run test:unit -- BidDocumentPage bidDocumentStore`（54 tests）
+- `cd client && npm run test:unit -- bidDocument planCompletionAudit.test.ts`（140 tests）
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts`（26 tests）
+- `cd client && npm run test:unit -- bidDocument`（101 tests）
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts`（28 tests）
+- `cd client && npm run test:unit -- bidDocument`（103 tests）
+- `node --check client/electron/services/bidDocumentReadinessReport.cjs`
+- `cd client && npm run test:unit -- bidDocumentStore.test.ts`（25 tests）
+- `cd client && npm run test:unit -- bidDocument`（104 tests）
+- `node --check client/electron/services/bidDocumentReadinessReport.cjs`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_readiness_report.cjs`
+- `cd client && npm run test:unit -- bidDocumentStore.test.ts`（26 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（44 tests）
+- `cd client && npm run test:unit -- bidDocument`（105 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（82 tests）
+- `node --check client/electron/services/bidDocumentStore.cjs`
+- `cd client && npm run test:unit -- bidDocumentStore.test.ts`（26 tests）
+- `cd client && npm run test:unit -- bidDocument`（105 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（82 tests）
+- `node --check client/electron/services/bidDocumentTemplates.cjs`
+- `cd client && npm run test:unit -- bidDocumentTemplates.test.ts`（7 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（44 tests）
+- `cd client && npm run test:unit -- bidDocument`（106 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id generic-response --output-json output/bid-document-samples/generic-response-init-config.json --with-demo-assets`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-init-config.json --with-demo-assets`
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（38 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（44 tests）
+- `cd client && npm run test:unit -- bidDocument`（106 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`
+- `git diff --check`
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（45 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（39 tests）
+- `cd client && npm run test:unit -- bidDocument`（106 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`
+- `git diff --check`
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（46 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（40 tests）
+- `cd client && npm run test:unit -- bidDocument`（106 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`
+- `git diff --check`
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts bidDocumentStore.test.ts`（56 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run test:unit -- bidDocument`（107 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`
+- `git diff --check`
+- `node --check client/electron/services/bidDocumentReadinessReport.cjs`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_readiness_report.cjs`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_asset_package.cjs`
+- `cd client && npm run test:unit -- bidDocumentStore.test.ts`（27 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run test:unit -- bidDocument`（107 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`
+- `git diff --check`
+- `node --check client/electron/services/bidDocumentProjectConfig.cjs`
+- `cd client && npm run test:unit -- bidDocumentStore.test.ts`（31 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（54 tests）
+- `cd client && npm run test:unit -- bidDocument`（133 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（44 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`
+- `git diff --check`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id generic-response --output-json output/bid-document-samples/generic-response-init-config.json --with-demo-assets`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-init-config.json --with-demo-assets`
+- `node --check client/electron/services/bidDocumentTemplates.cjs`
+- `cd client && npm run test:unit -- bidDocumentTemplates.test.ts`（9 tests）
+- `cd client && npm run test:unit -- bidDocument`（133 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（98 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_init_config_exports_editable_project_config -v`
+- `cd client && npm run test:unit -- bidDocumentTemplates.test.ts`（9 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（54 tests）
+- `cd client && npm run test:unit -- bidDocument`（133 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-asset-package --input output/bid-document-samples/smart-canteen-init-config.json --output-dir output/bid-document-samples/smart-canteen-asset-package`
+- `node --check client/electron/services/bidDocumentReadinessReport.cjs`
+- `cd client && npm run test:unit -- bidDocumentStore.test.ts`（31 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_asset_package_exports_material_collection_folder -v`
+- `cd client && npm run test:unit -- bidDocument`（133 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（98 tests）
+- `cd client && npm run build`
+- `node --check client/electron/services/bidDocumentReadinessReport.cjs`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_readiness_report.cjs`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-asset-package --input output/bid-document-samples/smart-canteen-init-config.json --output-dir output/bid-document-samples/smart-canteen-asset-package`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-readiness-report --input output/bid-document-samples/smart-canteen-init-config.json --output-json output/bid-document-samples/smart-canteen-readiness.json --output-markdown output/bid-document-samples/smart-canteen-readiness.md --output-xlsx output/bid-document-samples/smart-canteen-readiness.xlsx`（预期非零，输出阻断报告）
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts`（30 tests）
+- `cd client && npm run test:unit -- bidDocumentWordBuilder.test.ts`（28 tests）
+- `cd client && npm run test:unit -- bidDocument`（109 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts`（31 tests）
+- `cd client && npm run test:unit -- bidDocumentWordBuilder.test.ts`（28 tests）
+- `cd client && npm run test:unit -- bidDocument`（110 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts`（32 tests）
+- `cd client && npm run test:unit -- bidDocumentTemplates.test.ts`（7 tests）
+- `cd client && npm run test:unit -- bidDocument`（111 tests）
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts`（33 tests）
+- `cd client && npm run test:unit -- bidDocumentTemplates.test.ts`（7 tests）
+- `cd client && npm run test:unit -- bidDocument`（112 tests）
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts`（35 tests）
+- `cd client && npm run test:unit -- bidDocument`（114 tests）
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts`（36 tests）
+- `cd client && npm run test:unit -- bidDocument`（115 tests）
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts`（37 tests）
+- `cd client && npm run test:unit -- bidDocument`（116 tests）
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts`（39 tests）
+- `cd client && npm run test:unit -- bidDocument`（118 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `node --check client/electron/services/bidDocumentTemplates.cjs`
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts bidDocumentTemplates.test.ts bidDocumentWordBuilder.test.ts`（74 tests）
+- `cd client && npm run test:unit -- bidDocument`（118 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-template-info --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-template-info.json`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id generic-response --output-json output/bid-document-samples/generic-response-init-config.json --with-demo-assets`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-init-config.json --with-demo-assets`
+- `node --check client/electron/services/bidDocumentTemplates.cjs`
+- `cd client && npm run test:unit -- bidDocumentTemplates.test.ts`（8 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_template_info_exports_schema_and_asset_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_init_config_exports_editable_project_config -v`（2 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_template_info_command_outputs_schema_and_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_init_config_command_outputs_editable_project_config -v`（2 tests）
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-template-info --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-template-info.json`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id generic-response --output-json output/bid-document-samples/generic-response-init-config.json --with-demo-assets`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-init-config.json --with-demo-assets`
+- `cd client && npm run test:unit -- bidDocument`（119 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts`（39 tests）
+- `cd client && npm run test:unit -- bidDocumentTemplates.test.ts`（7 tests）
+- `cd client && npm run test:unit -- bidDocument`（118 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts`（39 tests）
+- `cd client && npm run test:unit -- bidDocumentTemplates.test.ts`（7 tests）
+- `cd client && npm run test:unit -- bidDocument`（118 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts`（39 tests）
+- `cd client && npm run test:unit -- bidDocument`（118 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`
+- `git diff --check`
+- `node --check client/electron/services/bidDocumentTemplates.cjs`
+- `cd client && npm run test:unit -- bidDocumentTemplates.test.ts`（9 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_template_info_exports_schema_and_asset_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_init_config_exports_editable_project_config -v`（2 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_template_info_command_outputs_schema_and_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_init_config_command_outputs_editable_project_config -v`（2 tests）
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-template-info --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-template-info.json`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id generic-response --output-json output/bid-document-samples/generic-response-init-config.json --with-demo-assets`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-init-config.json --with-demo-assets`
+- `cd client && npm run test:unit -- bidDocument`（120 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `node --check client/electron/services/bidDocumentTemplates.cjs`
+- `cd client && npm run test:unit -- bidDocumentTemplates.test.ts`（9 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_template_info_exports_schema_and_asset_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_init_config_exports_editable_project_config -v`（2 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_template_info_command_outputs_schema_and_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_init_config_command_outputs_editable_project_config -v`（2 tests）
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-template-info --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-template-info.json`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id generic-response --output-json output/bid-document-samples/generic-response-init-config.json --with-demo-assets`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-init-config.json --with-demo-assets`
+- `cd client && npm run test:unit -- bidDocument`（120 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run build`
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocumentWordBuilder.test.ts`（28 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_smart_canteen_initialized_config_blocks_formal_word_on_quote_mismatch -v`（1 test）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_smart_canteen_init_config_command_blocks_formal_word_on_quote_mismatch -v`（1 test）
+- `cd client && npm run test:unit -- bidDocument`（120 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（47 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（41 tests）
+- `cd client && npm run build`
+- `cd client && npm run build`
+- `cd client && npm run test:unit -- bidDocument`（120 tests）
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `node --check client/electron/services/bidDocumentStore.cjs`
+- `cd client && npm run test:unit -- bidDocumentStore.test.ts`（28 tests）
+- `cd client && npm run test:unit -- bidDocument`（121 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `node --check client/electron/services/bidDocumentStore.cjs`
+- `cd client && npm run test:unit -- bidDocumentStore.test.ts`（29 tests）
+- `cd client && npm run test:unit -- bidDocument`（122 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_build_log_helper.cjs`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_validate_config.cjs`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_build_config.cjs`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_readiness_report.cjs`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_asset_package.cjs`
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（50 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（43 tests）
+- `cd client && npm run test:unit -- bidDocument`（122 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_import_asset_package.cjs`
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（51 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（44 tests）
+- `cd client && npm run test:unit -- bidDocument`（122 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `cd client && npm run test:unit -- BidDocumentPage.test.tsx`（16 tests）
+- `cd client && npm run test:unit -- bidDocument`（124 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `node --check client/electron/services/bidDocumentAssets.cjs && node --check client/electron/services/bidDocumentValidation.cjs && node --check client/electron/services/bidDocumentWordBuilder.cjs && node --check client/electron/services/bidDocumentReadinessReport.cjs && node --check client/electron/services/bidDocumentTemplates.cjs && node --check client/electron/services/bidDocumentStore.cjs`
+- `cd client && npm run test:unit -- bidDocumentStore.test.ts bidDocumentValidation.test.ts bidDocumentWordBuilder.test.ts bidDocumentTemplates.test.ts`（105 tests）
+- `cd client && npm run test:unit -- bidDocument`（124 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（51 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（44 tests）
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `node --check client/electron/services/bidDocumentAssets.cjs && node --check client/electron/services/bidDocumentStore.cjs`
+- `cd client && npm run test:unit -- BidDocumentPage.test.tsx bidDocumentStore.test.ts`（47 tests）
+- `cd client && npm run test:unit -- bidDocument`（126 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_core.py -v`（51 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness/cli_anything/openbidkit_yibiao/tests/test_full_e2e.py -v`（44 tests）
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `cd client && npm run test:unit -- BidDocumentPage.test.tsx`（17 tests）
+- `cd client && npm run test:unit -- bidDocument`（126 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `cd client && npm run test:unit -- BidDocumentPage.test.tsx`（18 tests）
+- `cd client && npm run test:unit -- bidDocument`（127 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `cd client && npm run test:unit -- BidDocumentPage.test.tsx`（19 tests）
+- `cd client && npm run test:unit -- bidDocument`（128 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `cd client && npm run test:unit -- BidDocumentPage.test.tsx`（20 tests）
+- `cd client && npm run test:unit -- bidDocument`（129 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `cd client && npm run test:unit -- BidDocumentPage.test.tsx`（21 tests）
+- `cd client && npm run test:unit -- bidDocument`（130 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `cd client && npm run test:unit -- BidDocumentPage.test.tsx`（22 tests）
+- `cd client && npm run test:unit -- bidDocument`（131 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-template-info --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-template-info.json`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id generic-response --output-json output/bid-document-samples/generic-response-init-config.json --with-demo-assets`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-init-config.json --with-demo-assets`
+- `cd client && npm run test:unit -- bidDocumentTemplates.test.ts BidDocumentPage.test.tsx`（31 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_template_info_exports_schema_and_asset_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_init_config_exports_editable_project_config -v`（2 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_template_info_command_outputs_schema_and_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_init_config_command_outputs_editable_project_config -v`（2 tests）
+- `cd client && npm run test:unit -- bidDocument`（131 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `cd client && npm run test:unit -- BidDocumentPage.test.tsx`（22 tests）
+- `cd client && npm run test:unit -- bidDocument`（131 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts bidDocumentTemplates.test.ts bidDocumentWordBuilder.test.ts`（77 tests）
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-template-info --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-template-info.json`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id generic-response --output-json output/bid-document-samples/generic-response-init-config.json --with-demo-assets`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-init-config.json --with-demo-assets`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-readiness-report --input output/bid-document-samples/smart-canteen-init-config.json --output-json output/bid-document-samples/smart-canteen-readiness.json --output-markdown output/bid-document-samples/smart-canteen-readiness.md`（预期返回阻断：报价差额与 demo 附件）
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-asset-package --input output/bid-document-samples/smart-canteen-init-config.json --output-dir output/bid-document-samples/smart-canteen-asset-package`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-validate-config --input output/bid-document-samples/generic-response-project-config.json --output-json output/bid-document-samples/generic-response-project-config.validation.json`
+- `cd client && npm run test:unit -- bidDocument`（132 tests）
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-build-config --input output/bid-document-samples/generic-response-project-config.json --output output/bid-document-samples/generic-response-from-config.docx --output-json output/bid-document-samples/generic-response-from-config.build.json`
+- `cd client && npm run test:unit -- bidDocumentStore.test.ts`（30 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_readiness_report_exports_blocker_markdown agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_readiness_report_omits_disabled_optional_section_asset -v`（2 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_readiness_report_command_outputs_blockers agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_readiness_report_command_omits_disabled_optional_section_asset -v`（2 tests）
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-readiness-report --input output/bid-document-samples/smart-canteen-init-config.json --output-json output/bid-document-samples/smart-canteen-readiness.json --output-markdown output/bid-document-samples/smart-canteen-readiness.md --output-xlsx output/bid-document-samples/smart-canteen-readiness.xlsx`（预期返回阻断：报价差额与 demo 附件）
+- `cd client && npm run test:unit -- bidDocument`（132 tests）
+- `node --check client/electron/services/bidDocumentReadinessReport.cjs`
+- `node --check client/electron/services/bidDocumentTemplates.cjs`
+- `node --check client/electron/services/bidDocumentStore.cjs`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_readiness_report.cjs`
+- `node --check agent-harness/cli_anything/openbidkit_yibiao/scripts/bid_document_asset_package.cjs`
+- `cd client && npm run test:unit -- bidDocumentTemplates.test.ts`（9 tests）
+- `cd client && npm run test:unit -- bidDocumentStore.test.ts`（31 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_template_info_exports_schema_and_asset_mapping`（1 test）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_readiness_report_exports_blocker_markdown agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_asset_package_exports_material_collection_folder`（2 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_asset_package_exports_material_collection_folder agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_import_asset_package_applies_quote_resolution agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_import_asset_package_rejects_mismatched_quote_resolution_action_data agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_import_asset_package_rejects_forbidden_quote_resolution_project_patch_fields agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_import_asset_package_rejects_invalid_quote_resolution_item_rows`（5 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_readiness_report_command_outputs_blockers agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_asset_package_command_outputs_collection_folder`（2 tests）
+- `cd client && npm run test:unit -- bidDocument`（133 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-readiness-report --input output/bid-document-samples/smart-canteen-init-config.json --output-json output/bid-document-samples/smart-canteen-readiness.json --output-markdown output/bid-document-samples/smart-canteen-readiness.md --output-xlsx output/bid-document-samples/smart-canteen-readiness.xlsx`（预期返回阻断：报价差额与 demo 附件）
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-asset-package --input output/bid-document-samples/smart-canteen-init-config.json --output-dir output/bid-document-samples/smart-canteen-asset-package`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-template-info --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-template-info.json`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id generic-response --output-json output/bid-document-samples/generic-response-init-config.json --with-demo-assets`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-init-config.json --with-demo-assets`
+- `node --check client/electron/services/bidDocumentTemplates.cjs`
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `cd client && npm run test:unit -- bidDocument`（140 tests）
+- `cd client && npm run test:unit -- bidDocument planCompletionAudit.test.ts`（144 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_template_info_exports_schema_and_asset_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_init_config_exports_editable_project_config -v`（2 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_template_info_command_outputs_schema_and_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_init_config_command_outputs_editable_project_config -v`（2 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `cd client && npm run test:unit -- bidDocumentTemplates.test.ts`（11 tests）
+- `cd client && npm run test:unit -- bidDocument`（141 tests）
+- `node --check client/electron/services/bidDocumentTemplates.cjs`
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_template_info_exports_schema_and_asset_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_init_config_exports_editable_project_config -v`（2 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_template_info_command_outputs_schema_and_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_init_config_command_outputs_editable_project_config -v`（2 tests）
+- `cd client && npm run test:unit -- bidDocumentTemplates.test.ts bidDocumentValidation.test.ts`（52 tests）
+- `node --check client/electron/services/bidDocumentTemplates.cjs`
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-template-info --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-template-info.json`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id generic-response --output-json output/bid-document-samples/generic-response-init-config.json --with-demo-assets`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-init-config.json --with-demo-assets`
+- `cd client && npm run test:unit -- bidDocument planCompletionAudit.test.ts`（145 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_template_info_exports_schema_and_asset_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_init_config_exports_editable_project_config -v`（2 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_template_info_command_outputs_schema_and_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_init_config_command_outputs_editable_project_config -v`（2 tests）
+- `cd client && npm run build`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `node --check client/electron/services/bidDocumentTemplates.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts`（41 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_validate_config_rejects_malformed_asset_mapping_records -v`（1 test）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_validate_config_command_rejects_malformed_asset_mapping_records -v`（1 test）
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-template-info --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-template-info.json`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id generic-response --output-json output/bid-document-samples/generic-response-init-config.json --with-demo-assets`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-init-config.json --with-demo-assets`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts bidDocumentTemplates.test.ts`（52 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_template_info_exports_schema_and_asset_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_init_config_exports_editable_project_config agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_validate_config_rejects_malformed_asset_mapping_records -v`（3 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_template_info_command_outputs_schema_and_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_init_config_command_outputs_editable_project_config agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_validate_config_command_rejects_malformed_asset_mapping_records -v`（3 tests）
+- `cd client && npm run test:unit -- bidDocument planCompletionAudit.test.ts`（145 tests）
+- `cd client && npm run build`
+- `node -e "..."` 抽查 `smart-canteen-template-info.json` 与 `generic-response-init-config.schema.json` 均包含 `required must be boolean` 规则。
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json plan-summary`（`completion_status=blocked-external-input`）
+- `git diff --check`
+- `node --check client/electron/services/bidDocumentValidation.cjs`
+- `node --check client/electron/services/bidDocumentTemplates.cjs`
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts`（43 tests）
+- `cd client && npm run test:unit -- bidDocumentValidation.test.ts bidDocumentTemplates.test.ts`（54 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_template_info_exports_schema_and_asset_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_init_config_exports_editable_project_config agent-harness.cli_anything.openbidkit_yibiao.tests.test_core.CoreBackendTests.test_bid_document_validate_config_rejects_quote_tax_policy_mismatch -v`（3 tests）
+- `agent-harness/.venv/bin/python -m unittest agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_template_info_command_outputs_schema_and_mapping agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_init_config_command_outputs_editable_project_config agent-harness.cli_anything.openbidkit_yibiao.tests.test_full_e2e.InstalledCliE2ETests.test_bid_document_validate_config_command_rejects_quote_tax_policy_mismatch -v`（3 tests）
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-template-info --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-template-info.json`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id generic-response --output-json output/bid-document-samples/generic-response-init-config.json --with-demo-assets`
+- `agent-harness/.venv/bin/cli-anything-openbidkit-yibiao --json bid-document-init-config --template-id smart-canteen-response --output-json output/bid-document-samples/smart-canteen-init-config.json --with-demo-assets`
+- `cd client && npm run test:unit -- bidDocument planCompletionAudit.test.ts`（147 tests）
+- `cd client && npm run build`
+
+## 外部阻断
+
+1. 需要用户提供《国家康复辅具研究中心智慧食堂项目响应文件.docx》，用于最终结构/样式/图片组织对齐。
+2. 需要真实附件资产替换 demo sidecar 文件。
+3. 需要人工确认智慧食堂报价差额 2000 的处理方式：新增真实分项、调整项目总价，或调整已有分项数据。

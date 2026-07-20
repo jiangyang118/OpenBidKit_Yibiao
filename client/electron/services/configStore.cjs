@@ -4,7 +4,7 @@ const crypto = require('node:crypto');
 const { getConfigFilePath } = require('../utils/paths.cjs');
 
 const textModelProviders = ['jinlong', 'volcengine', 'deepseek', 'longcat', 'codex-cli', 'local-gemma', 'local-qwen', 'lm-studio', 'vllm', 'llama-cpp', 'jan', 'custom'];
-const imageModelProviders = ['jinlong', 'volcengine', 'google-ai-studio', 'custom'];
+const imageModelProviders = ['jinlong', 'volcengine', 'codex-gpt-image', 'google-ai-studio', 'custom'];
 const aiRequestModes = ['normal', 'stream'];
 const updateChannels = ['github', 'cloudflare'];
 const displayLanguages = ['zh-CN'];
@@ -123,6 +123,16 @@ const defaultImageModelProfiles = {
     tested_at: '',
     last_error: '',
   },
+  'codex-gpt-image': {
+    provider: 'codex-gpt-image',
+    base_url: 'https://api.openai.com/v1',
+    api_key: '',
+    model_name: 'gpt-image-2',
+    request_mode: 'normal',
+    status: 'untested',
+    tested_at: '',
+    last_error: '',
+  },
   'google-ai-studio': {
     provider: 'google-ai-studio',
     base_url: 'https://generativelanguage.googleapis.com/v1beta',
@@ -223,7 +233,7 @@ const defaultConfig = {
   model_name: 'gpt-3.5-turbo',
   request_mode: 'stream',
   image_model: {
-    ...defaultImageModelProfiles.jinlong,
+    ...defaultImageModelProfiles['codex-gpt-image'],
   },
   image_model_profiles: defaultImageModelProfiles,
   file_parser: {
@@ -324,6 +334,14 @@ function textProfileFromFlatConfig(source, fallback, provider) {
 
 function hasTextModelProfileData(profile) {
   return Boolean(profile && ['api_key', 'base_url', 'model_name'].some((key) => String(profile[key] || '').trim()));
+}
+
+function isLegacyBlankImageModel(sourceImageModel) {
+  return sourceImageModel?.provider === 'jinlong'
+    && !String(sourceImageModel.api_key || '').trim()
+    && !String(sourceImageModel.model_name || '').trim()
+    && (!sourceImageModel.status || sourceImageModel.status === 'untested')
+    && !String(sourceImageModel.last_error || '').trim();
 }
 
 function getSourceTextModelProfiles(source) {
@@ -485,9 +503,13 @@ function normalizeConfig(config) {
   }
   const activeTextProfile = textModelProfiles[textModelProvider];
   const sourceImageModel = source.image_model && typeof source.image_model === 'object' ? source.image_model : {};
-  const imageModelProvider = isImageModelProvider(sourceImageModel.provider) ? sourceImageModel.provider : defaultConfig.image_model.provider;
+  const sourceImageModelProvider = isImageModelProvider(sourceImageModel.provider) ? sourceImageModel.provider : '';
+  const useSourceImageModel = sourceImageModelProvider && !isLegacyBlankImageModel(sourceImageModel);
+  const imageModelProvider = useSourceImageModel
+    ? sourceImageModelProvider
+    : defaultConfig.image_model.provider;
   const imageModelProfiles = normalizeImageModelProfiles(source.image_model_profiles);
-  imageModelProfiles[imageModelProvider] = normalizeImageModelProfile(imageModelProvider, sourceImageModel);
+  imageModelProfiles[imageModelProvider] = normalizeImageModelProfile(imageModelProvider, useSourceImageModel ? sourceImageModel : null);
   const activeImageProfile = imageModelProfiles[imageModelProvider];
   const hasGpuHardwareAccelerationEnabled = typeof source.gpu_hardware_acceleration_enabled === 'boolean';
   const hasGpuHardwareAccelerationConfigured = typeof source.gpu_hardware_acceleration_configured === 'boolean';

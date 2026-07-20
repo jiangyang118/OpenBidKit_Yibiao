@@ -12,7 +12,10 @@ interface MarkdownRendererProps {
 }
 
 function markdownUrlTransform(value: string) {
-  return value.startsWith('yibiao-asset://') ? value : defaultUrlTransform(value);
+  if (value.startsWith('yibiao-asset://')) {
+    return window.yibiaoWeb?.assetUrl(value) || value;
+  }
+  return defaultUrlTransform(value);
 }
 
 function normalizeExternalUrl(value: string | undefined) {

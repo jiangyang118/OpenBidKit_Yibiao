@@ -3,6 +3,7 @@ import type { AppTheme, SidebarLayout } from '../shared/types';
 import { getAppMenuItemById } from './menuConfig';
 import AiEvaluationPage from '../features/ai-evaluation/pages/AiEvaluationPage';
 import BidMarketAnalysisPage from '../features/bid-market-analysis/pages/BidMarketAnalysisPage';
+import BidDocumentPage from '../features/bid-document/pages/BidDocumentPage';
 import BidOpportunityPage from '../features/bid-opportunity/pages/BidOpportunityPage';
 import BusinessBidPage from '../features/business-bid/pages/BusinessBidPage';
 import DeveloperToolsPage, { isDeveloperToolsSection } from '../features/developer/pages/DeveloperToolsPage';
@@ -44,6 +45,8 @@ function AppRouter({ activeSection, developerMode, onDeveloperModeChange, onAppe
       return <TechnicalPlanHome workflowKind="existing-plan-expansion" registerLeaveGuard={registerLeaveGuard} onSectionChange={onSectionChange} />;
     case 'business-bid':
       return <BusinessBidPage />;
+    case 'bid-document':
+      return <BidDocumentPage />;
     case 'document-knowledge-base':
       return <KnowledgeBasePage />;
     case 'image-knowledge-base':

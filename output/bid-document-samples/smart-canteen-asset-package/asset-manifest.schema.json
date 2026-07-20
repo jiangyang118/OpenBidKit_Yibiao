@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "title": "Bid document asset collection package manifest schema",
+  "templateId": "smart-canteen-response",
+  "projectName": "智慧餐厅称重系统改造",
+  "description": "材料收集包 manifest 由系统生成。人工只应按 targetFile 放入真实附件，不应修改 key、sectionId、templateId、status 或计数字段。",
+  "required": [
+    "version",
+    "templateId",
+    "projectName",
+    "assets"
+  ],
+  "statusEnum": [
+    "present",
+    "demo_only",
+    "missing_required",
+    "missing_optional"
+  ],
+  "assetFields": {
+    "key": "string",
+    "title": "string",
+    "sectionId": "string",
+    "sectionTitle": "string",
+    "required": "boolean",
+    "type": "image|scan|document",
+    "typeRules": "image/scan 需要可插入 Word 的图片文件；必填材料必须使用 image/scan。document 仅用于可选原始文件，需要真实非空文件，系统会按原始文件后缀或 .pdf 生成建议文件名。",
+    "status": "present|demo_only|missing_required|missing_optional",
+    "targetDirectory": "string",
+    "targetFile": "relative string inside material package",
+    "suggestedFileName": "string"
+  },
+  "counters": {
+    "assetCount": "number",
+    "requiredAssetCount": "number",
+    "demoOnlyAssetCount": "number",
+    "replacementRequiredAssetCount": "number",
+    "missingRequiredAssetCount": "number"
+  }
+}

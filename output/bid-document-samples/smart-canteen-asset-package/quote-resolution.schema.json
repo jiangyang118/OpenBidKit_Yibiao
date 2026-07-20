@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "title": "Bid document quote resolution decision schema",
+  "templateId": "smart-canteen-response",
+  "projectName": "智慧餐厅称重系统改造",
+  "description": "填写 quote-resolution.json 时，必须先选择 selectedAction，再按对应 actionRules 只填写允许的数据区。导入时会再次运行正式报价校验。",
+  "required": [
+    "version",
+    "templateId",
+    "projectName",
+    "selectedAction"
+  ],
+  "selectedActionEnum": [
+    "confirm_project_total",
+    "add_confirmed_quote_item",
+    "correct_existing_quote_items"
+  ],
+  "identityRules": [
+    "version must be 1; unsupported versions return unsupported_quote_resolution_version and are not applied.",
+    "templateId must match asset-manifest.json templateId; mismatches return quote_resolution_template_mismatch and are not applied."
+  ],
+  "actionRules": {
+    "confirm_project_total": {
+      "description": "确认项目含税总价以当前分项报价合计为准。",
+      "requiredFields": [
+        "selectedAction",
+        "projectDataPatch.totalWithTax",
+        "projectDataPatch.totalWithoutTax"
+      ],
+      "allowedDataFields": [
+        "projectDataPatch"
+      ],
+      "forbiddenDataFields": [
+        "quoteItemsReplacement",
+        "quoteItemsAppend"
+      ]
+    },
+    "add_confirmed_quote_item": {
+      "description": "保持项目含税总价，新增经商务确认的真实报价行。",
+      "requiredFields": [
+        "selectedAction",
+        "quoteItemsAppend"
+      ],
+      "allowedDataFields": [
+        "quoteItemsAppend"
+      ],
+      "forbiddenDataFields": [
+        "projectDataPatch",
+        "quoteItemsReplacement"
+      ]
+    },
+    "correct_existing_quote_items": {
+      "description": "修正已有报价行的数量、单价、合计或税率。",
+      "requiredFields": [
+        "selectedAction",
+        "quoteItemsReplacement"
+      ],
+      "allowedDataFields": [
+        "quoteItemsReplacement"
+      ],
+      "forbiddenDataFields": [
+        "projectDataPatch",
+        "quoteItemsAppend"
+      ]
+    }
+  },
+  "projectDataPatchFields": {
+    "totalWithTax": "number > 0; optional, only for confirm_project_total",
+    "totalWithoutTax": "number > 0 and <= totalWithTax; optional, only for confirm_project_total",
+    "taxPolicy": "object; optional, only for confirm_project_total"
+  },
+  "projectDataPatchAllowedFields": [
+    "totalWithTax",
+    "totalWithoutTax",
+    "taxPolicy"
+  ],
+  "quoteItemFields": {
+    "name": "string, required",
+    "quantity": "number > 0, required",
+    "brandModel": "string, required",
+    "unitPriceWithTax": "number > 0, required",
+    "totalWithTax": "number > 0, required and must equal quantity * unitPriceWithTax",
+    "taxRate": "optional number between 0 and 1; after applying the decision, taxRate must match the effective project taxPolicy for the row category",
+    "category": "optional software|hardware|service|material|other; software/hardware/material map to softwareHardwareRate, service maps to serviceRate, other maps to defaultRate"
+  },
+  "validationRules": [
+    "selectedAction must match the single data area allowed by actionRules.",
+    "projectDataPatch may only contain totalWithTax, totalWithoutTax, and taxPolicy.",
+    "quoteItemsAppend and quoteItemsReplacement rows must contain name, brandModel, quantity, unitPriceWithTax, and totalWithTax.",
+    "quote item totalWithTax must equal quantity * unitPriceWithTax.",
+    "After quote-resolution is applied in memory, the complete quote table is rechecked by formal quote validation, including project totals, tax policy rates, quote item categories, and quote item taxRate/category mapping."
+  ]
+}

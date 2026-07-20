@@ -84,7 +84,7 @@ describe('BusinessBidPage', () => {
         updateAttachment: vi.fn().mockResolvedValue(businessBidState),
         deleteAttachment: vi.fn().mockResolvedValue({ ...businessBidState, attachments: [] }),
         exportReport: vi.fn().mockResolvedValue({ success: true, message: '商务标响应交付包已导出', filePath: '/tmp/business-bid.md', markdownChars: 1200 }),
-        exportOfficePackage: vi.fn().mockResolvedValue({ success: true, message: '商务标 Word 交付包已导出', filePath: '/tmp/business-bid.docx', bytes: 2048, format: 'docx' }),
+        exportOfficePackage: vi.fn().mockResolvedValue({ success: true, message: '响应文件 Word 编制稿已导出', filePath: '/tmp/business-bid.docx', bytes: 2048, format: 'docx' }),
         clear: vi.fn().mockResolvedValue({ source: null, clauses: [] }),
       },
       tasks: {

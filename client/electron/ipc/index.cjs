@@ -2,6 +2,7 @@ const { ipcMain, shell } = require('electron');
 const { registerAiIpc } = require('./aiIpc.cjs');
 const { registerAiEvaluationIpc } = require('./aiEvaluationIpc.cjs');
 const { registerBidMarketAnalysisIpc } = require('./bidMarketAnalysisIpc.cjs');
+const { registerBidDocumentIpc } = require('./bidDocumentIpc.cjs');
 const { registerBidOpportunityIpc } = require('./bidOpportunityIpc.cjs');
 const { registerBusinessBidIpc } = require('./businessBidIpc.cjs');
 const { registerConfigIpc } = require('./configIpc.cjs');
@@ -16,6 +17,7 @@ const { registerTaskIpc } = require('./taskIpc.cjs');
 const { registerTechnicalPlanIpc } = require('./technicalPlanIpc.cjs');
 const { createAiService } = require('../services/aiService.cjs');
 const { createAiEvaluationStore } = require('../services/aiEvaluationStore.cjs');
+const { createBidDocumentStore } = require('../services/bidDocumentStore.cjs');
 const { createBidMarketAnalysisStore } = require('../services/bidMarketAnalysisStore.cjs');
 const { createBidOpportunityStore } = require('../services/bidOpportunityStore.cjs');
 const { createBusinessBidStore } = require('../services/businessBidStore.cjs');
@@ -108,6 +110,18 @@ const workspaceDatabaseChannels = [
   'business-bid:export-report',
   'business-bid:export-office-package',
   'business-bid:clear',
+  'bid-document:load-state',
+  'bid-document:save-state',
+  'bid-document:validate',
+  'bid-document:select-asset',
+  'bid-document:analyze-reference',
+  'bid-document:export-template-info',
+  'bid-document:export-project-config',
+  'bid-document:export-readiness-report',
+  'bid-document:export-asset-collection-package',
+  'bid-document:import-asset-collection-package',
+  'bid-document:import-project-config',
+  'bid-document:export-word',
   'bid-opportunity:load-state',
   'bid-opportunity:save-opportunity',
   'bid-opportunity:save-opportunity-with-ai',
@@ -232,6 +246,7 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, fileSe
   const rejectionCheckStore = createRejectionCheckStore({ app, db: sqliteDatabase.db, fileService, technicalPlanStore });
   const aiEvaluationStore = createAiEvaluationStore({ app, db: sqliteDatabase.db, technicalPlanStore, fileService, aiService });
   const businessBidStore = createBusinessBidStore({ db: sqliteDatabase.db, technicalPlanStore, fileService, aiService, app });
+  const bidDocumentStore = createBidDocumentStore({ app, db: sqliteDatabase.db });
   const bidOpportunityStore = createBidOpportunityStore({ db: sqliteDatabase.db, fileService, aiService, app });
   const bidMarketAnalysisStore = createBidMarketAnalysisStore({ db: sqliteDatabase.db });
   const duplicateCheckService = createDuplicateCheckService({ app, configStore, workspaceStore: duplicateCheckStore });
@@ -245,6 +260,7 @@ function registerWorkspaceDatabaseServices({ app, configStore, aiService, fileSe
   registerRejectionCheckIpc({ rejectionCheckStore });
   registerAiEvaluationIpc({ aiEvaluationStore });
   registerBusinessBidIpc({ businessBidStore });
+  registerBidDocumentIpc({ bidDocumentStore });
   registerBidOpportunityIpc({ bidOpportunityStore });
   registerBidMarketAnalysisIpc({ bidMarketAnalysisStore });
   registerTaskIpc({ taskService });

@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenBidKit 易标功能复现说明</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #667085;
+      --line: #d9e2ef;
+      --blue: #2174fd;
+      --green: #138a53;
+      --amber: #9a6700;
+      --ink: #0f172a;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      line-height: 1.72;
+      background: var(--bg);
+    }
+
+    main {
+      width: min(1120px, calc(100% - 36px));
+      margin: 0 auto;
+      padding: 40px 0 56px;
+    }
+
+    header,
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 18px 44px rgba(15, 23, 42, 0.06);
+    }
+
+    header {
+      padding: 34px;
+    }
+
+    section {
+      margin-top: 18px;
+      padding: 28px;
+    }
+
+    .kicker {
+      display: inline-flex;
+      padding: 4px 10px;
+      color: var(--blue);
+      font-size: 13px;
+      font-weight: 700;
+      background: rgba(33, 116, 253, 0.08);
+      border-radius: 999px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 14px;
+      font-size: clamp(30px, 4vw, 46px);
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin-bottom: 18px;
+      font-size: 24px;
+    }
+
+    h3 {
+      margin-bottom: 8px;
+      font-size: 17px;
+    }
+
+    p {
+      color: var(--muted);
+    }
+
+    .summary-grid,
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 24px;
+    }
+
+    .summary-card,
+    .status-card {
+      padding: 16px;
+      background: #fbfdff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .summary-card strong,
+    .status-card strong {
+      display: block;
+      color: var(--ink);
+      font-size: 18px;
+    }
+
+    .summary-card span,
+    .status-card span {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    th,
+    td {
+      padding: 13px 14px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+    }
+
+    th {
+      color: var(--ink);
+      font-size: 14px;
+      background: #eef4ff;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-width: 72px;
+      justify-content: center;
+      padding: 3px 9px;
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 999px;
+    }
+
+    .done {
+      color: var(--green);
+      background: rgba(19, 138, 83, 0.1);
+    }
+
+    .follow {
+      color: var(--amber);
+      background: rgba(154, 103, 0, 0.1);
+    }
+
+    .note-list {
+      display: grid;
+      gap: 10px;
+      padding-left: 20px;
+      color: var(--muted);
+    }
+
+    code {
+      padding: 2px 6px;
+      color: #174ea6;
+      background: rgba(33, 116, 253, 0.08);
+      border-radius: 6px;
+    }
+
+    @media (max-width: 820px) {
+      main {
+        width: min(100% - 22px, 1120px);
+        padding-top: 18px;
+      }
+
+      header,
+      section {
+        padding: 20px;
+      }
+
+      .summary-grid,
+      .status-grid {
+        grid-template-columns: 1fr;
+      }
+
+      table,
+      thead,
+      tbody,
+      tr,
+      th,
+      td {
+        display: block;
+      }
+
+      thead {
+        display: none;
+      }
+
+      tr {
+        border-bottom: 1px solid var(--line);
+      }
+
+      td {
+        border-bottom: 0;
+      }
+
+      td::before {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        content: attr(data-label);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <span class="kicker">有道云笔记复现核对</span>
+      <h1>OpenBidKit 易标：开源 AI 写标书工具</h1>
+      <p>
+        本页根据有道云笔记《OpenBidKit 易标：开源 AI 写标书工具》整理，并对当前项目代码做功能复现核对。
+        核对时间为 2026-06-23，笔记 ID 为 <code>947533CE911E46BDA18199C65E1BBDAF</code>。
+      </p>
+      <div class="summary-grid">
+        <div class="summary-card">
+          <strong>10 项</strong>
+          <span>笔记中明确提到的产品能力</span>
+        </div>
+        <div class="summary-card">
+          <strong>已覆盖</strong>
+          <span>当前本地客户端已有对应菜单、页面、服务或导出链路</span>
+        </div>
+        <div class="summary-card">
+          <strong>需跟进</strong>
+          <span>上游最新 tag 已到 v2.14.1，本地分支仍需评估是否合并 Agent Runtime 等新改动</span>
+        </div>
+      </div>
+    </header>
+
+    <section>
+      <h2>功能复现状态</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>有道云功能</th>
+            <th>当前项目对应入口</th>
+            <th>状态</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td data-label="有道云功能">AI 技术方案生成</td>
+            <td data-label="当前项目对应入口">标书生成 / 生成技术方案</td>
+            <td data-label="状态"><span class="badge done">已复现</span></td>
+            <td data-label="说明">支持招标文件导入、需求解析、目录生成、全局事实、正文生成、编辑和 Word 导出。</td>
+          </tr>
+          <tr>
+            <td data-label="有道云功能">已有方案扩写与可编辑工作流</td>
+            <td data-label="当前项目对应入口">标书生成 / 已有方案扩写</td>
+            <td data-label="状态"><span class="badge done">已复现</span></td>
+            <td data-label="说明">复用技术方案流程，支持原方案导入、目录调整、正文补强和人工定稿。</td>
+          </tr>
+          <tr>
+            <td data-label="有道云功能">商务标生成</td>
+            <td data-label="当前项目对应入口">标书生成 / 商务标</td>
+            <td data-label="状态"><span class="badge done">已复现</span></td>
+            <td data-label="说明">覆盖商务响应矩阵、偏离、风险、附件和 Markdown / Word / Excel 交付。</td>
+          </tr>
+          <tr>
+            <td data-label="有道云功能">完整标书生成</td>
+            <td data-label="当前项目对应入口">标书生成 / 生成完整标书</td>
+            <td data-label="状态"><span class="badge done">已复现</span></td>
+            <td data-label="说明">按模板、项目数据、报价、附件资产、校验和 Word 构建完整响应文件。</td>
+          </tr>
+          <tr>
+            <td data-label="有道云功能">企业知识库管理</td>
+            <td data-label="当前项目对应入口">知识库 / 文档知识库</td>
+            <td data-label="状态"><span class="badge done">已复现</span></td>
+            <td data-label="说明">支持资料导入、解析、迁移、匹配和后台任务状态恢复。</td>
+          </tr>
+          <tr>
+            <td data-label="有道云功能">图文生成与图片知识库</td>
+            <td data-label="当前项目对应入口">知识库 / 图片知识库；正文编辑</td>
+            <td data-label="状态"><span class="badge done">已复现</span></td>
+            <td data-label="说明">支持图片素材管理、标签分类、正文插入、引用回溯和正文生成时优先复用。</td>
+          </tr>
+          <tr>
+            <td data-label="有道云功能">标书查重</td>
+            <td data-label="当前项目对应入口">标书检查 / 标书查重</td>
+            <td data-label="状态"><span class="badge done">已复现</span></td>
+            <td data-label="说明">覆盖元数据、目录、正文重复句、完全重复图片和感知 hash 相似图片复核。</td>
+          </tr>
+          <tr>
+            <td data-label="有道云功能">废标项检查</td>
+            <td data-label="当前项目对应入口">标书检查 / 废标项检查</td>
+            <td data-label="状态"><span class="badge done">已复现</span></td>
+            <td data-label="说明">支持废标风险、错别字、逻辑问题、证据定位、截图候选和报告导出。</td>
+          </tr>
+          <tr>
+            <td data-label="有道云功能">多文档解析与 MinerU</td>
+            <td data-label="当前项目对应入口">设置 / 文件解析；各文件导入流程</td>
+            <td data-label="状态"><span class="badge done">已复现</span></td>
+            <td data-label="说明">支持本地解析、OCR、MinerU 精准解析和轻量远程解析配置。</td>
+          </tr>
+          <tr>
+            <td data-label="有道云功能">标讯功能</td>
+            <td data-label="当前项目对应入口">投标机会；招投标分析</td>
+            <td data-label="状态"><span class="badge done">已复现</span></td>
+            <td data-label="说明">支持机会录入、公告导入、URL 解析、跟进提醒、市场扫描、商机评分和风险红旗。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>版本核对结论</h2>
+      <div class="status-grid">
+        <div class="status-card">
+          <strong>有道云清单</strong>
+          <span>功能层面已在本地项目中找到对应实现，且本地 README 描述已经超过该笔记范围。</span>
+        </div>
+        <div class="status-card">
+          <strong>本地分支</strong>
+          <span><code>codex/complete-openbidkit-plan</code> 相对上游 main 分叉，存在大量未提交工作区改动，不能直接判定为已同步最新发行代码。</span>
+        </div>
+        <div class="status-card">
+          <strong>上游最新</strong>
+          <span>公开上游已抓到 <code>v2.14.1</code>，包含 Agent Runtime、提示词与缓存优化、AI 异常重试、解析任务锁修复等后续能力。</span>
+        </div>
+      </div>
+      <ul class="note-list">
+        <li>如果目标是复现有道云笔记中的业务功能：当前项目已经覆盖。</li>
+        <li>如果目标是追平上游最新发行代码：需要单独做一次合并评估，重点处理本地新增模块与上游删除/重构模块的冲突。</li>
+        <li>本页作为项目内说明文件随 Vite public 资产进入构建产物，可从设置页“关于”入口打开。</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

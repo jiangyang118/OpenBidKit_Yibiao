@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "templateId": "smart-canteen-response",
+  "projectName": "智慧餐厅称重系统改造",
+  "quoteTotal": 133050,
+  "targetTotal": 135050,
+  "quoteDifference": 2000,
+  "status": "requires_manual_confirmation",
+  "selectedAction": "",
+  "actionRules": {
+    "confirm_project_total": {
+      "description": "确认项目含税总价以当前分项报价合计为准。",
+      "requiredFields": [
+        "selectedAction",
+        "projectDataPatch.totalWithTax",
+        "projectDataPatch.totalWithoutTax"
+      ],
+      "allowedDataFields": [
+        "projectDataPatch"
+      ],
+      "forbiddenDataFields": [
+        "quoteItemsReplacement",
+        "quoteItemsAppend"
+      ]
+    },
+    "add_confirmed_quote_item": {
+      "description": "保持项目含税总价，新增经商务确认的真实报价行。",
+      "requiredFields": [
+        "selectedAction",
+        "quoteItemsAppend"
+      ],
+      "allowedDataFields": [
+        "quoteItemsAppend"
+      ],
+      "forbiddenDataFields": [
+        "projectDataPatch",
+        "quoteItemsReplacement"
+      ]
+    },
+    "correct_existing_quote_items": {
+      "description": "修正已有报价行的数量、单价、合计或税率。",
+      "requiredFields": [
+        "selectedAction",
+        "quoteItemsReplacement"
+      ],
+      "allowedDataFields": [
+        "quoteItemsReplacement"
+      ],
+      "forbiddenDataFields": [
+        "projectDataPatch",
+        "quoteItemsAppend"
+      ]
+    }
+  },
+  "allowedActions": [
+    {
+      "key": "confirm_project_total",
+      "title": "确认项目含税总价",
+      "action": "如项目总价应以分项报价合计为准，请将项目含税总价调整为 133050，并同步不含税金额和采购文件口径。"
+    },
+    {
+      "key": "add_confirmed_quote_item",
+      "title": "新增经确认的真实分项",
+      "action": "如项目含税总价必须保持 135050，请新增经商务确认的真实报价行，含税金额合计为 2000，并提供名称、品牌型号、数量、单价、税率和交付边界。"
+    },
+    {
+      "key": "correct_existing_quote_items",
+      "title": "修正已有报价行",
+      "action": "如差额来自已有报价行录入错误，请修正对应行的数量、含税单价或含税合计；当前差异方向为：分项报价少于项目含税总价。"
+    }
+  ],
+  "projectDataPatch": {},
+  "quoteItemsReplacement": [],
+  "quoteItemsAppend": [],
+  "notes": ""
+}

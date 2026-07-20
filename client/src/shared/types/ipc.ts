@@ -2,6 +2,7 @@ import type { ChatCompletionRequest, JsonCompletionRequest, JsonFailureSampleInp
 import type { AiEvaluationCommitteeExportResult, AiEvaluationExpertScoreInput, AiEvaluationExportReportResult, AiEvaluationImportDocumentResult, AiEvaluationItemPatch, AiEvaluationOfficeExportResult, AiEvaluationState } from '../../features/ai-evaluation/types';
 import type { DuplicateCheckExportReportResult, DuplicateCheckWorkspaceState, FileSelectionResult, LocalFileSelection } from './bid';
 import type { BusinessBidAiExtractionResult, BusinessBidAttachmentPatch, BusinessBidClausePatch, BusinessBidExportReportResult, BusinessBidImportAttachmentsResult, BusinessBidImportDocumentResult, BusinessBidOfficeExportResult, BusinessBidState } from '../../features/business-bid/types';
+import type { BidDocumentAssetCollectionPackageImportResult, BidDocumentAssetCollectionPackageResult, BidDocumentExportResult, BidDocumentProjectConfigExportResult, BidDocumentProjectConfigImportResult, BidDocumentReadinessReportResult, BidDocumentReferenceAlignmentResult, BidDocumentSelectAssetResult, BidDocumentState, BidDocumentTemplateInfoExportResult, BidDocumentValidateResult } from '../../features/bid-document/types';
 import type { ClientConfig, ConfigSaveResult, ImageModelTestResult, ModelListResult, UpdateChannel } from './config';
 import type {
   ImageKnowledgeAssetPatch,
@@ -31,7 +32,7 @@ import type {
   BidOpportunityStatus,
 } from '../../features/bid-opportunity/types';
 import type { BidMarketAnalysisState } from '../../features/bid-market-analysis/types';
-import type { KnowledgeAnalysisSnapshot, KnowledgeBaseActiveTasksSnapshot, KnowledgeBaseEvent, KnowledgeBaseIndex, KnowledgeBaseIndexMutationResult, KnowledgeBaseMigrationResult, KnowledgeBaseMigrationStatus, KnowledgeBaseMutationResult, KnowledgeBaseRetryDocumentResult, KnowledgeBaseStartMatchingResult, KnowledgeBaseUploadResult, KnowledgeDocument, KnowledgeFolder, KnowledgeItem } from '../../features/knowledge-base/types';
+import type { KnowledgeAnalysisSnapshot, KnowledgeBaseActiveTasksSnapshot, KnowledgeBaseCategorizedArchiveImportResult, KnowledgeBaseEvent, KnowledgeBaseIndex, KnowledgeBaseIndexMutationResult, KnowledgeBaseMigrationResult, KnowledgeBaseMigrationStatus, KnowledgeBaseMutationResult, KnowledgeBaseRetryDocumentResult, KnowledgeBaseStartMatchingResult, KnowledgeBaseUploadResult, KnowledgeDocument, KnowledgeFolder, KnowledgeItem } from '../../features/knowledge-base/types';
 import type { RejectionCheckExportReportResult, RejectionCheckWorkspaceState, RejectionDocumentRole } from '../../features/rejection-check/types';
 import type { BidAnalysisMode, BidAnalysisTaskState, ContentGenerationOptions, ContentGenerationPlanState, ContentGenerationRuntimeState, ContentGenerationSectionState, DetectedBidSection, GlobalFactGroupState, SaveOutlineRequest, TechnicalPlanState, TechnicalPlanStep, TechnicalPlanWorkflowKind } from '../../features/technical-plan/types';
 import type { OutlineData, OutlineMode } from './outline';
@@ -69,6 +70,27 @@ export interface WordExportPreflightReport {
   assetImageCount: number;
   missingLocalImageCount: number;
   unknownImageCount: number;
+  styleQuality?: {
+    score: number;
+    passedCount: number;
+    totalCount: number;
+    imageCount: number;
+    tableCount: number;
+    checks: Array<{
+      id: string;
+      title: string;
+      passed: boolean;
+      matchedKeywords: string[];
+      requirement: string;
+    }>;
+    missingChecks: Array<{
+      id: string;
+      title: string;
+      passed: boolean;
+      matchedKeywords: string[];
+      requirement: string;
+    }>;
+  };
   warnings: string[];
 }
 
@@ -302,6 +324,7 @@ export interface YibiaoBridge {
     deleteDocument: (documentId: string) => Promise<KnowledgeBaseMutationResult>;
     moveDocument: (documentId: string, targetFolderId: string, targetDocumentId?: string | null, position?: 'before' | 'after') => Promise<KnowledgeBaseIndexMutationResult>;
     uploadDocuments: (folderId: string) => Promise<KnowledgeBaseUploadResult>;
+    importCategorizedArchives: () => Promise<KnowledgeBaseCategorizedArchiveImportResult>;
     retryDocument: (documentId: string) => Promise<KnowledgeBaseRetryDocumentResult>;
     startMatching: (documentId: string, batchSize: number) => Promise<KnowledgeBaseStartMatchingResult>;
     readMarkdown: (documentId: string) => Promise<string>;
@@ -313,6 +336,7 @@ export interface YibiaoBridge {
     list: (query?: ImageKnowledgeSearchQuery) => Promise<ImageKnowledgeState>;
     uploadImages: () => Promise<ImageKnowledgeUploadResult>;
     importHistoricalArchives: (section: ImageKnowledgeArchiveSection) => Promise<ImageKnowledgeArchiveImportResult>;
+    importCategorizedArchives: () => Promise<ImageKnowledgeArchiveImportResult>;
     updateAsset: (id: string, patch: ImageKnowledgeAssetPatch) => Promise<ImageKnowledgeState>;
     batchUpdateAssets: (payload: ImageKnowledgeBatchUpdatePayload) => Promise<ImageKnowledgeBatchResult>;
     renameTag: (oldTag: string, newTag: string) => Promise<ImageKnowledgeTagMutationResult>;
@@ -407,6 +431,20 @@ export interface YibiaoBridge {
     exportReport: (options?: { filePath?: string }) => Promise<BusinessBidExportReportResult>;
     exportOfficePackage: (options: { format: 'docx' | 'xlsx'; filePath?: string }) => Promise<BusinessBidOfficeExportResult>;
     clear: () => Promise<BusinessBidState>;
+  };
+  bidDocument: {
+    loadState: () => Promise<BidDocumentState>;
+    saveState: (payload?: Partial<Pick<BidDocumentState, 'template' | 'projectData' | 'quoteItems' | 'assetMap' | 'assetPackage'>> & { templateId?: string }) => Promise<BidDocumentState>;
+    validate: (payload?: Partial<Pick<BidDocumentState, 'template' | 'projectData' | 'quoteItems' | 'assetMap' | 'assetPackage'>>) => Promise<BidDocumentValidateResult>;
+    selectAsset: (options?: { key?: string; title?: string; type?: string }) => Promise<BidDocumentSelectAssetResult>;
+    analyzeReference: (options?: { referencePath?: string; candidatePath?: string }) => Promise<BidDocumentReferenceAlignmentResult>;
+    exportTemplateInfo: (options?: { templateId?: string; filePath?: string }) => Promise<BidDocumentTemplateInfoExportResult>;
+    exportProjectConfig: (options?: Partial<Pick<BidDocumentState, 'template' | 'projectData' | 'quoteItems' | 'assetMap' | 'assetPackage'>> & { filePath?: string }) => Promise<BidDocumentProjectConfigExportResult>;
+    exportReadinessReport: (options?: Partial<Pick<BidDocumentState, 'template' | 'projectData' | 'quoteItems' | 'assetMap' | 'assetPackage'>> & { filePath?: string; markdownPath?: string; jsonPath?: string; xlsxPath?: string }) => Promise<BidDocumentReadinessReportResult>;
+    exportAssetCollectionPackage: (options?: Partial<Pick<BidDocumentState, 'template' | 'projectData' | 'quoteItems' | 'assetMap' | 'assetPackage'>> & { outputDir?: string; directoryPath?: string }) => Promise<BidDocumentAssetCollectionPackageResult>;
+    importAssetCollectionPackage: (options?: Partial<Pick<BidDocumentState, 'template' | 'projectData' | 'quoteItems' | 'assetMap' | 'assetPackage'>> & { packageDir?: string; directoryPath?: string; inputDir?: string }) => Promise<BidDocumentAssetCollectionPackageImportResult>;
+    importProjectConfig: (options?: { filePath?: string }) => Promise<BidDocumentProjectConfigImportResult>;
+    exportWord: (options?: Partial<Pick<BidDocumentState, 'template' | 'projectData' | 'quoteItems' | 'assetMap' | 'assetPackage'>> & { filePath?: string }) => Promise<BidDocumentExportResult>;
   };
   bidOpportunity: {
     loadState: () => Promise<BidOpportunityState>;

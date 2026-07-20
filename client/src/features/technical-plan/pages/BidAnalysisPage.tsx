@@ -68,6 +68,8 @@ function getModeLabel(mode: BidAnalysisMode) {
 const taskGroups = [
   { title: '关键项', ids: ['projectOverview', 'techRequirements', 'projectInfo', 'partAInfo', 'deliveryAndServiceRequirements'] },
   { title: '采购与响应', ids: ['procurementList', 'responseFileRequirements'] },
+  { title: '证明与图文', ids: ['proofMaterialMatrix', 'visualEvidenceRequirements', 'companyTeamQualifications'] },
+  { title: '技术质量', ids: ['deploymentSecurityInterfaces'] },
   { title: '投标流程', ids: ['keyInfo', 'marginInfo', 'openBid'] },
   { title: '评审要求', ids: ['qualificationReview', 'complianceCheck', 'evaluationBid', 'businessScoring'] },
   { title: '主体与合同', ids: ['agentInfo', 'discardedBids', 'signingProcess', 'terminationCondition'] },
@@ -221,13 +223,28 @@ function BidAnalysisPage({
   const activeTaskStatus = activeTaskState?.status || 'idle';
   const activeTaskContent = activeTaskState?.content || '';
   const failedTaskCount = selectedTasks.filter((task) => tasks[task.id]?.status === 'error').length;
+  const failedTaskIds = selectedTasks.filter((task) => tasks[task.id]?.status === 'error').map((task) => task.id);
+  const pendingTaskIds = selectedTasks.filter((task) => {
+    const status = tasks[task.id]?.status || 'idle';
+    return status === 'idle';
+  }).map((task) => task.id);
   const doneCount = selectedTasks.filter((task) => {
     const status = tasks[task.id]?.status;
     return status === 'success' || status === 'error';
   }).length;
+  const displayProgress = selectedTasks.length ? Math.round((doneCount / selectedTasks.length) * 100) : progress;
   const taskRunning = running || fullRerunLocked || task?.status === 'running';
   const requiredDone = requiredTasks.every((task) => tasks[task.id]?.status === 'success' && tasks[task.id]?.content);
   const configLabel = getModeLabel(mode);
+  const primaryActionLabel = taskRunning
+    ? '解析中...'
+    : failedTaskCount > 0
+      ? `重试失败项(${failedTaskCount})`
+      : pendingTaskIds.length > 0 && doneCount > 0
+        ? `继续解析待解析项(${pendingTaskIds.length})`
+        : progress > 0
+          ? '重新解析'
+          : '开始解析';
 
   const syncProgressForSelection = (nextTaskIds: string[]) => {
     const selectedIdSet = new Set(normalizeSelectedTaskIds(nextTaskIds));
@@ -336,6 +353,15 @@ function BidAnalysisPage({
     startAnalysis([activeTask.id], effectiveSelectedTaskIds);
   };
 
+  const runPrimaryAction = () => {
+    if (failedTaskIds.length > 0) {
+      void startAnalysis(failedTaskIds, effectiveSelectedTaskIds);
+      return;
+    }
+
+    void startAnalysis(undefined, effectiveSelectedTaskIds);
+  };
+
   const toggleDraftTask = (taskId: string) => {
     if (requiredBidAnalysisTaskIdSet.has(taskId) || taskRunning) {
       return;
@@ -415,8 +441,8 @@ function BidAnalysisPage({
               <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.05.05a2 2 0 0 1-2.83 2.83l-.05-.05a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 0 1-4 0v-.08a1.7 1.7 0 0 0-1.04-1.56 1.7 1.7 0 0 0-1.87.34l-.05.05a2 2 0 0 1-2.83-2.83l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 0 1 0-4h.08A1.7 1.7 0 0 0 4.6 8.93a1.7 1.7 0 0 0-.34-1.87l-.05-.05a2 2 0 0 1 2.83-2.83l.05.05a1.7 1.7 0 0 0 1.87.34A1.7 1.7 0 0 0 10 3.01V3a2 2 0 0 1 4 0v.08a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.05-.05a2 2 0 0 1 2.83 2.83l-.05.05a1.7 1.7 0 0 0-.34 1.87 1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 0 1 0 4h-.08A1.7 1.7 0 0 0 19.4 15Z" />
             </svg>
           </button>
-          <button type="button" className="primary-action" onClick={openSettingsDialog} disabled={taskRunning}>
-            {taskRunning ? '解析中...' : failedTaskCount > 0 ? `重试失败项(${failedTaskCount})` : progress > 0 ? '重新解析' : '开始解析'}
+          <button type="button" className="primary-action" onClick={runPrimaryAction} disabled={taskRunning}>
+            {primaryActionLabel}
           </button>
         </div>
       </section>
@@ -435,10 +461,10 @@ function BidAnalysisPage({
             </button>
             {!progressCollapsed && (
               <div className="content-outline-stats-body">
-                <div className="content-generation-progress-track" aria-label={`解析进度 ${progress}%`}>
-                  <span style={{ width: `${progress}%` }} />
+                <div className="content-generation-progress-track" aria-label={`解析进度 ${displayProgress}%`}>
+                  <span style={{ width: `${displayProgress}%` }} />
                 </div>
-                <p>{requiredDone ? '关键项已解析完成，可以进入下一步。' : '等待项目概述、技术评分、项目信息、甲方信息和交货服务要求解析成功。'}</p>
+                <p>{requiredDone ? (pendingTaskIds.length ? `关键项已解析完成，可以进入下一步；还有 ${pendingTaskIds.length} 个补充解析项未开始。` : '关键项已解析完成，可以进入下一步。') : '等待项目概述、技术评分、项目信息、甲方信息和交货服务要求解析成功。'}</p>
               </div>
             )}
           </div>
@@ -505,7 +531,7 @@ function BidAnalysisPage({
           ) : (
             <div className="markdown-empty-state bid-analysis-empty">
               <strong>{activeTaskStatus === 'error' ? activeTaskState?.error || '解析失败' : '等待解析结果'}</strong>
-              <p>{activeTaskStatus === 'idle' ? '点击开始解析后，左侧任务会并发运行；选择任一任务查看结果。' : activeTaskStatus === 'error' ? '请检查文本模型配置或稍后重试当前解析项。' : '正在等待模型返回内容，单次 AI 请求最长等待 300 秒。'}</p>
+              <p>{activeTaskStatus === 'idle' ? `当前解析项尚未开始，不是正在解析；点击右上角“${primaryActionLabel}”后会并发运行。` : activeTaskStatus === 'error' ? '请检查文本模型配置或稍后重试当前解析项。' : '正在等待模型返回内容，单次 AI 请求最长等待 300 秒。'}</p>
             </div>
           )}
         </article>

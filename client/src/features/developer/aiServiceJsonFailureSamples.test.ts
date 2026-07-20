@@ -7,13 +7,17 @@ import { createRequire } from 'node:module';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const require = createRequire(import.meta.url);
-const { createAiService } = require('../../../electron/services/aiService.cjs') as {
+const { createAiService, __test__ } = require('../../../electron/services/aiService.cjs') as {
   createAiService: (options: { app: { getPath: (name: string) => string }; configStore: { load: () => Record<string, unknown> } }) => {
     saveJsonFailureSample: (sample: Record<string, unknown>) => Promise<{ success: boolean; samples: Array<Record<string, unknown>>; filePath: string }>;
     savePromptDebugRecord: (record: Record<string, unknown>) => Promise<{ success: boolean; record: Record<string, unknown>; filePath: string }>;
     listJsonFailureSamples: () => Promise<{ success: boolean; samples: Array<Record<string, unknown>>; filePath: string }>;
     listJsonReplayLogs: () => Promise<{ success: boolean; logs: Array<Record<string, unknown>> }>;
     clearJsonFailureSamples: () => Promise<{ success: boolean; samples: Array<Record<string, unknown>>; filePath: string }>;
+  };
+  __test__: {
+    resolveCodexCliCommand: (env?: Record<string, string | undefined>, fileExists?: (filePath: string) => boolean) => string;
+    summarizeCodexCliFailure: (stderr: string, stdout: string, signal?: string | null) => string;
   };
 };
 
@@ -41,6 +45,24 @@ afterEach(() => {
 });
 
 describe('aiService JSON failure samples', () => {
+  it('resolves Codex CLI from explicit or bundled app paths', () => {
+    expect(__test__.resolveCodexCliCommand({ CODEX_CLI_PATH: '/custom/codex' }, () => false)).toBe('/custom/codex');
+    expect(__test__.resolveCodexCliCommand({}, (filePath) => filePath === '/Applications/Codex.app/Contents/Resources/codex'))
+      .toBe('/Applications/Codex.app/Contents/Resources/codex');
+    expect(__test__.resolveCodexCliCommand({}, () => false)).toBe('codex');
+  });
+
+  it('keeps Codex CLI failure summaries from echoing business JSON content', () => {
+    const summary = __test__.summarizeCodexCliFailure('', [
+      '"resume": "2. 运行日志样例 正常启动日志样例 第 554 页 ERROR [service] traceId=abc message=invalid parameter"',
+      '"content": "附录J2 系统稳定性专项说明书 验证方式：通过接口调用或页面操作触发关键业务流程"',
+    ].join('\n'));
+
+    expect(summary).toContain('Codex CLI 已退出但未返回明确错误');
+    expect(summary).not.toContain('运行日志样例');
+    expect(summary).not.toContain('系统稳定性专项说明书');
+  });
+
   it('persists, lists and clears developer JSON failure samples', async () => {
     const service = createService();
 

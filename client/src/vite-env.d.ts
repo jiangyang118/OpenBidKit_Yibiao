@@ -9,6 +9,9 @@ declare global {
       appName: string;
       platform: string;
     };
+    yibiaoWeb?: {
+      assetUrl: (value: string) => string;
+    };
   }
 }
 

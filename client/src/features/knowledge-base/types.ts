@@ -145,6 +145,14 @@ export interface KnowledgeBaseUploadResult {
   documents?: KnowledgeDocument[];
 }
 
+export interface KnowledgeBaseCategorizedArchiveImportResult extends KnowledgeBaseUploadResult {
+  index: KnowledgeBaseIndex;
+  archives: number;
+  imported: number;
+  skipped: number;
+  categoryCounts: Record<string, number>;
+}
+
 export interface KnowledgeBaseEvent {
   document: KnowledgeDocument;
 }

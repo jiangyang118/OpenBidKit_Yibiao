@@ -691,6 +691,10 @@ function ExportPreviewPage() {
                   <span>提示</span>
                   <strong>{wordPreview.warnings?.length ?? 0}</strong>
                 </article>
+                <article>
+                  <span>质量门</span>
+                  <strong>{wordPreview.preflight?.styleQuality ? `${wordPreview.preflight.styleQuality.score}%` : '-'}</strong>
+                </article>
               </div>
               <div className="parser-capability-notes">
                 <strong>导出服务提示</strong>
@@ -699,6 +703,18 @@ function ExportPreviewPage() {
                 )) : <small>未返回导出 warning。</small>}
                 {wordPreview.error_stage ? <small>失败阶段：{wordPreview.error_stage}</small> : null}
               </div>
+              {wordPreview.preflight?.styleQuality ? (
+                <div className="parser-capability-notes">
+                  <strong>竞品式标书质量门</strong>
+                  <small>
+                    已通过 {wordPreview.preflight.styleQuality.passedCount}/{wordPreview.preflight.styleQuality.totalCount} 项；
+                    图片 {wordPreview.preflight.styleQuality.imageCount} 张，表格 {wordPreview.preflight.styleQuality.tableCount} 个。
+                  </small>
+                  {wordPreview.preflight.styleQuality.missingChecks.length ? wordPreview.preflight.styleQuality.missingChecks.map((check) => (
+                    <small key={check.id}>待补：{check.title}。{check.requirement}</small>
+                  )) : <small>核心结构、图文证据和证明材料检查均已通过。</small>}
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="empty-panel">

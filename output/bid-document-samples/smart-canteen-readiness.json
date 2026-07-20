@@ -1,0 +1,799 @@
+{
+  "ok": false,
+  "input": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.json",
+  "template_id": "smart-canteen-response",
+  "project_name": "智慧餐厅称重系统改造",
+  "quote_total": 133050,
+  "target_total": 135050,
+  "readiness_report": {
+    "ready": false,
+    "input": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.json",
+    "template_id": "smart-canteen-response",
+    "project_name": "智慧餐厅称重系统改造",
+    "purchaser_name": "北京蓝色港湾科技有限责任公司",
+    "supplier_name": "北京康比特体育科技股份有限公司",
+    "quote_total": 133050,
+    "target_total": 135050,
+    "quote_difference": 2000,
+    "quote_reconciliation": {
+      "items": [
+        {
+          "index": 1,
+          "name": "智慧食堂管理系统含手机端",
+          "brandModel": "康比特 CPT-Nutr-GMPLTF V2.0",
+          "quantity": 1,
+          "unitPriceWithTax": 15000,
+          "declaredTotalWithTax": 15000,
+          "computedTotalWithTax": 15000,
+          "difference": 0,
+          "taxRate": 0.13,
+          "category": "software",
+          "status": "passed"
+        },
+        {
+          "index": 2,
+          "name": "智能称重设备",
+          "brandModel": "康比特 CPT-Nutr-GMSC450-LITE",
+          "quantity": 30,
+          "unitPriceWithTax": 3000,
+          "declaredTotalWithTax": 90000,
+          "computedTotalWithTax": 90000,
+          "difference": 0,
+          "taxRate": 0.13,
+          "category": "hardware",
+          "status": "passed"
+        },
+        {
+          "index": 3,
+          "name": "智能绑盘机",
+          "brandModel": "康比特 CPT-BP001",
+          "quantity": 1,
+          "unitPriceWithTax": 4300,
+          "declaredTotalWithTax": 4300,
+          "computedTotalWithTax": 4300,
+          "difference": 0,
+          "taxRate": 0.13,
+          "category": "hardware",
+          "status": "passed"
+        },
+        {
+          "index": 4,
+          "name": "双屏消费机",
+          "brandModel": "康比特 CPT-GMPOS200",
+          "quantity": 3,
+          "unitPriceWithTax": 3650,
+          "declaredTotalWithTax": 10950,
+          "computedTotalWithTax": 10950,
+          "difference": 0,
+          "taxRate": 0.13,
+          "category": "hardware",
+          "status": "passed"
+        },
+        {
+          "index": 5,
+          "name": "称重消费机",
+          "brandModel": "康比特 CPT-CZSY280",
+          "quantity": 1,
+          "unitPriceWithTax": 4000,
+          "declaredTotalWithTax": 4000,
+          "computedTotalWithTax": 4000,
+          "difference": 0,
+          "taxRate": 0.13,
+          "category": "hardware",
+          "status": "passed"
+        },
+        {
+          "index": 6,
+          "name": "托盘",
+          "brandModel": "康比特 CPT-FT248",
+          "quantity": 400,
+          "unitPriceWithTax": 22,
+          "declaredTotalWithTax": 8800,
+          "computedTotalWithTax": 8800,
+          "difference": 0,
+          "taxRate": 0.13,
+          "category": "material",
+          "status": "passed"
+        }
+      ],
+      "quoteTotal": 133050,
+      "computedQuoteTotal": 133050,
+      "targetTotal": 135050,
+      "quoteDifference": 2000,
+      "rowDifferenceTotal": 0
+    },
+    "quote_resolution_actions": [
+      {
+        "key": "confirm_project_total",
+        "title": "确认项目含税总价",
+        "action": "如项目总价应以分项报价合计为准，请将项目含税总价调整为 133050，并同步不含税金额和采购文件口径。"
+      },
+      {
+        "key": "add_confirmed_quote_item",
+        "title": "新增经确认的真实分项",
+        "action": "如项目含税总价必须保持 135050，请新增经商务确认的真实报价行，含税金额合计为 2000，并提供名称、品牌型号、数量、单价、税率和交付边界。"
+      },
+      {
+        "key": "correct_existing_quote_items",
+        "title": "修正已有报价行",
+        "action": "如差额来自已有报价行录入错误，请修正对应行的数量、含税单价或含税合计；当前差异方向为：分项报价少于项目含税总价。"
+      }
+    ],
+    "asset_package": {
+      "type": "sidecar-directory",
+      "path": "./smart-canteen-init-config.assets",
+      "copiedCount": 18,
+      "demoOnly": true
+    },
+    "asset_inventory": [
+      {
+        "key": "business_license",
+        "title": "营业执照",
+        "sectionId": "supplier-basic-info",
+        "sectionTitle": "四、供应商基本情况表",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/business_license.png",
+        "status": "demo_only",
+        "suggestedFileName": "四、供应商基本情况表-营业执照.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "iso9001",
+        "title": "ISO9001 质量管理体系认证证书",
+        "sectionId": "supplier-basic-info",
+        "sectionTitle": "四、供应商基本情况表",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/iso9001.png",
+        "status": "demo_only",
+        "suggestedFileName": "四、供应商基本情况表-ISO9001_质量管理体系认证证书.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "iso20000",
+        "title": "ISO20000 信息技术服务管理体系认证证书",
+        "sectionId": "supplier-basic-info",
+        "sectionTitle": "四、供应商基本情况表",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/iso20000.png",
+        "status": "demo_only",
+        "suggestedFileName": "四、供应商基本情况表-ISO20000_信息技术服务管理体系认证证书.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "iso27001",
+        "title": "ISO27001 信息安全管理体系认证证书",
+        "sectionId": "supplier-basic-info",
+        "sectionTitle": "四、供应商基本情况表",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/iso27001.png",
+        "status": "demo_only",
+        "suggestedFileName": "四、供应商基本情况表-ISO27001_信息安全管理体系认证证书.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "software_copyright",
+        "title": "智慧营养健康餐厅管理系统 V1.0 软件著作权证书",
+        "sectionId": "supplier-basic-info",
+        "sectionTitle": "四、供应商基本情况表",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/software_copyright.png",
+        "status": "demo_only",
+        "suggestedFileName": "四、供应商基本情况表-智慧营养健康餐厅管理系统_V1.0_软件著作权证书.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "domestic_certificate",
+        "title": "国产化证书",
+        "sectionId": "supplier-basic-info",
+        "sectionTitle": "四、供应商基本情况表",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/domestic_certificate.png",
+        "status": "demo_only",
+        "suggestedFileName": "四、供应商基本情况表-国产化证书.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "cnas_report",
+        "title": "CNAS 检测报告",
+        "sectionId": "supplier-basic-info",
+        "sectionTitle": "四、供应商基本情况表",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/cnas_report.png",
+        "status": "demo_only",
+        "suggestedFileName": "四、供应商基本情况表-CNAS_检测报告.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "other_certificate",
+        "title": "其他证书",
+        "sectionId": "supplier-basic-info",
+        "sectionTitle": "四、供应商基本情况表",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/other_certificate.png",
+        "status": "demo_only",
+        "suggestedFileName": "四、供应商基本情况表-其他证书.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "backend_platform_screenshot",
+        "title": "后台管理平台截图",
+        "sectionId": "technical-solution",
+        "sectionTitle": "六、技术方案",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/backend_platform_screenshot.png",
+        "status": "demo_only",
+        "suggestedFileName": "六、技术方案-后台管理平台截图.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "dish_management_screenshot",
+        "title": "菜品管理界面截图",
+        "sectionId": "technical-solution",
+        "sectionTitle": "六、技术方案",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/dish_management_screenshot.png",
+        "status": "demo_only",
+        "suggestedFileName": "六、技术方案-菜品管理界面截图.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "statistics_report_screenshot",
+        "title": "统计报表截图",
+        "sectionId": "technical-solution",
+        "sectionTitle": "六、技术方案",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/statistics_report_screenshot.png",
+        "status": "demo_only",
+        "suggestedFileName": "六、技术方案-统计报表截图.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "mobile_app_screenshot",
+        "title": "移动端截图",
+        "sectionId": "technical-solution",
+        "sectionTitle": "六、技术方案",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/mobile_app_screenshot.png",
+        "status": "demo_only",
+        "suggestedFileName": "六、技术方案-移动端截图.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "weighing_device_image",
+        "title": "智能称重设备图片",
+        "sectionId": "technical-solution",
+        "sectionTitle": "六、技术方案",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/weighing_device_image.png",
+        "status": "demo_only",
+        "suggestedFileName": "六、技术方案-智能称重设备图片.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "binding_machine_image",
+        "title": "智能绑盘机图片",
+        "sectionId": "technical-solution",
+        "sectionTitle": "六、技术方案",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/binding_machine_image.png",
+        "status": "demo_only",
+        "suggestedFileName": "六、技术方案-智能绑盘机图片.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "dual_screen_pos_image",
+        "title": "双屏消费机图片",
+        "sectionId": "technical-solution",
+        "sectionTitle": "六、技术方案",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/dual_screen_pos_image.png",
+        "status": "demo_only",
+        "suggestedFileName": "六、技术方案-双屏消费机图片.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "weighing_pos_image",
+        "title": "称重消费机图片",
+        "sectionId": "technical-solution",
+        "sectionTitle": "六、技术方案",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/weighing_pos_image.png",
+        "status": "demo_only",
+        "suggestedFileName": "六、技术方案-称重消费机图片.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "tray_image",
+        "title": "托盘图片",
+        "sectionId": "technical-solution",
+        "sectionTitle": "六、技术方案",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/tray_image.png",
+        "status": "demo_only",
+        "suggestedFileName": "六、技术方案-托盘图片.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      },
+      {
+        "key": "contract_case_scan",
+        "title": "合同案例证明扫描件",
+        "sectionId": "other-materials",
+        "sectionTitle": "十、其他材料",
+        "required": true,
+        "type": "image",
+        "filePath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/smart-canteen-init-config.assets/contract_case_scan.png",
+        "status": "demo_only",
+        "suggestedFileName": "十、其他材料-合同案例证明扫描件.png",
+        "collectionNote": "当前为演示附件路径，正式构建前必须替换为真实可递交材料。"
+      }
+    ],
+    "blockers": {
+      "quote": [
+        "quote_items total should equal project totalWithTax: expected 135050, got 133050"
+      ],
+      "demoAssets": [
+        "demo_assets_not_allowed_for_formal_build"
+      ]
+    },
+    "missing_assets": [],
+    "checks": [
+      {
+        "key": "templateCheck",
+        "passed": true,
+        "status": "passed",
+        "errors": [],
+        "details": {
+          "sectionCount": 26,
+          "requiredSectionCount": 7,
+          "requiredAssetCount": 18,
+          "duplicateSectionIds": [],
+          "duplicateSectionTitles": [],
+          "missingNestedParentIds": [],
+          "missingParentIds": [],
+          "missingRequiredSectionIds": [],
+          "invalidRequiredSectionIds": [],
+          "duplicateRequiredSectionIds": [],
+          "invalidParentLevels": [],
+          "invalidParentLevelSkips": [],
+          "invalidParentOrder": [],
+          "parentCycles": [],
+          "requiredSectionsUnderOptionalAncestors": [],
+          "profileRequiredSectionsNotMarkedRequired": [],
+          "invalidValidationProfileFields": [],
+          "invalidRequiredModels": [],
+          "duplicateRequiredModels": [],
+          "duplicateRequiredAssetKeys": [],
+          "invalidSections": []
+        }
+      },
+      {
+        "key": "quoteCheck",
+        "passed": false,
+        "status": "failed",
+        "errors": [
+          "quote_items total should equal project totalWithTax: expected 135050, got 133050"
+        ],
+        "details": {
+          "projectTotal": 135050,
+          "projectTotalWithoutTax": 119630.15,
+          "itemTotal": 133050,
+          "rowCount": 6
+        }
+      },
+      {
+        "key": "paymentCheck",
+        "passed": true,
+        "status": "passed",
+        "errors": [],
+        "details": {
+          "ratioTotal": 100,
+          "termCount": 4
+        }
+      },
+      {
+        "key": "titleCheck",
+        "passed": true,
+        "status": "passed",
+        "errors": [],
+        "details": {
+          "documentTitle": "响应文件",
+          "requiredText": "响应文件"
+        }
+      },
+      {
+        "key": "identityCheck",
+        "passed": true,
+        "status": "passed",
+        "errors": [],
+        "details": {
+          "templateId": "smart-canteen-response",
+          "projectTemplateId": "smart-canteen-response",
+          "projectName": "智慧餐厅称重系统改造",
+          "purchaserName": "北京蓝色港湾科技有限责任公司",
+          "supplierName": "北京康比特体育科技股份有限公司",
+          "checkedAssetCount": 18
+        }
+      },
+      {
+        "key": "forbiddenWordsCheck",
+        "passed": true,
+        "status": "passed",
+        "errors": [],
+        "details": {
+          "hits": []
+        }
+      },
+      {
+        "key": "assetCheck",
+        "passed": false,
+        "status": "failed",
+        "errors": [
+          "demo_assets_not_allowed_for_formal_build"
+        ],
+        "details": {
+          "checked": 18,
+          "document_assets": [],
+          "assetPackage": {
+            "type": "sidecar-directory",
+            "path": "./smart-canteen-init-config.assets",
+            "copiedCount": 18,
+            "demoOnly": true
+          }
+        }
+      },
+      {
+        "key": "sectionSelectionCheck",
+        "passed": true,
+        "status": "passed",
+        "errors": [],
+        "details": {
+          "disabled": []
+        }
+      },
+      {
+        "key": "sectionCheck",
+        "passed": true,
+        "status": "passed",
+        "errors": [],
+        "details": {
+          "checked": 7
+        }
+      },
+      {
+        "key": "docxOpenCheck",
+        "passed": false,
+        "status": "not_run",
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      {
+        "key": "docxContentCheck",
+        "passed": false,
+        "status": "not_run",
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      {
+        "key": "docxSectionOrderCheck",
+        "passed": false,
+        "status": "not_run",
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      {
+        "key": "docxTableCheck",
+        "passed": false,
+        "status": "not_run",
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      {
+        "key": "docxQuoteIntegrityCheck",
+        "passed": false,
+        "status": "not_run",
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      {
+        "key": "docxLayoutCheck",
+        "passed": false,
+        "status": "not_run",
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      {
+        "key": "docxTocCheck",
+        "passed": false,
+        "status": "not_run",
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      {
+        "key": "docxStyleCheck",
+        "passed": false,
+        "status": "not_run",
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      {
+        "key": "docxTechnicalDensityCheck",
+        "passed": false,
+        "status": "not_run",
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      {
+        "key": "docxPageBreakCheck",
+        "passed": false,
+        "status": "not_run",
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      {
+        "key": "imageInsertionCheck",
+        "passed": false,
+        "status": "not_run",
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      {
+        "key": "docxAssetPlacementCheck",
+        "passed": false,
+        "status": "not_run",
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      {
+        "key": "docxForbiddenWordsCheck",
+        "passed": false,
+        "status": "not_run",
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      }
+    ],
+    "build_log": {
+      "templateCheck": {
+        "passed": true,
+        "errors": [],
+        "details": {
+          "sectionCount": 26,
+          "requiredSectionCount": 7,
+          "requiredAssetCount": 18,
+          "duplicateSectionIds": [],
+          "duplicateSectionTitles": [],
+          "missingNestedParentIds": [],
+          "missingParentIds": [],
+          "missingRequiredSectionIds": [],
+          "invalidRequiredSectionIds": [],
+          "duplicateRequiredSectionIds": [],
+          "invalidParentLevels": [],
+          "invalidParentLevelSkips": [],
+          "invalidParentOrder": [],
+          "parentCycles": [],
+          "requiredSectionsUnderOptionalAncestors": [],
+          "profileRequiredSectionsNotMarkedRequired": [],
+          "invalidValidationProfileFields": [],
+          "invalidRequiredModels": [],
+          "duplicateRequiredModels": [],
+          "duplicateRequiredAssetKeys": [],
+          "invalidSections": []
+        }
+      },
+      "quoteCheck": {
+        "passed": false,
+        "errors": [
+          "quote_items total should equal project totalWithTax: expected 135050, got 133050"
+        ],
+        "details": {
+          "projectTotal": 135050,
+          "projectTotalWithoutTax": 119630.15,
+          "itemTotal": 133050,
+          "rowCount": 6
+        }
+      },
+      "paymentCheck": {
+        "passed": true,
+        "errors": [],
+        "details": {
+          "ratioTotal": 100,
+          "termCount": 4
+        }
+      },
+      "titleCheck": {
+        "passed": true,
+        "errors": [],
+        "details": {
+          "documentTitle": "响应文件",
+          "requiredText": "响应文件"
+        }
+      },
+      "identityCheck": {
+        "passed": true,
+        "errors": [],
+        "details": {
+          "templateId": "smart-canteen-response",
+          "projectTemplateId": "smart-canteen-response",
+          "projectName": "智慧餐厅称重系统改造",
+          "purchaserName": "北京蓝色港湾科技有限责任公司",
+          "supplierName": "北京康比特体育科技股份有限公司",
+          "checkedAssetCount": 18
+        }
+      },
+      "forbiddenWordsCheck": {
+        "passed": true,
+        "errors": [],
+        "details": {
+          "hits": []
+        }
+      },
+      "assetCheck": {
+        "passed": false,
+        "errors": [
+          "demo_assets_not_allowed_for_formal_build"
+        ],
+        "details": {
+          "checked": 18,
+          "document_assets": [],
+          "assetPackage": {
+            "type": "sidecar-directory",
+            "path": "./smart-canteen-init-config.assets",
+            "copiedCount": 18,
+            "demoOnly": true
+          }
+        }
+      },
+      "sectionSelectionCheck": {
+        "passed": true,
+        "errors": [],
+        "details": {
+          "disabled": []
+        }
+      },
+      "sectionCheck": {
+        "passed": true,
+        "errors": [],
+        "details": {
+          "checked": 7
+        }
+      },
+      "docxOpenCheck": {
+        "passed": false,
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      "docxContentCheck": {
+        "passed": false,
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      "docxSectionOrderCheck": {
+        "passed": false,
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      "docxTableCheck": {
+        "passed": false,
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      "docxQuoteIntegrityCheck": {
+        "passed": false,
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      "docxLayoutCheck": {
+        "passed": false,
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      "docxTocCheck": {
+        "passed": false,
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      "docxStyleCheck": {
+        "passed": false,
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      "docxTechnicalDensityCheck": {
+        "passed": false,
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      "docxPageBreakCheck": {
+        "passed": false,
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      "imageInsertionCheck": {
+        "passed": false,
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      "docxAssetPlacementCheck": {
+        "passed": false,
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      "docxForbiddenWordsCheck": {
+        "passed": false,
+        "errors": [
+          "not_run"
+        ],
+        "details": {}
+      },
+      "passed": false,
+      "errors": [
+        "quote_items total should equal project totalWithTax: expected 135050, got 133050",
+        "demo_assets_not_allowed_for_formal_build"
+      ]
+    }
+  }
+}

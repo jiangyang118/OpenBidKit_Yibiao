@@ -7,6 +7,7 @@ describe('app menu configuration', () => {
 
     expect(order).toContain('technical-plan');
     expect(order).toContain('existing-plan-expansion');
+    expect(order).toContain('bid-document');
     expect(order).toContain('document-knowledge-base');
     expect(order).toContain('duplicate-check');
     expect(order).toContain('rejection-check');
@@ -31,6 +32,7 @@ describe('app menu configuration', () => {
     const children = appMenuItems.flatMap((item) => item.children || []);
 
     expect(children.find((child) => child.id === 'business-bid')?.notice).toBeUndefined();
+    expect(children.find((child) => child.id === 'bid-document')?.notice).toBeUndefined();
     expect(children.find((child) => child.id === 'image-knowledge-base')?.notice).toBeUndefined();
     expect(children.find((child) => child.id === 'ai-evaluation')?.notice).toBeUndefined();
     expect(getAppMenuItemById('bid-opportunity', false)?.notice).toBeUndefined();

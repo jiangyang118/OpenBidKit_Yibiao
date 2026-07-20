@@ -1,0 +1,189 @@
+{
+  "ok": false,
+  "input": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/generic-response-init-config.json",
+  "output": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/generic-response-init-config-formal.docx",
+  "output_json": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/generic-response-init-config-formal.build.json",
+  "template_id": "generic-response",
+  "project_name": "通用完整标书样例项目",
+  "quote_total": 300,
+  "target_total": 300,
+  "bytes": 0,
+  "build_log": {
+    "passed": false,
+    "errors": [
+      "demo_assets_not_allowed_for_formal_build"
+    ],
+    "templateCheck": {
+      "passed": true,
+      "errors": [],
+      "details": {
+        "sectionCount": 26,
+        "requiredSectionCount": 7,
+        "requiredAssetCount": 3,
+        "duplicateSectionIds": [],
+        "missingParentIds": [],
+        "missingRequiredSectionIds": [],
+        "duplicateRequiredAssetKeys": [],
+        "invalidSections": []
+      }
+    },
+    "quoteCheck": {
+      "passed": true,
+      "errors": [],
+      "details": {
+        "projectTotal": 300,
+        "projectTotalWithoutTax": 265.49,
+        "itemTotal": 300,
+        "rowCount": 2
+      }
+    },
+    "paymentCheck": {
+      "passed": true,
+      "errors": [],
+      "details": {
+        "ratioTotal": 100,
+        "termCount": 2
+      }
+    },
+    "titleCheck": {
+      "passed": true,
+      "errors": [],
+      "details": {
+        "documentTitle": "响应文件",
+        "requiredText": "响应文件"
+      }
+    },
+    "identityCheck": {
+      "passed": true,
+      "errors": [],
+      "details": {
+        "templateId": "generic-response",
+        "projectTemplateId": "generic-response",
+        "projectName": "通用完整标书样例项目",
+        "purchaserName": "样例采购人",
+        "supplierName": "样例供应商",
+        "checkedAssetCount": 3
+      }
+    },
+    "forbiddenWordsCheck": {
+      "passed": true,
+      "errors": [],
+      "details": {
+        "hits": []
+      }
+    },
+    "assetCheck": {
+      "passed": false,
+      "errors": [
+        "demo_assets_not_allowed_for_formal_build"
+      ],
+      "details": {
+        "checked": 3,
+        "assetPackage": {
+          "type": "sidecar-directory",
+          "path": "./generic-response-init-config.assets",
+          "copiedCount": 3,
+          "demoOnly": true
+        }
+      }
+    },
+    "sectionSelectionCheck": {
+      "passed": true,
+      "errors": [],
+      "details": {
+        "disabled": []
+      }
+    },
+    "sectionCheck": {
+      "passed": true,
+      "errors": [],
+      "details": {
+        "checked": 7
+      }
+    },
+    "docxOpenCheck": {
+      "passed": false,
+      "errors": [
+        "not_run"
+      ],
+      "details": {}
+    },
+    "docxContentCheck": {
+      "passed": false,
+      "errors": [
+        "not_run"
+      ],
+      "details": {}
+    },
+    "docxSectionOrderCheck": {
+      "passed": false,
+      "errors": [
+        "not_run"
+      ],
+      "details": {}
+    },
+    "docxTableCheck": {
+      "passed": false,
+      "errors": [
+        "not_run"
+      ],
+      "details": {}
+    },
+    "docxQuoteIntegrityCheck": {
+      "passed": false,
+      "errors": [
+        "not_run"
+      ],
+      "details": {}
+    },
+    "docxLayoutCheck": {
+      "passed": false,
+      "errors": [
+        "not_run"
+      ],
+      "details": {}
+    },
+    "docxTocCheck": {
+      "passed": false,
+      "errors": [
+        "not_run"
+      ],
+      "details": {}
+    },
+    "docxStyleCheck": {
+      "passed": false,
+      "errors": [
+        "not_run"
+      ],
+      "details": {}
+    },
+    "docxTechnicalDensityCheck": {
+      "passed": false,
+      "errors": [
+        "not_run"
+      ],
+      "details": {}
+    },
+    "docxPageBreakCheck": {
+      "passed": false,
+      "errors": [
+        "not_run"
+      ],
+      "details": {}
+    },
+    "imageInsertionCheck": {
+      "passed": false,
+      "errors": [
+        "not_run"
+      ],
+      "details": {}
+    },
+    "docxAssetPlacementCheck": {
+      "passed": false,
+      "errors": [
+        "not_run"
+      ],
+      "details": {}
+    }
+  }
+}

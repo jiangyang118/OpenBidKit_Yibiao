@@ -24,6 +24,10 @@ const { buildDocxResult, createExportService } = require('../../../electron/serv
         leafCount: number;
         imageCount: number;
         missingLocalImageCount: number;
+        styleQuality?: {
+          score: number;
+          missingChecks: Array<{ title: string; requirement: string }>;
+        };
       };
       docx_bytes?: number;
       duration_ms?: number;
@@ -462,7 +466,9 @@ describe('exportService header rendering', () => {
     expect(result.preflight.leafCount).toBe(1);
     expect(result.preflight.imageCount).toBe(1);
     expect(result.preflight.missingLocalImageCount).toBe(1);
+    expect(result.preflight.styleQuality?.score).toBeLessThan(75);
     expect(result.warnings.some((warning) => warning.includes('导出预检'))).toBe(true);
+    expect(result.warnings.some((warning) => warning.includes('竞品式质量门'))).toBe(true);
     expect(result.warnings.some((warning) => warning.includes('图片无法导出'))).toBe(true);
   });
 });

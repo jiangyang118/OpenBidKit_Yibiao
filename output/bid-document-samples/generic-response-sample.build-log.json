@@ -1,0 +1,462 @@
+{
+  "templateCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "sectionCount": 26,
+      "requiredSectionCount": 7,
+      "requiredAssetCount": 3,
+      "duplicateSectionIds": [],
+      "missingParentIds": [],
+      "missingRequiredSectionIds": [],
+      "duplicateRequiredAssetKeys": [],
+      "invalidSections": []
+    }
+  },
+  "quoteCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "projectTotal": 300,
+      "itemTotal": 300,
+      "rowCount": 2
+    }
+  },
+  "paymentCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "ratioTotal": 100,
+      "termCount": 2
+    }
+  },
+  "titleCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "documentTitle": "响应文件",
+      "requiredText": "响应文件"
+    }
+  },
+  "identityCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "projectName": "通用完整标书样例项目",
+      "purchaserName": "样例采购人",
+      "supplierName": "样例供应商"
+    }
+  },
+  "forbiddenWordsCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "hits": []
+    }
+  },
+  "assetCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "checked": 3
+    }
+  },
+  "sectionSelectionCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "disabled": []
+    }
+  },
+  "sectionCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "checked": 7
+    }
+  },
+  "docxOpenCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "entries": 26
+    }
+  },
+  "docxContentCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "checkedTextCount": 7,
+      "checkedAssetTitleCount": 3,
+      "checkedSectionCount": 7
+    }
+  },
+  "docxSectionOrderCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "checkedSectionCount": 25,
+      "orderedSectionIds": [
+        "supplier-and-authorized-representative",
+        "toc",
+        "quote-summary",
+        "quote-detail",
+        "legal-representative-id",
+        "authorization-letter",
+        "supplier-basic-info",
+        "qualification-documents",
+        "technical-solution",
+        "project-understanding",
+        "overall-architecture",
+        "core-business-flow",
+        "key-function-design",
+        "third-party-interface-boundary",
+        "data-security-operations",
+        "delivery-results",
+        "detailed-functions",
+        "function-parameter-response",
+        "supporting-equipment",
+        "implementation-plan",
+        "after-sales-plan",
+        "warranty-period",
+        "other-materials",
+        "contract-case-proof",
+        "backup-service"
+      ],
+      "missingSections": [],
+      "outOfOrderSections": [],
+      "unexpectedHeadings": [],
+      "positions": [
+        {
+          "sectionId": "supplier-and-authorized-representative",
+          "title": "供应商及授权代表页",
+          "headingIndex": 0
+        },
+        {
+          "sectionId": "toc",
+          "title": "目录",
+          "headingIndex": 1
+        },
+        {
+          "sectionId": "quote-summary",
+          "title": "一、报价一览表",
+          "headingIndex": 2
+        },
+        {
+          "sectionId": "quote-detail",
+          "title": "1-2 分项报价表",
+          "headingIndex": 3
+        },
+        {
+          "sectionId": "legal-representative-id",
+          "title": "二、法定代表人身份证明",
+          "headingIndex": 4
+        },
+        {
+          "sectionId": "authorization-letter",
+          "title": "三、法定代表人授权委托书",
+          "headingIndex": 5
+        },
+        {
+          "sectionId": "supplier-basic-info",
+          "title": "四、供应商基本情况表",
+          "headingIndex": 6
+        },
+        {
+          "sectionId": "qualification-documents",
+          "title": "五、供应商资格证明文件",
+          "headingIndex": 7
+        },
+        {
+          "sectionId": "technical-solution",
+          "title": "六、技术方案",
+          "headingIndex": 8
+        },
+        {
+          "sectionId": "project-understanding",
+          "title": "项目理解",
+          "headingIndex": 9
+        },
+        {
+          "sectionId": "overall-architecture",
+          "title": "总体架构",
+          "headingIndex": 10
+        },
+        {
+          "sectionId": "core-business-flow",
+          "title": "核心业务流程",
+          "headingIndex": 11
+        },
+        {
+          "sectionId": "key-function-design",
+          "title": "关键功能设计",
+          "headingIndex": 12
+        },
+        {
+          "sectionId": "third-party-interface-boundary",
+          "title": "第三方接口边界",
+          "headingIndex": 13
+        },
+        {
+          "sectionId": "data-security-operations",
+          "title": "数据安全与运维设计",
+          "headingIndex": 14
+        },
+        {
+          "sectionId": "delivery-results",
+          "title": "交付成果",
+          "headingIndex": 15
+        },
+        {
+          "sectionId": "detailed-functions",
+          "title": "详细功能介绍",
+          "headingIndex": 16
+        },
+        {
+          "sectionId": "function-parameter-response",
+          "title": "关键功能参数响应",
+          "headingIndex": 17
+        },
+        {
+          "sectionId": "supporting-equipment",
+          "title": "相关配套设备",
+          "headingIndex": 18
+        },
+        {
+          "sectionId": "implementation-plan",
+          "title": "七、项目实施方案",
+          "headingIndex": 19
+        },
+        {
+          "sectionId": "after-sales-plan",
+          "title": "八、产品售后方案",
+          "headingIndex": 20
+        },
+        {
+          "sectionId": "warranty-period",
+          "title": "九、质保期",
+          "headingIndex": 21
+        },
+        {
+          "sectionId": "other-materials",
+          "title": "十、其他材料",
+          "headingIndex": 22
+        },
+        {
+          "sectionId": "contract-case-proof",
+          "title": "合同案例证明",
+          "headingIndex": 23
+        },
+        {
+          "sectionId": "backup-service",
+          "title": "后备服务",
+          "headingIndex": 24
+        }
+      ],
+      "headingTexts": [
+        "供应商及授权代表页",
+        "目录",
+        "一、报价一览表",
+        "1-2 分项报价表",
+        "二、法定代表人身份证明",
+        "三、法定代表人授权委托书",
+        "四、供应商基本情况表",
+        "五、供应商资格证明文件",
+        "六、技术方案",
+        "项目理解",
+        "总体架构",
+        "核心业务流程",
+        "关键功能设计",
+        "第三方接口边界",
+        "数据安全与运维设计",
+        "交付成果",
+        "详细功能介绍",
+        "关键功能参数响应",
+        "相关配套设备",
+        "七、项目实施方案",
+        "八、产品售后方案",
+        "九、质保期",
+        "十、其他材料",
+        "合同案例证明",
+        "后备服务"
+      ]
+    }
+  },
+  "docxTableCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "tableCount": 11,
+      "checkedTables": [
+        "quote-summary",
+        "payment-terms",
+        "quote-detail",
+        "supplier-basic-info",
+        "overall-architecture",
+        "core-business-flow",
+        "key-function-design",
+        "third-party-interface-boundary",
+        "function-parameter-response",
+        "implementation-plan"
+      ],
+      "checkedTableCount": 10,
+      "missingTables": []
+    }
+  },
+  "docxQuoteIntegrityCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "quoteSummaryChecked": true,
+      "quoteDetailChecked": true,
+      "paymentTermsChecked": true,
+      "quoteSummaryTableCount": 2,
+      "quoteDetailTableCount": 1,
+      "checkedQuoteRowCount": 2,
+      "checkedPaymentTermCount": 2,
+      "missingQuoteSummaryFields": [],
+      "missingQuoteRows": [],
+      "missingPaymentRows": []
+    }
+  },
+  "docxLayoutCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "hasSectionProperties": true,
+      "hasA4PageSize": true,
+      "hasPortraitOrientation": true,
+      "hasStandardMargins": true,
+      "footerRelationshipCount": 1,
+      "hasPageNumberFooter": true
+    }
+  },
+  "docxTocCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "tocSectionEnabled": true,
+      "hasTocHeading": true,
+      "hasTocField": true,
+      "hasHeadingRange": true,
+      "hasHyperlinks": true,
+      "isMarkedDirty": true,
+      "headingCount": 25,
+      "tocInstruction": "TOC \\h \\o \"1-3\""
+    }
+  },
+  "docxStyleCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "checkedHeadingCount": 25,
+      "tableCount": 11,
+      "missingHeadingStyles": [],
+      "tableHeaderStyleFailures": []
+    }
+  },
+  "docxTechnicalDensityCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "technicalSectionEnabled": true,
+      "technicalStartIndex": 34,
+      "technicalEndIndex": 59,
+      "technicalBlockCount": 24,
+      "technicalTableCount": 5,
+      "expectedTableSectionIds": [
+        "overall-architecture",
+        "core-business-flow",
+        "key-function-design",
+        "third-party-interface-boundary",
+        "function-parameter-response"
+      ],
+      "expectedTableCount": 5,
+      "technicalImageReferenceCount": 1,
+      "expectedImageAssetCount": 1,
+      "maxParagraphLength": 260,
+      "longParagraphs": [],
+      "repeatedParagraphs": []
+    }
+  },
+  "docxPageBreakCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "pageBreakCount": 14,
+      "checkedBoundaries": [
+        "toc->quote-summary",
+        "quote-detail->legal-representative-id",
+        "supplier-basic-info->qualification-documents",
+        "qualification-documents->technical-solution",
+        "supporting-equipment->implementation-plan",
+        "implementation-plan->after-sales-plan",
+        "after-sales-plan->warranty-period",
+        "warranty-period->other-materials"
+      ],
+      "checkedBoundaryCount": 8,
+      "missingBoundaries": [],
+      "skippedBoundaries": []
+    }
+  },
+  "imageInsertionCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "mediaCount": 2,
+      "requiredCount": 3,
+      "referencedCount": 3,
+      "expectedImageAssetCount": 3,
+      "imageReferenceCount": 3,
+      "imageRelationshipCount": 3,
+      "missingImageRelationships": [],
+      "missingMediaTargets": []
+    }
+  },
+  "docxAssetPlacementCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "checkedAssetCount": 3,
+      "placements": [
+        {
+          "key": "qualification_scan",
+          "title": "资质证明扫描件",
+          "titleIndex": 28,
+          "imageIndex": 29,
+          "hasAdjacentImage": true,
+          "hasPageBreak": true
+        },
+        {
+          "key": "solution_screenshot",
+          "title": "系统或产品截图",
+          "titleIndex": 52,
+          "imageIndex": 53,
+          "hasAdjacentImage": true,
+          "hasPageBreak": true
+        },
+        {
+          "key": "contract_case_scan",
+          "title": "合同案例证明扫描件",
+          "titleIndex": 72,
+          "imageIndex": 73,
+          "hasAdjacentImage": true,
+          "hasPageBreak": true
+        }
+      ],
+      "missingAssetTitles": [],
+      "missingAdjacentImages": [],
+      "missingPageBreaks": []
+    }
+  },
+  "passed": true,
+  "errors": [],
+  "docxForbiddenWordsCheck": {
+    "passed": true,
+    "errors": [],
+    "details": {
+      "hits": []
+    }
+  },
+  "outputPath": "/Users/jack/code/099-github/jiangyang118/OpenBidKit_Yibiao/output/bid-document-samples/generic-response-sample.docx"
+}

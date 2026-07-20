@@ -1,0 +1,1088 @@
+{
+  "ok": true,
+  "template_id": "smart-canteen-response",
+  "available_template_ids": [
+    "smart-canteen-response",
+    "generic-response"
+  ],
+  "schema": {
+    "BidDocumentTemplate": {
+      "required": [
+        "id",
+        "name",
+        "documentTitle",
+        "industry",
+        "sections",
+        "requiredAssetKeys",
+        "validationProfile"
+      ],
+      "fields": {
+        "id": "string",
+        "name": "string",
+        "documentTitle": "string",
+        "industry": "string",
+        "sections": "BidDocumentSectionTemplate[]",
+        "requiredAssetKeys": "string[]",
+        "assetDefinitions": "optional BidDocumentAssetDefinition[]; requiredAssetKeys must be declared here when provided by a built-in or custom template",
+        "validationProfile": "BidDocumentValidationProfile"
+      }
+    },
+    "BidDocumentAssetDefinition": {
+      "required": [
+        "key",
+        "title",
+        "sectionId"
+      ],
+      "fields": {
+        "key": "string, unique within template.assetDefinitions",
+        "title": "string, default formal caption for this asset",
+        "sectionId": "string, must reference a template section",
+        "type": "optional image|scan|document; defaults to image in built-in templates",
+        "required": "optional boolean; default requirement used by generated assetMap examples"
+      },
+      "validationRules": [
+        "assetDefinitions[*].key must be unique and non-empty.",
+        "assetDefinitions[*].title and sectionId must not be empty.",
+        "assetDefinitions[*].sectionId must exist in template.sections.",
+        "Every key in template.requiredAssetKeys must have a matching assetDefinitions entry when assetDefinitions is supplied.",
+        "Asset definitions referenced by template.requiredAssetKeys cannot set required=false; requiredAssetKeys is authoritative for formal material collection."
+      ]
+    },
+    "BidDocumentSectionTemplate": {
+      "required": [
+        "id",
+        "title",
+        "level",
+        "required"
+      ],
+      "fields": {
+        "id": "string, unique within template",
+        "title": "string, unique within template and rendered as the Word heading",
+        "level": "number, 0-3; 0 is cover/toc-like non-heading, 1-3 map to Word Heading 1-3",
+        "required": "boolean; required sections cannot be disabled",
+        "parentId": "required for level 2/3 sections; must reference an existing direct parent that appears before the child"
+      },
+      "validationRules": [
+        "section.id must be unique and non-empty.",
+        "section.title must be unique and non-empty.",
+        "section.level must be an integer from 0 to 3.",
+        "level 2/3 sections must declare parentId.",
+        "parentId must reference an existing section whose level is exactly one less than the child level.",
+        "parent section must appear before child section in template.sections.",
+        "section parent chains must not contain cycles."
+      ]
+    },
+    "BidDocumentProjectData": {
+      "required": [
+        "templateId",
+        "projectName",
+        "purchaserName",
+        "supplierName",
+        "totalWithTax",
+        "totalWithoutTax",
+        "paymentTerms"
+      ],
+      "fields": {
+        "templateId": "string",
+        "projectName": "string",
+        "purchaserName": "string",
+        "supplierName": "string",
+        "totalWithTax": "number",
+        "totalWithoutTax": "number",
+        "taxPolicy": "object",
+        "paymentTerms": "BidDocumentPaymentTerm[]",
+        "disabledSectionIds": "string[]?"
+      }
+    },
+    "BidDocumentTaxPolicy": {
+      "required": [],
+      "fields": {
+        "description": "optional string; must not contain forbidden placeholder words",
+        "softwareHardwareRate": "optional number, for software/hardware tax rate such as 0.13",
+        "serviceRate": "optional number, for service tax rate such as 0.06",
+        "defaultRate": "optional number, fallback tax rate when no category-specific rate applies"
+      },
+      "validationRules": [
+        "Tax policy rate fields must be numbers between 0 and 1 when provided.",
+        "quoteItems with category software, hardware, or material must match softwareHardwareRate when both category and taxRate are provided.",
+        "quoteItems with category service must match serviceRate when both category and taxRate are provided.",
+        "quoteItems with category other must match defaultRate when defaultRate and taxRate are provided."
+      ]
+    },
+    "BidDocumentPaymentTerm": {
+      "required": [
+        "stage",
+        "ratio",
+        "text"
+      ],
+      "fields": {
+        "stage": "string, required, rendered in payment terms table and scanned for forbidden words",
+        "ratio": "number, required; all payment term ratios must sum to 100",
+        "text": "string, required, rendered in payment terms table and scanned for required/forbidden profile text"
+      },
+      "validationRules": [
+        "paymentTerms must be a non-empty array.",
+        "paymentTerms[*].stage and paymentTerms[*].text must not be empty.",
+        "paymentTerms[*].ratio must be a positive number.",
+        "all payment term ratios must sum to 100.",
+        "template validationProfile.paymentRequiredText must appear in stage+text when configured.",
+        "template validationProfile.paymentForbiddenText must not appear in stage+text when configured."
+      ]
+    },
+    "BidDocumentValidationProfile": {
+      "required": [
+        "requiredSectionIds"
+      ],
+      "fields": {
+        "requiredSectionIds": "non-empty string[]; every id must exist in template.sections and be marked required=true",
+        "quoteTotalWithTax": "optional number > 0; when set, project totalWithTax must match this value",
+        "requiredModels": "optional string[]; each listed model must appear in quoteItems.brandModel",
+        "paymentRequiredText": "optional non-empty string; must appear in paymentTerms stage+text",
+        "paymentForbiddenText": "optional non-empty string; must not appear in paymentTerms stage+text",
+        "requiredDocumentTitleText": "optional non-empty string; must appear in template.documentTitle/project title checks"
+      },
+      "validationRules": [
+        "requiredSectionIds must be a non-empty array with no empty or duplicate ids.",
+        "requiredSectionIds entries must exist in template.sections and those sections must be required=true.",
+        "quoteTotalWithTax, when configured, must be greater than 0.",
+        "requiredModels, when configured, must be an array with no empty or duplicate model names.",
+        "paymentRequiredText, paymentForbiddenText, and requiredDocumentTitleText must be non-empty when configured."
+      ]
+    },
+    "BidDocumentQuoteItem": {
+      "required": [
+        "name",
+        "quantity",
+        "brandModel",
+        "unitPriceWithTax",
+        "totalWithTax"
+      ],
+      "fields": {
+        "name": "string",
+        "quantity": "number",
+        "brandModel": "string",
+        "unitPriceWithTax": "number",
+        "totalWithTax": "number",
+        "taxRate": "number?",
+        "category": "software|hardware|service|material|other?"
+      },
+      "validationRules": [
+        "quantity, unitPriceWithTax, and totalWithTax must be positive numbers.",
+        "quantity * unitPriceWithTax must equal totalWithTax after currency rounding.",
+        "category, when provided, must be software|hardware|service|material|other.",
+        "taxRate, when provided, must be a number between 0 and 1 and match projectData.taxPolicy for its category."
+      ]
+    },
+    "BidDocumentAssetRef": {
+      "required": [
+        "key",
+        "title",
+        "filePath",
+        "type",
+        "required",
+        "sectionId"
+      ],
+      "fields": {
+        "key": "string",
+        "title": "string",
+        "filePath": "string",
+        "type": "image|scan|document; required formal proof materials must use image or scan",
+        "required": "boolean",
+        "sectionId": "string",
+        "templateId": "string?"
+      },
+      "validationRules": [
+        "assetMap.<key>.key must equal <key>.",
+        "assetMap.<key>.title and sectionId must not be empty.",
+        "assetMap.<key>.required must be a boolean; string values such as \"false\" are invalid and never used as requirement flags.",
+        "sectionId must exist in the selected template sections.",
+        "required assets, including keys listed in template.requiredAssetKeys, must use type=image or type=scan so they are inserted into Word as real pictures.",
+        "type=document is allowed only for optional original files; document assets are listed by filename and are not counted as embedded Word images."
+      ]
+    },
+    "BidDocumentBuildLog": {
+      "required": [
+        "passed",
+        "errors",
+        "templateCheck",
+        "quoteCheck",
+        "paymentCheck",
+        "titleCheck",
+        "identityCheck",
+        "forbiddenWordsCheck",
+        "assetCheck",
+        "sectionSelectionCheck",
+        "sectionCheck"
+      ],
+      "fields": {
+        "passed": "boolean",
+        "errors": "string[]",
+        "outputPath": "string?",
+        "templateCheck": "BidDocumentValidationResult",
+        "quoteCheck": "BidDocumentValidationResult",
+        "paymentCheck": "BidDocumentValidationResult",
+        "titleCheck": "BidDocumentValidationResult",
+        "identityCheck": "BidDocumentValidationResult",
+        "forbiddenWordsCheck": "BidDocumentValidationResult",
+        "assetCheck": "BidDocumentValidationResult",
+        "sectionSelectionCheck": "BidDocumentValidationResult",
+        "sectionCheck": "BidDocumentValidationResult",
+        "docxOpenCheck": "BidDocumentValidationResult",
+        "docxContentCheck": "BidDocumentValidationResult",
+        "docxSectionOrderCheck": "BidDocumentValidationResult",
+        "docxTableCheck": "BidDocumentValidationResult",
+        "docxQuoteIntegrityCheck": "BidDocumentValidationResult",
+        "docxLayoutCheck": "BidDocumentValidationResult",
+        "docxTocCheck": "BidDocumentValidationResult",
+        "docxStyleCheck": "BidDocumentValidationResult",
+        "docxTechnicalDensityCheck": "BidDocumentValidationResult",
+        "docxPageBreakCheck": "BidDocumentValidationResult",
+        "imageInsertionCheck": "BidDocumentValidationResult",
+        "docxAssetPlacementCheck": "BidDocumentValidationResult",
+        "docxForbiddenWordsCheck": "BidDocumentValidationResult",
+        "quoteResolutionCheck": "BidDocumentValidationResult"
+      },
+      "preflightCheckKeys": [
+        "templateCheck",
+        "quoteCheck",
+        "paymentCheck",
+        "titleCheck",
+        "identityCheck",
+        "forbiddenWordsCheck",
+        "assetCheck",
+        "sectionSelectionCheck",
+        "sectionCheck"
+      ],
+      "postGenerationCheckKeys": [
+        "docxOpenCheck",
+        "docxContentCheck",
+        "docxSectionOrderCheck",
+        "docxTableCheck",
+        "docxQuoteIntegrityCheck",
+        "docxLayoutCheck",
+        "docxTocCheck",
+        "docxStyleCheck",
+        "docxTechnicalDensityCheck",
+        "docxPageBreakCheck",
+        "imageInsertionCheck",
+        "docxAssetPlacementCheck",
+        "docxForbiddenWordsCheck"
+      ],
+      "importCheckKeys": [
+        "quoteResolutionCheck"
+      ],
+      "validationRules": [
+        "Preflight build logs always include every preflightCheckKeys entry.",
+        "When preflight fails, postGenerationCheckKeys entries remain present with errors=[\"not_run\"].",
+        "When a Word file is written, postGenerationCheckKeys entries contain the real generated-docx checks.",
+        "Import workflows may include importCheckKeys entries such as quoteResolutionCheck for material-package quote decisions.",
+        "The build fails when any BidDocumentValidationResult in either check group has passed=false."
+      ]
+    },
+    "BidDocumentReadinessReport": {
+      "required": [
+        "ready",
+        "templateId",
+        "projectName",
+        "purchaserName",
+        "supplierName",
+        "quoteTotal",
+        "targetTotal",
+        "quoteDifference",
+        "quoteReconciliation",
+        "quoteResolutionActions",
+        "assetPackage",
+        "assetInventory",
+        "blockers",
+        "missingAssets",
+        "checks",
+        "buildLog"
+      ],
+      "fields": {
+        "ready": "boolean; true only when buildLog.passed=true and no formal-build blockers remain",
+        "templateId": "string",
+        "projectName": "string",
+        "purchaserName": "string",
+        "supplierName": "string",
+        "quoteTotal": "number; sum of quoteItems.totalWithTax",
+        "targetTotal": "number; projectData.totalWithTax",
+        "quoteDifference": "number; targetTotal - quoteTotal",
+        "quoteReconciliation": "BidDocumentQuoteReconciliation",
+        "quoteResolutionActions": "BidDocumentQuoteResolutionAction[]",
+        "assetPackage": "object|null; sidecar/demo/material-package metadata preserved from project config",
+        "assetInventory": "BidDocumentAssetInventoryItem[]",
+        "blockers": "Record<string, string[]>; grouped formal-build blockers",
+        "missingAssets": "BidDocumentMissingAsset[]",
+        "checks": "BidDocumentReadinessCheckSummary[]",
+        "buildLog": "BidDocumentBuildLog"
+      },
+      "cliFieldAliases": {
+        "templateId": "template_id",
+        "projectName": "project_name",
+        "purchaserName": "purchaser_name",
+        "supplierName": "supplier_name",
+        "quoteTotal": "quote_total",
+        "targetTotal": "target_total",
+        "quoteDifference": "quote_difference",
+        "quoteReconciliation": "quote_reconciliation",
+        "quoteResolutionActions": "quote_resolution_actions",
+        "assetPackage": "asset_package",
+        "assetInventory": "asset_inventory",
+        "missingAssets": "missing_assets",
+        "buildLog": "build_log"
+      },
+      "validationRules": [
+        "Desktop reports use camelCase fields; CLI reports keep snake_case aliases for compatibility.",
+        "quoteDifference is positive when quoteItems total is lower than projectData.totalWithTax.",
+        "assetInventory includes only assets attached to enabled sections or unknown sections that must be fixed.",
+        "demoOnly asset packages must appear as demoAssets blockers and assetCheck errors.",
+        "checks entries are derived from BidDocumentBuildLog *Check fields and use status passed|failed|not_run."
+      ]
+    },
+    "BidDocumentQuoteReconciliation": {
+      "required": [
+        "items",
+        "quoteTotal",
+        "computedQuoteTotal",
+        "targetTotal",
+        "quoteDifference",
+        "rowDifferenceTotal"
+      ],
+      "fields": {
+        "items": "BidDocumentQuoteReconciliationItem[]",
+        "quoteTotal": "number; sum of declaredTotalWithTax",
+        "computedQuoteTotal": "number; sum of quantity * unitPriceWithTax",
+        "targetTotal": "number; projectData.totalWithTax",
+        "quoteDifference": "number; targetTotal - quoteTotal",
+        "rowDifferenceTotal": "number; sum of declaredTotalWithTax - computedTotalWithTax by row"
+      }
+    },
+    "BidDocumentQuoteReconciliationItem": {
+      "required": [
+        "index",
+        "name",
+        "brandModel",
+        "quantity",
+        "unitPriceWithTax",
+        "declaredTotalWithTax",
+        "computedTotalWithTax",
+        "difference",
+        "status"
+      ],
+      "fields": {
+        "index": "number, 1-based",
+        "name": "string",
+        "brandModel": "string",
+        "quantity": "number",
+        "unitPriceWithTax": "number",
+        "declaredTotalWithTax": "number",
+        "computedTotalWithTax": "number",
+        "difference": "number; declaredTotalWithTax - computedTotalWithTax",
+        "taxRate": "optional number|string",
+        "category": "optional string",
+        "status": "passed|failed"
+      }
+    },
+    "BidDocumentQuoteResolutionAction": {
+      "required": [
+        "key",
+        "title",
+        "action"
+      ],
+      "fields": {
+        "key": "confirm_project_total|add_confirmed_quote_item|correct_existing_quote_items",
+        "title": "string",
+        "action": "string; human action required before the generator changes formal quote data"
+      }
+    },
+    "BidDocumentAssetInventoryItem": {
+      "required": [
+        "key",
+        "title",
+        "sectionId",
+        "sectionTitle",
+        "required",
+        "type",
+        "filePath",
+        "status",
+        "suggestedFileName",
+        "collectionNote"
+      ],
+      "fields": {
+        "key": "string",
+        "title": "string",
+        "sectionId": "string",
+        "sectionTitle": "string",
+        "required": "boolean",
+        "type": "image|scan|document",
+        "filePath": "string",
+        "status": "present|demo_only|missing_required|missing_optional",
+        "suggestedFileName": "string",
+        "collectionNote": "string"
+      }
+    },
+    "BidDocumentMissingAsset": {
+      "required": [
+        "key",
+        "title",
+        "sectionId",
+        "required",
+        "filePath"
+      ],
+      "fields": {
+        "key": "string",
+        "title": "string",
+        "sectionId": "string",
+        "required": "boolean",
+        "filePath": "string"
+      }
+    },
+    "BidDocumentReadinessCheckSummary": {
+      "required": [
+        "key",
+        "passed",
+        "status",
+        "errors",
+        "details"
+      ],
+      "fields": {
+        "key": "string; a BidDocumentBuildLog *Check field name",
+        "passed": "boolean",
+        "status": "passed|failed|not_run",
+        "errors": "string[]",
+        "details": "object"
+      }
+    },
+    "BidDocumentValidationResult": {
+      "required": [
+        "passed",
+        "errors",
+        "details"
+      ],
+      "fields": {
+        "passed": "boolean",
+        "errors": "string[]; empty when passed=true, otherwise machine-readable or human-readable blocker strings",
+        "details": "object; check-specific counters, missing keys, totals, placements, or extracted docx facts"
+      }
+    }
+  },
+  "templates": [
+    {
+      "template": {
+        "id": "smart-canteen-response",
+        "name": "智慧食堂响应文件模板",
+        "documentTitle": "响应文件",
+        "industry": "智慧食堂",
+        "requiredAssetKeys": [
+          "business_license",
+          "iso9001",
+          "iso20000",
+          "iso27001",
+          "software_copyright",
+          "domestic_certificate",
+          "cnas_report",
+          "other_certificate",
+          "backend_platform_screenshot",
+          "dish_management_screenshot",
+          "statistics_report_screenshot",
+          "mobile_app_screenshot",
+          "weighing_device_image",
+          "binding_machine_image",
+          "dual_screen_pos_image",
+          "weighing_pos_image",
+          "tray_image",
+          "contract_case_scan"
+        ],
+        "assetDefinitions": [
+          {
+            "key": "business_license",
+            "title": "营业执照",
+            "sectionId": "supplier-basic-info",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "iso9001",
+            "title": "ISO9001 质量管理体系认证证书",
+            "sectionId": "supplier-basic-info",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "iso20000",
+            "title": "ISO20000 信息技术服务管理体系认证证书",
+            "sectionId": "supplier-basic-info",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "iso27001",
+            "title": "ISO27001 信息安全管理体系认证证书",
+            "sectionId": "supplier-basic-info",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "software_copyright",
+            "title": "智慧营养健康餐厅管理系统 V1.0 软件著作权证书",
+            "sectionId": "supplier-basic-info",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "domestic_certificate",
+            "title": "国产化证书",
+            "sectionId": "supplier-basic-info",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "cnas_report",
+            "title": "CNAS 检测报告",
+            "sectionId": "supplier-basic-info",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "other_certificate",
+            "title": "其他证书",
+            "sectionId": "supplier-basic-info",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "backend_platform_screenshot",
+            "title": "后台管理平台截图",
+            "sectionId": "technical-solution",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "dish_management_screenshot",
+            "title": "菜品管理界面截图",
+            "sectionId": "technical-solution",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "statistics_report_screenshot",
+            "title": "统计报表截图",
+            "sectionId": "technical-solution",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "mobile_app_screenshot",
+            "title": "移动端截图",
+            "sectionId": "technical-solution",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "weighing_device_image",
+            "title": "智能称重设备图片",
+            "sectionId": "technical-solution",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "binding_machine_image",
+            "title": "智能绑盘机图片",
+            "sectionId": "technical-solution",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "dual_screen_pos_image",
+            "title": "双屏消费机图片",
+            "sectionId": "technical-solution",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "weighing_pos_image",
+            "title": "称重消费机图片",
+            "sectionId": "technical-solution",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "tray_image",
+            "title": "托盘图片",
+            "sectionId": "technical-solution",
+            "type": "image",
+            "required": true
+          },
+          {
+            "key": "contract_case_scan",
+            "title": "合同案例证明扫描件",
+            "sectionId": "other-materials",
+            "type": "image",
+            "required": true
+          }
+        ],
+        "validationProfile": {
+          "quoteTotalWithTax": 135050,
+          "requiredModels": [
+            "康比特 CPT-Nutr-GMPLTF V2.0",
+            "康比特 CPT-Nutr-GMSC450-LITE",
+            "康比特 CPT-BP001",
+            "康比特 CPT-GMPOS200",
+            "康比特 CPT-CZSY280",
+            "康比特 CPT-FT248"
+          ],
+          "paymentRequiredText": "使用时间 12 个月后无质量问题",
+          "paymentForbiddenText": "使用时间 3 个月后无质量问题",
+          "requiredSectionIds": [
+            "quote-summary",
+            "supplier-basic-info",
+            "technical-solution",
+            "implementation-plan",
+            "after-sales-plan",
+            "warranty-period",
+            "other-materials"
+          ]
+        },
+        "sections": [
+          {
+            "id": "cover",
+            "title": "封面",
+            "level": 0,
+            "required": true
+          },
+          {
+            "id": "supplier-and-authorized-representative",
+            "title": "供应商及授权代表页",
+            "level": 1,
+            "required": true
+          },
+          {
+            "id": "toc",
+            "title": "目录",
+            "level": 0,
+            "required": true
+          },
+          {
+            "id": "quote-summary",
+            "title": "一、报价一览表",
+            "level": 1,
+            "required": true
+          },
+          {
+            "id": "quote-detail",
+            "title": "1-2 分项报价表",
+            "level": 2,
+            "required": true,
+            "parentId": "quote-summary"
+          },
+          {
+            "id": "legal-representative-id",
+            "title": "二、法定代表人身份证明",
+            "level": 1,
+            "required": true
+          },
+          {
+            "id": "authorization-letter",
+            "title": "三、法定代表人授权委托书",
+            "level": 1,
+            "required": true
+          },
+          {
+            "id": "supplier-basic-info",
+            "title": "四、供应商基本情况表",
+            "level": 1,
+            "required": true
+          },
+          {
+            "id": "qualification-documents",
+            "title": "五、供应商资格证明文件",
+            "level": 1,
+            "required": true
+          },
+          {
+            "id": "technical-solution",
+            "title": "六、技术方案",
+            "level": 1,
+            "required": true
+          },
+          {
+            "id": "project-understanding",
+            "title": "项目理解",
+            "level": 2,
+            "required": true,
+            "parentId": "technical-solution"
+          },
+          {
+            "id": "overall-architecture",
+            "title": "总体架构",
+            "level": 2,
+            "required": true,
+            "parentId": "technical-solution"
+          },
+          {
+            "id": "core-business-flow",
+            "title": "核心业务流程",
+            "level": 2,
+            "required": true,
+            "parentId": "technical-solution"
+          },
+          {
+            "id": "key-function-design",
+            "title": "关键功能设计",
+            "level": 2,
+            "required": true,
+            "parentId": "technical-solution"
+          },
+          {
+            "id": "third-party-interface-boundary",
+            "title": "第三方接口边界",
+            "level": 2,
+            "required": true,
+            "parentId": "technical-solution"
+          },
+          {
+            "id": "data-security-operations",
+            "title": "数据安全与运维设计",
+            "level": 2,
+            "required": true,
+            "parentId": "technical-solution"
+          },
+          {
+            "id": "delivery-results",
+            "title": "交付成果",
+            "level": 2,
+            "required": true,
+            "parentId": "technical-solution"
+          },
+          {
+            "id": "detailed-functions",
+            "title": "详细功能介绍",
+            "level": 2,
+            "required": true,
+            "parentId": "technical-solution"
+          },
+          {
+            "id": "function-parameter-response",
+            "title": "关键功能参数响应",
+            "level": 2,
+            "required": true,
+            "parentId": "technical-solution"
+          },
+          {
+            "id": "supporting-equipment",
+            "title": "相关配套设备",
+            "level": 2,
+            "required": true,
+            "parentId": "technical-solution"
+          },
+          {
+            "id": "implementation-plan",
+            "title": "七、项目实施方案",
+            "level": 1,
+            "required": true
+          },
+          {
+            "id": "after-sales-plan",
+            "title": "八、产品售后方案",
+            "level": 1,
+            "required": true
+          },
+          {
+            "id": "warranty-period",
+            "title": "九、质保期",
+            "level": 1,
+            "required": true
+          },
+          {
+            "id": "other-materials",
+            "title": "十、其他材料",
+            "level": 1,
+            "required": true
+          },
+          {
+            "id": "contract-case-proof",
+            "title": "合同案例证明",
+            "level": 2,
+            "required": true,
+            "parentId": "other-materials"
+          },
+          {
+            "id": "backup-service",
+            "title": "后备服务",
+            "level": 2,
+            "required": true,
+            "parentId": "other-materials"
+          }
+        ],
+        "contentProfileKeys": [
+          "qualificationSummary",
+          "projectUnderstanding",
+          "architectureRows",
+          "flowRows",
+          "keyFunctionRows",
+          "interfaceRows",
+          "dataSecurityText",
+          "deliveryResultsText",
+          "detailedFunctionsIntro",
+          "supportingEquipmentText"
+        ]
+      },
+      "sample_project_data": {
+        "templateId": "smart-canteen-response",
+        "projectName": "智慧餐厅称重系统改造",
+        "purchaserName": "北京蓝色港湾科技有限责任公司",
+        "supplierName": "北京康比特体育科技股份有限公司",
+        "totalWithTax": 135050,
+        "totalWithoutTax": 119630.15,
+        "taxPolicy": {
+          "softwareHardwareRate": 0.13,
+          "serviceRate": 0.06
+        },
+        "paymentTerms": [
+          {
+            "stage": "设备到现场",
+            "ratio": 30,
+            "text": "设备到现场支付合同总价款的 30%。"
+          },
+          {
+            "stage": "设备调试合格",
+            "ratio": 20,
+            "text": "设备调试合格后支付合同总价款的 20%。"
+          },
+          {
+            "stage": "使用 12 个月",
+            "ratio": 45,
+            "text": "使用时间 12 个月后无质量问题，支付总价款的 45%。"
+          },
+          {
+            "stage": "质保期结束",
+            "ratio": 5,
+            "text": "质保期结束，无质量问题 10 日内支付总价款的 5% 质保金。"
+          }
+        ]
+      },
+      "sample_quote_items": [
+        {
+          "name": "智慧食堂管理系统含手机端",
+          "quantity": 1,
+          "brandModel": "康比特 CPT-Nutr-GMPLTF V2.0",
+          "unitPriceWithTax": 15000,
+          "totalWithTax": 15000,
+          "taxRate": 0.13,
+          "category": "software"
+        },
+        {
+          "name": "智能称重设备",
+          "quantity": 30,
+          "brandModel": "康比特 CPT-Nutr-GMSC450-LITE",
+          "unitPriceWithTax": 3000,
+          "totalWithTax": 90000,
+          "taxRate": 0.13,
+          "category": "hardware"
+        },
+        {
+          "name": "智能绑盘机",
+          "quantity": 1,
+          "brandModel": "康比特 CPT-BP001",
+          "unitPriceWithTax": 4300,
+          "totalWithTax": 4300,
+          "taxRate": 0.13,
+          "category": "hardware"
+        },
+        {
+          "name": "双屏消费机",
+          "quantity": 3,
+          "brandModel": "康比特 CPT-GMPOS200",
+          "unitPriceWithTax": 3650,
+          "totalWithTax": 10950,
+          "taxRate": 0.13,
+          "category": "hardware"
+        },
+        {
+          "name": "称重消费机",
+          "quantity": 1,
+          "brandModel": "康比特 CPT-CZSY280",
+          "unitPriceWithTax": 4000,
+          "totalWithTax": 4000,
+          "taxRate": 0.13,
+          "category": "hardware"
+        },
+        {
+          "name": "托盘",
+          "quantity": 400,
+          "brandModel": "康比特 CPT-FT248",
+          "unitPriceWithTax": 22,
+          "totalWithTax": 8800,
+          "taxRate": 0.13,
+          "category": "material"
+        }
+      ],
+      "asset_mapping_example": {
+        "business_license": {
+          "key": "business_license",
+          "title": "营业执照",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "supplier-basic-info",
+          "templateId": "smart-canteen-response"
+        },
+        "iso9001": {
+          "key": "iso9001",
+          "title": "ISO9001 质量管理体系认证证书",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "supplier-basic-info",
+          "templateId": "smart-canteen-response"
+        },
+        "iso20000": {
+          "key": "iso20000",
+          "title": "ISO20000 信息技术服务管理体系认证证书",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "supplier-basic-info",
+          "templateId": "smart-canteen-response"
+        },
+        "iso27001": {
+          "key": "iso27001",
+          "title": "ISO27001 信息安全管理体系认证证书",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "supplier-basic-info",
+          "templateId": "smart-canteen-response"
+        },
+        "software_copyright": {
+          "key": "software_copyright",
+          "title": "智慧营养健康餐厅管理系统 V1.0 软件著作权证书",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "supplier-basic-info",
+          "templateId": "smart-canteen-response"
+        },
+        "domestic_certificate": {
+          "key": "domestic_certificate",
+          "title": "国产化证书",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "supplier-basic-info",
+          "templateId": "smart-canteen-response"
+        },
+        "cnas_report": {
+          "key": "cnas_report",
+          "title": "CNAS 检测报告",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "supplier-basic-info",
+          "templateId": "smart-canteen-response"
+        },
+        "other_certificate": {
+          "key": "other_certificate",
+          "title": "其他证书",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "supplier-basic-info",
+          "templateId": "smart-canteen-response"
+        },
+        "backend_platform_screenshot": {
+          "key": "backend_platform_screenshot",
+          "title": "后台管理平台截图",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "technical-solution",
+          "templateId": "smart-canteen-response"
+        },
+        "dish_management_screenshot": {
+          "key": "dish_management_screenshot",
+          "title": "菜品管理界面截图",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "technical-solution",
+          "templateId": "smart-canteen-response"
+        },
+        "statistics_report_screenshot": {
+          "key": "statistics_report_screenshot",
+          "title": "统计报表截图",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "technical-solution",
+          "templateId": "smart-canteen-response"
+        },
+        "mobile_app_screenshot": {
+          "key": "mobile_app_screenshot",
+          "title": "移动端截图",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "technical-solution",
+          "templateId": "smart-canteen-response"
+        },
+        "weighing_device_image": {
+          "key": "weighing_device_image",
+          "title": "智能称重设备图片",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "technical-solution",
+          "templateId": "smart-canteen-response"
+        },
+        "binding_machine_image": {
+          "key": "binding_machine_image",
+          "title": "智能绑盘机图片",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "technical-solution",
+          "templateId": "smart-canteen-response"
+        },
+        "dual_screen_pos_image": {
+          "key": "dual_screen_pos_image",
+          "title": "双屏消费机图片",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "technical-solution",
+          "templateId": "smart-canteen-response"
+        },
+        "weighing_pos_image": {
+          "key": "weighing_pos_image",
+          "title": "称重消费机图片",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "technical-solution",
+          "templateId": "smart-canteen-response"
+        },
+        "tray_image": {
+          "key": "tray_image",
+          "title": "托盘图片",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "technical-solution",
+          "templateId": "smart-canteen-response"
+        },
+        "contract_case_scan": {
+          "key": "contract_case_scan",
+          "title": "合同案例证明扫描件",
+          "filePath": "",
+          "type": "image",
+          "required": true,
+          "sectionId": "other-materials",
+          "templateId": "smart-canteen-response"
+        }
+      },
+      "section_count": 26,
+      "required_asset_count": 18
+    }
+  ]
+}

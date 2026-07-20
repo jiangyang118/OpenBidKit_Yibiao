@@ -6,6 +6,7 @@ import { getPageLabel, pageLabels } from '../public/src/pageLabels.js';
 test('dashboard labels cover new product and developer pages', () => {
   const expectedLabels = {
     'business-bid': '商务标',
+    'bid-document': '完整标书生成',
     'image-knowledge-base': '图片知识库',
     'ai-evaluation': 'AI评标',
     'bid-opportunity': '投标机会',

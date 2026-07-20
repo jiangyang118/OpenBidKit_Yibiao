@@ -1,4 +1,5 @@
 const { getBidAnalysisTasks } = require('./bidAnalysisTask.cjs');
+const { getMatureBidOutlineRules } = require('./bidWritingGuide.cjs');
 
 function formatSuggestions(suggestions) {
   if (!suggestions?.length) return '';
@@ -61,6 +62,8 @@ const KNOWLEDGE_RELEVANCE_KEYWORDS = [
   '智慧食堂',
   '智慧餐厅',
   '称重',
+  '称重台',
+  '称重结算',
   '消费机',
   '绑盘',
   '托盘',
@@ -72,6 +75,37 @@ const KNOWLEDGE_RELEVANCE_KEYWORDS = [
   '报表',
   '库存',
   '进销存',
+  '商务',
+  '商务响应',
+  '报价',
+  '合同',
+  '投标函',
+  '资格',
+  '资信',
+  '资质',
+  '公司资质',
+  '人员资质',
+  '团队',
+  '项目经理',
+  '人员证书',
+  '团队证书',
+  '证书',
+  '检测报告',
+  '检验报告',
+  '测试报告',
+  '报告正文',
+  'CNAS',
+  'CMA',
+  '软件著作权',
+  '专利',
+  '公章',
+  '盖章证明',
+  '厂家证明',
+  '功能证明',
+  '承诺函',
+  '产品彩页',
+  '产品图片',
+  '功能截图',
   '售后',
   '培训',
   '实施',
@@ -82,6 +116,8 @@ const KNOWLEDGE_RELEVANCE_KEYWORDS = [
   '门禁',
   '停车',
 ];
+
+const MATURE_BID_OUTLINE_RULES = getMatureBidOutlineRules();
 
 function truncateText(value, maxLength) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -234,16 +270,20 @@ function selectKnowledgeItemsForOutlinePrompt(knowledgeItems, payload, outline) 
 }
 
 function outlineSystemPrompt() {
-  return `你是一个专业的标书编写专家。根据提供的项目概述和技术评分要求，生成投标文件中技术标部分的目录结构。
+  return `你是一个专业的标书编写专家。根据提供的项目概述和技术评分要求，生成投标文件中技术方案与商务响应一体化的目录结构。
 如果用户提供了自己编写的目录，你要保证目录满足技术评分要求，并充分结合用户自己编写的目录。
 
 要求：
-1. 目录结构要全面覆盖技术标的所有必要章节
+1. 目录结构要全面覆盖投标文件的技术、商务、资质、证明材料和附件章节
 2. 章节名称要专业、准确，符合投标文件规范
 3. 一级目录名称要与技术评分要求中的章节名称一致；如果技术评分要求中没有明确章节名称，则结合内容总结一级目录名称
 4. 一共包括三级目录
 5. 返回标准 JSON 格式，包含章节编号、标题、描述和子章节
-6. 除了 JSON 结果外，不要输出任何其他内容
+6. 目录应吸收成熟智慧食堂投标/解决方案写法：先项目理解与现状分析，再总体方案、系统架构、软硬件组成、全场景功能、部署安全、接口对接、数据报表、实施售后和证明材料；不要只按评分点机械罗列
+7. 对适合图文说明的章节，在 description 中明确提示应匹配后台截图、手机端截图、消费终端界面、称重/绑盘设备图、架构图、报表图、检测报告正文、证书或盖章证明附件
+8. 除了 JSON 结果外，不要输出任何其他内容
+
+${MATURE_BID_OUTLINE_RULES}
 
 JSON 格式要求：
 {
@@ -272,7 +312,7 @@ JSON 格式要求：
 }
 
 function topLevelOutlineSystemPrompt() {
-  return `你是一个专业的标书编写专家。根据提供的项目概述和技术评分要求，生成投标文件中技术标部分的一级目录结构。
+  return `你是一个专业的标书编写专家。根据提供的项目概述和技术评分要求，生成投标文件中技术方案与商务响应一体化的一级目录结构。
 如果用户提供了自己编写的目录，你要保证一级目录满足技术评分要求，并充分结合用户自己编写的目录。
 
 要求：
@@ -280,7 +320,10 @@ function topLevelOutlineSystemPrompt() {
 2. 一级目录名称要专业、准确，符合投标文件规范
 3. 一级目录名称要尽量与技术评分要求中的章节名称一致；如果技术评分要求中没有明确章节名称，则结合内容总结一级目录名称
 4. 返回标准 JSON 格式，使用 outline 字段，每个一级目录必须包含 id、title、description
-5. 除了 JSON 结果外，不要输出任何其他内容
+5. 一级目录应覆盖成熟智慧食堂方案常见主线：项目理解与现状、总体架构与软硬件组成、业务场景功能、部署安全与接口对接、实施培训售后、证明材料与附件；若评分项已有固定名称，应在不改变评分覆盖的前提下吸收这些内容
+6. 除了 JSON 结果外，不要输出任何其他内容
+
+${MATURE_BID_OUTLINE_RULES}
 
 JSON 格式要求：
 {
@@ -295,14 +338,16 @@ JSON 格式要求：
 }
 
 function readExpandOutlinePrompt() {
-  return `你是一个专业的标书编写专家。请严格基于用户提交的标书技术方案原文完成目录提取任务。
+  return `你是一个专业的标书编写专家。请严格基于用户提交的标书方案原文完成目录提取任务。
 
 要求：
-1. 目录结构要全面覆盖技术标的所有必要目录，包含多级目录
-2. 如果技术方案中有章节名称，则直接使用技术方案中的章节名称
-3. 如果技术方案中没有章节名称，则结合全文，总结出章节名称
+1. 目录结构要全面覆盖技术、商务、资质、证明材料和附件目录，包含多级目录
+2. 如果原方案中有章节名称，则直接使用原方案中的章节名称
+3. 如果原方案中没有章节名称，则结合全文，总结出章节名称
 4. 返回标准 JSON 格式，包含章节编号、标题、描述和子章节，注意编号要连贯
 5. 除了 JSON 结果外，不要输出任何其他内容
+
+${MATURE_BID_OUTLINE_RULES}
 
 JSON 格式要求：
 {
@@ -333,8 +378,8 @@ JSON 格式要求：
 function buildExpandOutlineMessages(fileContent) {
   return [
     { role: 'system', content: readExpandOutlinePrompt() },
-    { role: 'user', content: `以下是完整技术方案全文，请先完整阅读，并仅基于原文完成后续任务：\n\n${fileContent}` },
-    { role: 'user', content: '请从上述技术方案中提取完整目录结构，确保覆盖技术标的所有必要目录，并按要求返回标准 JSON。' },
+    { role: 'user', content: `以下是完整方案全文，请先完整阅读，并仅基于原文完成后续任务：\n\n${fileContent}` },
+    { role: 'user', content: '请从上述方案中提取完整目录结构，确保覆盖技术、商务、资质、证明材料和附件目录，并按要求返回标准 JSON。' },
   ];
 }
 
@@ -346,7 +391,7 @@ function generateOutlineMessages({ overview, requirements, oldOutline, suggestio
       { role: 'user', content: `项目概述：\n${overview}` },
       { role: 'user', content: `技术评分要求：\n${requirements}` },
       { role: 'user', content: `用户自己编写的目录：\n${formattedOldOutline}` },
-      { role: 'user', content: `请在满足技术评分要求的前提下，充分结合用户自己编写的目录，生成完整的技术标目录结构。${formatSuggestions(suggestions)}` },
+      { role: 'user', content: `请在满足技术评分要求的前提下，充分结合用户自己编写的目录，生成完整的投标材料目录结构。${formatSuggestions(suggestions)}` },
     ];
   }
 
@@ -354,7 +399,7 @@ function generateOutlineMessages({ overview, requirements, oldOutline, suggestio
     { role: 'system', content: outlineSystemPrompt() },
     { role: 'user', content: `项目概述：\n${overview}` },
     { role: 'user', content: `技术评分要求：\n${requirements}` },
-    { role: 'user', content: `请生成完整的技术标目录结构，确保覆盖所有技术评分要点。${formatSuggestions(suggestions)}` },
+    { role: 'user', content: `请生成完整的投标材料目录结构，确保覆盖所有技术评分要点，并补足商务、资质、证明材料和附件目录。${formatSuggestions(suggestions)}` },
   ];
 }
 
@@ -382,13 +427,15 @@ function extractRequirementGroupsMessages(requirements, suggestions) {
   const systemPrompt = `你是一个专业的招标文件分析专家。请从技术评分要求中提取适合作为技术标一级目录的评分大类。
 
 要求：
-1. 只提取技术评分大类，不要提取商务、报价、资质等非技术类条目
+1. 只提取技术评分大类；但如果商务服务、资质证明、图文证据、检测报告、团队人员或售后承诺本身属于技术评分证据，不要排除
 2. 每个大类都必须适合作为技术标一级目录标题，标题要专业、简洁、完整
 3. 同一大类下的细项、子项、分值说明、评分标准要归入 detail_points，不要拆成多个一级目录
 4. requirement_id 必须唯一，使用 R1、R2、R3 这种格式
 5. description 需要概括该大类关注的核心内容
 6. detail_points 中保留该大类下的关键评分细项，使用简洁短句
 7. 只返回 JSON，格式必须为 {"groups": [...]}，不要输出任何其他内容
+
+${MATURE_BID_OUTLINE_RULES}
 
 JSON 格式要求：
 {
@@ -422,7 +469,11 @@ function generateAlignedChildrenMessages({ overview, requirements, parentItem, g
 2. 只输出当前一级目录下的二级和三级目录，不要重复输出一级目录本身
 3. 二级和三级目录要覆盖当前技术评分大类及其细项，不能越界写入其他评分大类内容
 4. 返回标准 JSON，格式为 {"children": [...]}，每个节点必须包含 id、title、description
-5. 除了 JSON 结果外，不要输出任何其他内容
+5. 生成子目录时学习成熟竞品方案的展开方式：功能类目录按业务场景、管理对象、操作流程、界面截图、数据报表和验收证明拆分；架构类目录按总体架构、部署拓扑、软硬件组成、接口对接、安全控制和运维保障拆分；证明类目录按报告正文、证书附件、盖章文件、团队证书和产品图片拆分
+6. 对需要图文支撑的小节，在 description 里写明应匹配哪类真实素材，例如后台截图、移动端截图、终端界面、设备图片、架构图、报表图、检测报告正文或证书附件
+7. 除了 JSON 结果外，不要输出任何其他内容
+
+${MATURE_BID_OUTLINE_RULES}
 
 ${childrenOutlineStructureRules(parentItem.id)}`;
   const messages = [
@@ -448,7 +499,11 @@ function generateChildrenMessages({ overview, requirements, parentItem, oldOutli
 要求：
 1. 只输出当前一级目录下的二级和三级目录，不要重复输出一级目录本身
 2. 返回标准 JSON，格式为 {"children": [...]}，每个节点必须包含 id、title、description
-3. 除了 JSON 结果外，不要输出任何其他内容
+3. 子目录应学习成熟智慧食堂方案写法：功能章节要覆盖业务场景、后台/手机端/终端操作界面、设备协同、数据报表和证明材料；架构章节要覆盖总体架构、部署拓扑、软硬件组成、接口对接、安全控制和运维保障
+4. 对适合配图的小节，在 description 里提示需要匹配真实截图、设备图、架构图、报表图、检测报告正文或证书附件
+5. 除了 JSON 结果外，不要输出任何其他内容
+
+${MATURE_BID_OUTLINE_RULES}
 
 ${childrenOutlineStructureRules(parentItem.id)}`;
   const messages = [
@@ -513,9 +568,11 @@ function reviewOutlineMessages({ overview, requirements, outline }) {
 1. 重点检查目录是否完整覆盖技术评分要点
 2. 检查一级目录名称是否专业、准确，是否尽量与评分项原文保持一致
 3. 检查目录层级是否清晰，是否达到三级目录要求，是否存在明显遗漏、错位、重复或不合理章节
-4. 只返回 JSON，格式为：{"passed": true, "suggestions": []}
-5. 若不通过，suggestions 中必须给出具体、可执行的修改建议
-6. 除了 JSON 外，不要输出任何其他内容`;
+4. 检查是否覆盖商务响应、资质证明、检测报告正文、产品图片、功能截图、团队人员证书和附件装订要求；如果缺失，必须判定不通过并给出补充建议
+5. 检查目录标题和描述是否出现“AI”“原始素材引用”“导入来源”“免费二次开发”“软件免费升级”等禁用表达；如出现必须判定不通过
+6. 只返回 JSON，格式为：{"passed": true, "suggestions": []}
+7. 若不通过，suggestions 中必须给出具体、可执行的修改建议
+8. 除了 JSON 外，不要输出任何其他内容`;
   return [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: `项目概述：\n${overview}` },
@@ -533,9 +590,11 @@ function reviewAlignedOutlineMessages({ overview, requirements, groups, outline 
 2. 不允许缺失技术评分大类，也不允许新增、合并、改写一级目录
 3. 二级和三级目录要围绕各自对应的技术评分大类与细项展开，避免错位、遗漏和明显重复
 4. 检查完整目录是否层级清晰，整体是否达到三级目录要求
-5. 只返回 JSON，格式为：{"passed": true, "suggestions": []}
-6. 若不通过，suggestions 中必须给出具体、可执行的修改建议，重点说明哪个评分大类覆盖不足或结构不合理
-7. 除了 JSON 外，不要输出任何其他内容`;
+5. 检查商务响应、资质证明、检测报告正文、产品图片、功能截图、团队人员证书和附件装订要求是否已作为二级或三级目录纳入对应评分大类；如果缺失，必须给出补充建议
+6. 检查目录标题和描述是否出现“AI”“原始素材引用”“导入来源”“免费二次开发”“软件免费升级”等禁用表达；如出现必须判定不通过
+7. 只返回 JSON，格式为：{"passed": true, "suggestions": []}
+8. 若不通过，suggestions 中必须给出具体、可执行的修改建议，重点说明哪个评分大类覆盖不足或结构不合理
+9. 除了 JSON 外，不要输出任何其他内容`;
   return [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: `项目概述：\n${overview}` },
@@ -560,6 +619,8 @@ function generateKnowledgeAdditionMessages({ overview, requirements, outline, kn
 6. 不要重复已有三级目录，也不要输出同义重复目录
 7. 如果没有确实需要补充的三级目录，返回空 additions 数组
 8. 只返回 JSON，不要输出解释文字
+
+${MATURE_BID_OUTLINE_RULES}
 
 返回格式：
 {

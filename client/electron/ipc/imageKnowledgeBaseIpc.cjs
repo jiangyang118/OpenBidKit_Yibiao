@@ -4,6 +4,7 @@ function registerImageKnowledgeBaseIpc({ imageKnowledgeBaseStore }) {
   ipcMain.handle('image-knowledge-base:list', (_event, query) => imageKnowledgeBaseStore.list(query));
   ipcMain.handle('image-knowledge-base:upload-images', () => imageKnowledgeBaseStore.uploadImages());
   ipcMain.handle('image-knowledge-base:import-historical-archives', (_event, section) => imageKnowledgeBaseStore.importHistoricalArchives(section));
+  ipcMain.handle('image-knowledge-base:import-categorized-archives', () => imageKnowledgeBaseStore.importCategorizedArchives());
   ipcMain.handle('image-knowledge-base:update-asset', (_event, id, patch) => imageKnowledgeBaseStore.updateAsset(id, patch));
   ipcMain.handle('image-knowledge-base:batch-update-assets', (_event, payload) => imageKnowledgeBaseStore.batchUpdateAssets(payload));
   ipcMain.handle('image-knowledge-base:rename-tag', (_event, oldTag, newTag) => imageKnowledgeBaseStore.renameTag(oldTag, newTag));

@@ -1,0 +1,264 @@
+{
+  "version": 1,
+  "templateId": "smart-canteen-response",
+  "projectData": {
+    "templateId": "smart-canteen-response",
+    "projectName": "智慧餐厅称重系统改造",
+    "purchaserName": "北京蓝色港湾科技有限责任公司",
+    "supplierName": "北京康比特体育科技股份有限公司",
+    "totalWithTax": 135050,
+    "totalWithoutTax": 119630.15,
+    "taxPolicy": {
+      "softwareHardwareRate": 0.13,
+      "serviceRate": 0.06
+    },
+    "paymentTerms": [
+      {
+        "stage": "设备到现场",
+        "ratio": 30,
+        "text": "设备到现场支付合同总价款的 30%。"
+      },
+      {
+        "stage": "设备调试合格",
+        "ratio": 20,
+        "text": "设备调试合格后支付合同总价款的 20%。"
+      },
+      {
+        "stage": "使用 12 个月",
+        "ratio": 45,
+        "text": "使用时间 12 个月后无质量问题，支付总价款的 45%。"
+      },
+      {
+        "stage": "质保期结束",
+        "ratio": 5,
+        "text": "质保期结束，无质量问题 10 日内支付总价款的 5% 质保金。"
+      }
+    ]
+  },
+  "quoteItems": [
+    {
+      "name": "智慧食堂管理系统含手机端",
+      "quantity": 1,
+      "brandModel": "康比特 CPT-Nutr-GMPLTF V2.0",
+      "unitPriceWithTax": 15000,
+      "totalWithTax": 15000,
+      "taxRate": 0.13,
+      "category": "software"
+    },
+    {
+      "name": "智能称重设备",
+      "quantity": 30,
+      "brandModel": "康比特 CPT-Nutr-GMSC450-LITE",
+      "unitPriceWithTax": 3000,
+      "totalWithTax": 90000,
+      "taxRate": 0.13,
+      "category": "hardware"
+    },
+    {
+      "name": "智能绑盘机",
+      "quantity": 1,
+      "brandModel": "康比特 CPT-BP001",
+      "unitPriceWithTax": 4300,
+      "totalWithTax": 4300,
+      "taxRate": 0.13,
+      "category": "hardware"
+    },
+    {
+      "name": "双屏消费机",
+      "quantity": 3,
+      "brandModel": "康比特 CPT-GMPOS200",
+      "unitPriceWithTax": 3650,
+      "totalWithTax": 10950,
+      "taxRate": 0.13,
+      "category": "hardware"
+    },
+    {
+      "name": "称重消费机",
+      "quantity": 1,
+      "brandModel": "康比特 CPT-CZSY280",
+      "unitPriceWithTax": 4000,
+      "totalWithTax": 4000,
+      "taxRate": 0.13,
+      "category": "hardware"
+    },
+    {
+      "name": "托盘",
+      "quantity": 400,
+      "brandModel": "康比特 CPT-FT248",
+      "unitPriceWithTax": 22,
+      "totalWithTax": 8800,
+      "taxRate": 0.13,
+      "category": "material"
+    }
+  ],
+  "assetMap": {
+    "business_license": {
+      "key": "business_license",
+      "title": "营业执照",
+      "filePath": "./smart-canteen-init-config.assets/business_license.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "iso9001": {
+      "key": "iso9001",
+      "title": "ISO9001 质量管理体系认证证书",
+      "filePath": "./smart-canteen-init-config.assets/iso9001.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "iso20000": {
+      "key": "iso20000",
+      "title": "ISO20000 信息技术服务管理体系认证证书",
+      "filePath": "./smart-canteen-init-config.assets/iso20000.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "iso27001": {
+      "key": "iso27001",
+      "title": "ISO27001 信息安全管理体系认证证书",
+      "filePath": "./smart-canteen-init-config.assets/iso27001.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "software_copyright": {
+      "key": "software_copyright",
+      "title": "智慧营养健康餐厅管理系统 V1.0 软件著作权证书",
+      "filePath": "./smart-canteen-init-config.assets/software_copyright.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "domestic_certificate": {
+      "key": "domestic_certificate",
+      "title": "国产化证书",
+      "filePath": "./smart-canteen-init-config.assets/domestic_certificate.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "cnas_report": {
+      "key": "cnas_report",
+      "title": "CNAS 检测报告",
+      "filePath": "./smart-canteen-init-config.assets/cnas_report.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "other_certificate": {
+      "key": "other_certificate",
+      "title": "其他证书",
+      "filePath": "./smart-canteen-init-config.assets/other_certificate.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "supplier-basic-info",
+      "templateId": "smart-canteen-response"
+    },
+    "backend_platform_screenshot": {
+      "key": "backend_platform_screenshot",
+      "title": "后台管理平台截图",
+      "filePath": "./smart-canteen-init-config.assets/backend_platform_screenshot.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "dish_management_screenshot": {
+      "key": "dish_management_screenshot",
+      "title": "菜品管理界面截图",
+      "filePath": "./smart-canteen-init-config.assets/dish_management_screenshot.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "statistics_report_screenshot": {
+      "key": "statistics_report_screenshot",
+      "title": "统计报表截图",
+      "filePath": "./smart-canteen-init-config.assets/statistics_report_screenshot.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "mobile_app_screenshot": {
+      "key": "mobile_app_screenshot",
+      "title": "移动端截图",
+      "filePath": "./smart-canteen-init-config.assets/mobile_app_screenshot.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "weighing_device_image": {
+      "key": "weighing_device_image",
+      "title": "智能称重设备图片",
+      "filePath": "./smart-canteen-init-config.assets/weighing_device_image.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "binding_machine_image": {
+      "key": "binding_machine_image",
+      "title": "智能绑盘机图片",
+      "filePath": "./smart-canteen-init-config.assets/binding_machine_image.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "dual_screen_pos_image": {
+      "key": "dual_screen_pos_image",
+      "title": "双屏消费机图片",
+      "filePath": "./smart-canteen-init-config.assets/dual_screen_pos_image.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "weighing_pos_image": {
+      "key": "weighing_pos_image",
+      "title": "称重消费机图片",
+      "filePath": "./smart-canteen-init-config.assets/weighing_pos_image.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "tray_image": {
+      "key": "tray_image",
+      "title": "托盘图片",
+      "filePath": "./smart-canteen-init-config.assets/tray_image.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "technical-solution",
+      "templateId": "smart-canteen-response"
+    },
+    "contract_case_scan": {
+      "key": "contract_case_scan",
+      "title": "合同案例证明扫描件",
+      "filePath": "./smart-canteen-init-config.assets/contract_case_scan.png",
+      "type": "image",
+      "required": true,
+      "sectionId": "other-materials",
+      "templateId": "smart-canteen-response"
+    }
+  },
+  "assetPackage": {
+    "type": "sidecar-directory",
+    "path": "./smart-canteen-init-config.assets",
+    "copiedCount": 18,
+    "demoOnly": true
+  }
+}

@@ -391,7 +391,7 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
     }
 
     if (task.type === 'outline-generation') {
-      copyPatchFields(patch, state, ['outlineMode', 'referenceKnowledgeDocumentIds']);
+      copyPatchFields(patch, state, ['outlineMode', 'referenceKnowledgeDocumentIds', 'referenceImageKnowledgeAssetIds']);
       if (task.status === 'success' || state.outlineData === null || hasOwn(eventPatch, 'outlineData')) {
         copyPatchFields(patch, state, [
           'outlineData',
@@ -905,6 +905,18 @@ function createTaskService({ aiService, technicalPlanStore, rejectionCheckStore,
       emit(batchScoring.recoveredTask, { aiEvaluation: nextState });
     }
   }
+
+  function recoverInterruptedTasksOnStartup() {
+    recoverInterruptedContentGenerationTask();
+    recoverInterruptedOutlineGenerationTask();
+    recoverInterruptedGlobalFactsTask();
+    recoverInterruptedRejectionCheckTasks();
+    recoverInterruptedDuplicateCheckTask();
+    recoverInterruptedBusinessBidTask();
+    recoverInterruptedAiEvaluationTask();
+  }
+
+  recoverInterruptedTasksOnStartup();
 
   return {
     subscribe,

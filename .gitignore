@@ -26,6 +26,9 @@ client/release/
 agent-harness/outputs/
 agent-harness/runtime/
 
+# Generated integrated bid deliverables
+output/integrated-bid/
+
 # Local database backups
 output/database-backups/
 

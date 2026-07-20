@@ -50,6 +50,7 @@ const baseConfig: ClientConfig = {
   image_model_profiles: {
     jinlong: imageProfile,
     volcengine: { ...imageProfile, provider: 'volcengine', base_url: 'https://ark.cn-beijing.volces.com/api/v3' },
+    'codex-gpt-image': { ...imageProfile, provider: 'codex-gpt-image', base_url: 'https://api.openai.com/v1', model_name: 'gpt-image-2', request_mode: 'normal' },
     'google-ai-studio': { ...imageProfile, provider: 'google-ai-studio', base_url: 'https://generativelanguage.googleapis.com/v1beta', model_name: 'gemini-3.1-flash-image-preview' },
     custom: { ...imageProfile, provider: 'custom', base_url: '' },
   },

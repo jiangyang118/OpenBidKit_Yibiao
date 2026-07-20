@@ -8,6 +8,15 @@ from typing import Any
 import click
 
 from . import __version__
+from .core.backend import bid_document_analyze_reference as analyze_bid_document_reference
+from .core.backend import bid_document_asset_package as export_bid_document_asset_package
+from .core.backend import bid_document_build_config as build_bid_document_config
+from .core.backend import bid_document_init_config as init_bid_document_config
+from .core.backend import bid_document_import_asset_package as import_bid_document_asset_package
+from .core.backend import bid_document_readiness_report as export_bid_document_readiness_report
+from .core.backend import bid_document_sample as generate_bid_document_sample
+from .core.backend import bid_document_template_info as export_bid_document_template_info
+from .core.backend import bid_document_validate_config as validate_bid_document_config
 from .core.backend import export_report as export_report_file
 from .core.backend import list_task_definitions
 from .core.backend import plan_summary as build_plan_summary
@@ -103,6 +112,138 @@ def export_report(ctx: click.Context, kind: str, state_json: Path, output: Path,
     """Export a Markdown, Word, or PDF report through existing Electron Main report builders."""
     payload = export_report_file(kind=kind, state_json=state_json, output=output, timeout=timeout, format=report_format)
     payload["message"] = "Report exported" if payload["ok"] else "Report export failed"
+    emit(payload, ctx.obj.get("json", False))
+    if not payload["ok"]:
+        sys.exit(1)
+
+
+@main.command("bid-document-sample")
+@click.option("--output-dir", type=click.Path(file_okay=False, path_type=Path), required=True, help="Directory for the generated sample docx and build log.")
+@click.option("--template-id", default="generic-response", show_default=True, help="Bid document template id.")
+@click.option("--timeout", default=60, show_default=True, type=int, help="Node helper timeout in seconds.")
+@click.pass_context
+def bid_document_sample(ctx: click.Context, output_dir: Path, template_id: str, timeout: int) -> None:
+    """Generate a sample bid document through the real bid document Word builder."""
+    payload = generate_bid_document_sample(output_dir=output_dir, template_id=template_id, timeout=timeout)
+    payload["message"] = "Bid document sample generated" if payload["ok"] else "Bid document sample generation failed"
+    emit(payload, ctx.obj.get("json", False))
+    if not payload["ok"]:
+        sys.exit(1)
+
+
+@main.command("bid-document-template-info")
+@click.option("--template-id", help="Optional bid document template id. Omit to export every registered template.")
+@click.option("--output-json", type=click.Path(dir_okay=False, path_type=Path), help="Optional path to persist the template info JSON.")
+@click.option("--timeout", default=60, show_default=True, type=int, help="Node helper timeout in seconds.")
+@click.pass_context
+def bid_document_template_info(ctx: click.Context, template_id: str | None, output_json: Path | None, timeout: int) -> None:
+    """Export bid document schema, section tree, sample data, and asset mapping."""
+    payload = export_bid_document_template_info(template_id=template_id, output_json=output_json, timeout=timeout)
+    payload["message"] = "Bid document template info exported" if payload["ok"] else "Bid document template info export failed"
+    emit(payload, ctx.obj.get("json", False))
+    if not payload["ok"]:
+        sys.exit(1)
+
+
+@main.command("bid-document-init-config")
+@click.option("--template-id", required=True, help="Bid document template id.")
+@click.option("--output-json", type=click.Path(dir_okay=False, path_type=Path), required=True, help="Path to write the editable project config JSON.")
+@click.option("--with-demo-assets", is_flag=True, help="Write one-pixel demo images into a sidecar assets directory for validation demos only.")
+@click.option("--timeout", default=60, show_default=True, type=int, help="Node helper timeout in seconds.")
+@click.pass_context
+def bid_document_init_config(ctx: click.Context, template_id: str, output_json: Path, with_demo_assets: bool, timeout: int) -> None:
+    """Initialize an editable bid document project config from a registered template."""
+    payload = init_bid_document_config(template_id=template_id, output_json=output_json, with_demo_assets=with_demo_assets, timeout=timeout)
+    payload["message"] = "Bid document project config initialized" if payload["ok"] else "Bid document project config initialization failed"
+    emit(payload, ctx.obj.get("json", False))
+    if not payload["ok"]:
+        sys.exit(1)
+
+
+@main.command("bid-document-analyze-reference")
+@click.option("--input", "input_docx", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True, help="Reference response-file .docx to analyze.")
+@click.option("--candidate", "candidate_docx", type=click.Path(exists=True, dir_okay=False, path_type=Path), help="Optional generated response-file .docx to compare against the reference.")
+@click.option("--output-json", type=click.Path(dir_okay=False, path_type=Path), help="Optional path to persist the analysis JSON.")
+@click.option("--timeout", default=60, show_default=True, type=int, help="Node helper timeout in seconds.")
+@click.pass_context
+def bid_document_analyze_reference(ctx: click.Context, input_docx: Path, candidate_docx: Path | None, output_json: Path | None, timeout: int) -> None:
+    """Analyze a reference response-file docx, optionally comparing a generated candidate."""
+    payload = analyze_bid_document_reference(input_docx=input_docx, candidate_docx=candidate_docx, output_json=output_json, timeout=timeout)
+    payload["message"] = "Reference bid document analyzed" if payload["ok"] else "Reference bid document analysis/alignment failed"
+    emit(payload, ctx.obj.get("json", False))
+    if not payload["ok"]:
+        sys.exit(1)
+
+
+@main.command("bid-document-validate-config")
+@click.option("--input", "input_json", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True, help="Bid document project config JSON exported from the desktop flow.")
+@click.option("--output-json", type=click.Path(dir_okay=False, path_type=Path), help="Optional path to persist the validation build log JSON.")
+@click.option("--timeout", default=60, show_default=True, type=int, help="Node helper timeout in seconds.")
+@click.pass_context
+def bid_document_validate_config(ctx: click.Context, input_json: Path, output_json: Path | None, timeout: int) -> None:
+    """Validate a bid document project config without generating Word."""
+    payload = validate_bid_document_config(input_json=input_json, output_json=output_json, timeout=timeout)
+    payload["message"] = "Bid document project config validation passed" if payload["ok"] else "Bid document project config validation failed"
+    emit(payload, ctx.obj.get("json", False))
+    if not payload["ok"]:
+        sys.exit(1)
+
+
+@main.command("bid-document-build-config")
+@click.option("--input", "input_json", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True, help="Bid document project config JSON exported from the desktop flow.")
+@click.option("--output", "output_docx", type=click.Path(dir_okay=False, path_type=Path), required=True, help="Generated Word .docx output path.")
+@click.option("--output-json", type=click.Path(dir_okay=False, path_type=Path), help="Optional path to persist the Word build result JSON.")
+@click.option("--timeout", default=60, show_default=True, type=int, help="Node helper timeout in seconds.")
+@click.pass_context
+def bid_document_build_config(ctx: click.Context, input_json: Path, output_docx: Path, output_json: Path | None, timeout: int) -> None:
+    """Build a Word bid document from a project config JSON."""
+    payload = build_bid_document_config(input_json=input_json, output_docx=output_docx, output_json=output_json, timeout=timeout)
+    payload["message"] = "Bid document built from project config" if payload["ok"] else "Bid document build from project config failed"
+    emit(payload, ctx.obj.get("json", False))
+    if not payload["ok"]:
+        sys.exit(1)
+
+
+@main.command("bid-document-readiness-report")
+@click.option("--input", "input_json", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True, help="Bid document project config JSON exported from the desktop flow.")
+@click.option("--output-json", type=click.Path(dir_okay=False, path_type=Path), help="Optional path to persist the readiness report JSON.")
+@click.option("--output-markdown", type=click.Path(dir_okay=False, path_type=Path), help="Optional path to persist a human-readable readiness report.")
+@click.option("--output-xlsx", type=click.Path(dir_okay=False, path_type=Path), help="Optional path to persist a business-facing Excel blocker checklist.")
+@click.option("--timeout", default=60, show_default=True, type=int, help="Node helper timeout in seconds.")
+@click.pass_context
+def bid_document_readiness_report(ctx: click.Context, input_json: Path, output_json: Path | None, output_markdown: Path | None, output_xlsx: Path | None, timeout: int) -> None:
+    """Export a formal-build readiness report without generating Word."""
+    payload = export_bid_document_readiness_report(input_json=input_json, output_json=output_json, output_markdown=output_markdown, output_xlsx=output_xlsx, timeout=timeout)
+    payload["message"] = "Bid document readiness report passed" if payload["ok"] else "Bid document readiness report found blockers"
+    emit(payload, ctx.obj.get("json", False))
+    if not payload["ok"]:
+        sys.exit(1)
+
+
+@main.command("bid-document-asset-package")
+@click.option("--input", "input_json", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True, help="Bid document project config JSON exported from the desktop flow.")
+@click.option("--output-dir", type=click.Path(file_okay=False, path_type=Path), required=True, help="Directory for the material collection package.")
+@click.option("--timeout", default=60, show_default=True, type=int, help="Node helper timeout in seconds.")
+@click.pass_context
+def bid_document_asset_package(ctx: click.Context, input_json: Path, output_dir: Path, timeout: int) -> None:
+    """Export a material collection package without generating Word."""
+    payload = export_bid_document_asset_package(input_json=input_json, output_dir=output_dir, timeout=timeout)
+    payload["message"] = "Bid document asset collection package exported" if payload["ok"] else "Bid document asset collection package export failed"
+    emit(payload, ctx.obj.get("json", False))
+    if not payload["ok"]:
+        sys.exit(1)
+
+
+@main.command("bid-document-import-asset-package")
+@click.option("--input", "input_json", type=click.Path(exists=True, dir_okay=False, path_type=Path), required=True, help="Bid document project config JSON exported from the desktop flow.")
+@click.option("--package-dir", type=click.Path(exists=True, file_okay=False, path_type=Path), required=True, help="Material collection package directory containing asset-manifest.json.")
+@click.option("--output-json", type=click.Path(dir_okay=False, path_type=Path), required=True, help="Updated project config JSON with collected asset paths applied.")
+@click.option("--timeout", default=60, show_default=True, type=int, help="Node helper timeout in seconds.")
+@click.pass_context
+def bid_document_import_asset_package(ctx: click.Context, input_json: Path, package_dir: Path, output_json: Path, timeout: int) -> None:
+    """Apply a material collection package to a project config JSON."""
+    payload = import_bid_document_asset_package(input_json=input_json, package_dir=package_dir, output_json=output_json, timeout=timeout)
+    payload["message"] = "Bid document asset collection package applied" if payload["ok"] else "Bid document asset collection package import failed"
     emit(payload, ctx.obj.get("json", False))
     if not payload["ok"]:
         sys.exit(1)

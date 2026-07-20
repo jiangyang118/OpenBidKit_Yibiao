@@ -2,12 +2,35 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
+const AdmZip = require('adm-zip');
 const { dialog } = require('electron');
 const { getKnowledgeBaseDir } = require('../utils/paths.cjs');
 const { deleteImportedImageBatches } = require('../utils/importedImages.cjs');
 const { parseDocumentWithConfig } = require('./fileService.cjs');
 
 const supportedExtensions = new Set(['.doc', '.docx', '.wps', '.pdf', '.md', '.markdown']);
+const supportedArchiveExtensions = new Set(['.zip']);
+const categorizedDocumentFolders = [
+  '产品能力',
+  '公司资质',
+  '团队人员',
+  '实施交付',
+  '售后服务',
+  '项目案例',
+  '行业方案',
+  '商务资信',
+];
+const uncategorizedFolderName = '待人工归类';
+const documentCategoryRules = [
+  { name: '产品能力', terms: ['产品', '能力', '功能', '平台', '系统', '模块', '解决方案', '参数', '规格', '彩页', '白皮书'] },
+  { name: '公司资质', terms: ['公司资质', '资质', '证书', '认证', '荣誉', '授权', '营业执照', '许可证', '专利', '软著'] },
+  { name: '团队人员', terms: ['团队', '人员', '项目经理', '简历', '组织架构', '成员', '专家', '岗位', '职责', '人力'] },
+  { name: '实施交付', terms: ['实施', '交付', '部署', '进度', '计划', '里程碑', '培训', '验收', '上线', '项目管理'] },
+  { name: '售后服务', terms: ['售后', '服务', '运维', '维护', '响应', '质保', '客服', '应急', '巡检', '保障'] },
+  { name: '项目案例', terms: ['案例', '业绩', '合同', '中标', '项目经验', '客户', '验收报告', '应用案例', '成功案例'] },
+  { name: '行业方案', terms: ['行业', '场景', '方案', '需求', '调研', '分析', '标准', '规范', '政策', '痛点'] },
+  { name: '商务资信', terms: ['商务', '资信', '报价', '财务', '审计', '纳税', '信用', '银行', '合同条款', '承诺函'] },
+];
 const oversizedBlockChars = 8000;
 const semanticMergeTargetChars = 500;
 const recoveryMaxAttempts = 2;
@@ -22,6 +45,10 @@ function createId(prefix) {
 
 function safeName(name) {
   return String(name || '未命名').replace(/[<>:"/\\|?*\x00-\x1F]+/g, '_').trim() || '未命名';
+}
+
+function safeArchiveEntryName(name) {
+  return String(name || '').replace(/\\/g, '/').replace(/^\/+/, '');
 }
 
 function ensureDir(dir) {
@@ -42,6 +69,32 @@ function fromRelative(baseDir, relativePath) {
 
 function normalizeRelativePath(value) {
   return String(value || '').replace(/\\/g, '/');
+}
+
+function normalizeClassifyText(value) {
+  return String(value || '').toLowerCase().replace(/\s+/g, '');
+}
+
+function classifyDocumentArchiveEntry(entryName) {
+  const normalized = safeArchiveEntryName(entryName);
+  const text = normalizeClassifyText(normalized);
+  for (const folder of categorizedDocumentFolders) {
+    if (text.includes(normalizeClassifyText(folder))) return folder;
+  }
+  let best = { name: uncategorizedFolderName, score: 0 };
+  for (const rule of documentCategoryRules) {
+    const score = rule.terms.reduce((sum, term) => (
+      text.includes(normalizeClassifyText(term)) ? sum + Math.max(1, normalizeClassifyText(term).length) : sum
+    ), 0);
+    if (score > best.score) {
+      best = { name: rule.name, score };
+    }
+  }
+  return best.score > 0 ? best.name : uncategorizedFolderName;
+}
+
+function incrementCount(counts, key) {
+  counts[key] = Number(counts[key] || 0) + 1;
 }
 
 function rebaseDocumentRelativePath(value, oldDocumentDir, newDocumentDir) {
@@ -874,6 +927,56 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
     return document;
   }
 
+  function ensureFolderByName(name) {
+    const safeFolderName = safeName(name);
+    const current = knowledgeBaseStore.list().folders.find((folder) => folder.name === safeFolderName);
+    return current || knowledgeBaseStore.createFolder(safeFolderName);
+  }
+
+  function createPendingDocument(folderId, fileName, ext, webContents) {
+    const documentId = createId('doc');
+    const documentDir = path.join('folders', folderId, 'documents', documentId).replace(/\\/g, '/');
+    const document = {
+      id: documentId,
+      folder_id: folderId,
+      file_name: safeName(fileName),
+      document_dir: documentDir,
+      source_path: path.join(documentDir, `source${ext}`).replace(/\\/g, '/'),
+      markdown_path: path.join(documentDir, 'content.md').replace(/\\/g, '/'),
+      source_extension: ext,
+      status: 'pending',
+      progress: 0,
+      message: '等待处理',
+      item_count: 0,
+      block_count: 0,
+      filtered_block_count: 0,
+      candidate_item_count: 0,
+      discarded_block_count: 0,
+      system_discarded_after_retry_count: 0,
+      created_at: now(),
+      updated_at: now(),
+    };
+    const savedDocument = knowledgeBaseStore.createDocument(document);
+    emitProgress(webContents, savedDocument);
+    return savedDocument;
+  }
+
+  function createDocumentFromSourceFile(folderId, filePath, webContents) {
+    const ext = path.extname(filePath).toLowerCase();
+    const savedDocument = createPendingDocument(folderId, path.basename(filePath), ext, webContents);
+    prepareDocument(savedDocument.id, filePath, webContents);
+    return savedDocument;
+  }
+
+  function createDocumentFromArchiveEntry(folderId, entryName, ext, buffer, webContents) {
+    const savedDocument = createPendingDocument(folderId, path.basename(safeArchiveEntryName(entryName)), ext, webContents);
+    const sourcePath = fromRelative(baseDir, savedDocument.source_path);
+    ensureDir(path.dirname(sourcePath));
+    fs.writeFileSync(sourcePath, buffer);
+    prepareDocument(savedDocument.id, sourcePath, webContents);
+    return savedDocument;
+  }
+
   function getDocument(documentId) {
     return knowledgeBaseStore.getDocument(documentId);
   }
@@ -1562,35 +1665,89 @@ function createKnowledgeBaseService({ app, aiService, configStore, knowledgeBase
       for (const filePath of result.filePaths) {
         const ext = path.extname(filePath).toLowerCase();
         if (!supportedExtensions.has(ext)) continue;
-        const documentId = createId('doc');
-        const documentDir = path.join('folders', folderId, 'documents', documentId).replace(/\\/g, '/');
-        const sourceName = `source${ext}`;
-        const document = {
-          id: documentId,
-          folder_id: folderId,
-          file_name: path.basename(filePath),
-          document_dir: documentDir,
-          source_path: path.join(documentDir, sourceName).replace(/\\/g, '/'),
-          markdown_path: path.join(documentDir, 'content.md').replace(/\\/g, '/'),
-          status: 'pending',
-          progress: 0,
-          message: '等待处理',
-          item_count: 0,
-          block_count: 0,
-          filtered_block_count: 0,
-          candidate_item_count: 0,
-          discarded_block_count: 0,
-          system_discarded_after_retry_count: 0,
-          created_at: now(),
-          updated_at: now(),
-        };
-        const savedDocument = knowledgeBaseStore.createDocument(document);
+        const savedDocument = createDocumentFromSourceFile(folderId, filePath, webContents);
         created.push(savedDocument);
-        emitProgress(webContents, savedDocument);
-        prepareDocument(documentId, filePath, webContents);
       }
 
       return { success: Boolean(created.length), message: created.length ? `已加入 ${created.length} 个文档处理任务` : '未选择支持的文档类型', documents: created };
+    },
+
+    async importCategorizedArchives(webContents) {
+      const result = await dialog.showOpenDialog({
+        title: '选择文档知识库压缩包',
+        properties: ['openFile', 'multiSelections'],
+        filters: [
+          { name: '文档知识库压缩包', extensions: [...supportedArchiveExtensions].map((item) => item.slice(1)) },
+          { name: '所有文件', extensions: ['*'] },
+        ],
+      });
+
+      if (result.canceled || !result.filePaths.length) {
+        return { success: false, message: '已取消选择', index: knowledgeBaseStore.list(), documents: [], archives: 0, imported: 0, skipped: 0, categoryCounts: {} };
+      }
+
+      const foldersByName = new Map();
+      for (const name of categorizedDocumentFolders) {
+        const folder = ensureFolderByName(name);
+        foldersByName.set(folder.name, folder);
+      }
+
+      const created = [];
+      const categoryCounts = {};
+      let archives = 0;
+      let skipped = 0;
+      let unknownCount = 0;
+
+      for (const archivePath of result.filePaths) {
+        const archiveExt = path.extname(archivePath).toLowerCase();
+        if (!supportedArchiveExtensions.has(archiveExt)) {
+          skipped += 1;
+          continue;
+        }
+        archives += 1;
+        const zip = new AdmZip(archivePath);
+        for (const entry of zip.getEntries()) {
+          const entryName = safeArchiveEntryName(entry.entryName);
+          const ext = path.extname(entryName).toLowerCase();
+          if (entry.isDirectory || entryName.startsWith('__MACOSX/') || path.basename(entryName).startsWith('.') || !supportedExtensions.has(ext)) {
+            skipped += 1;
+            continue;
+          }
+          const category = classifyDocumentArchiveEntry(entryName);
+          if (category === uncategorizedFolderName) unknownCount += 1;
+          let folder = foldersByName.get(category);
+          if (!folder) {
+            folder = ensureFolderByName(category);
+            foldersByName.set(folder.name, folder);
+          }
+          try {
+            const savedDocument = createDocumentFromArchiveEntry(folder.id, entryName, ext, entry.getData(), webContents);
+            created.push(savedDocument);
+            incrementCount(categoryCounts, category);
+          } catch (error) {
+            console.warn('[knowledge-base] 压缩包文档导入失败', {
+              archive: path.basename(archivePath),
+              entry: entryName,
+              message: error.message || String(error),
+            });
+            skipped += 1;
+          }
+        }
+      }
+
+      const unknownMessage = unknownCount ? `，${unknownCount} 个文件进入“${uncategorizedFolderName}”` : '';
+      return {
+        success: Boolean(created.length),
+        message: created.length
+          ? `已从 ${archives} 个压缩包加入 ${created.length} 个文档处理任务${unknownMessage}${skipped ? `，跳过 ${skipped} 项` : ''}`
+          : `未导入支持的文档${skipped ? `，跳过 ${skipped} 项` : ''}`,
+        index: knowledgeBaseStore.list(),
+        documents: created,
+        archives,
+        imported: created.length,
+        skipped,
+        categoryCounts,
+      };
     },
 
     retryDocument(documentId, webContents) {

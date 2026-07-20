@@ -24,6 +24,64 @@ function createWorkspaceStore() {
 }
 
 describe('taskService knowledge-base active tasks', () => {
+  it('recovers interrupted content generation immediately when the service is created', () => {
+    const technicalPlanState = {
+      contentGenerationTask: {
+        type: 'content-generation',
+        status: 'running',
+        progress: 86,
+        logs: ['开始生成：2.1.2 15日交付进度安排'],
+        stats: { content: { phase: 'generating' } },
+      },
+      contentGenerationSections: {
+        '2.1.2': { status: 'running', error: '', updated_at: '2026-06-29T09:55:30.000Z' },
+        '2.1.1': { status: 'success', error: '', updated_at: '2026-06-29T09:50:00.000Z' },
+      },
+      contentGenerationRuntime: { phase: 'generating' },
+      outlineData: {
+        outline: [{
+          id: '2.1',
+          title: '项目实施',
+          children: [
+            { id: '2.1.1', title: '实施准备', content: '已有正文' },
+            { id: '2.1.2', title: '15日交付进度安排', content: '未完成正文' },
+          ],
+        }],
+      },
+    };
+    const stores = createWorkspaceStore();
+    stores.loadTechnicalPlan.mockReturnValue(technicalPlanState);
+
+    createTaskService({
+      aiService: {},
+      technicalPlanStore: stores,
+      rejectionCheckStore: stores,
+      duplicateCheckStore: stores,
+      knowledgeBaseService: { getActiveTasks: vi.fn().mockReturnValue({ tasks: [], documents: [] }) },
+      duplicateCheckService: {},
+    });
+
+    expect(stores.updateTechnicalPlan).toHaveBeenCalledWith(expect.objectContaining({
+      contentGenerationTask: expect.objectContaining({
+        status: 'paused',
+        logs: expect.arrayContaining(['上次正文生成因应用关闭而暂停，可点击继续恢复。']),
+      }),
+      contentGenerationSections: expect.objectContaining({
+        '2.1.2': expect.objectContaining({
+          status: 'error',
+          error: '上次生成被中断，请继续生成。',
+        }),
+      }),
+      outlineData: expect.objectContaining({
+        outline: [expect.objectContaining({
+          children: expect.arrayContaining([
+            expect.objectContaining({ id: '2.1.2', content: '' }),
+          ]),
+        })],
+      }),
+    }));
+  });
+
   it('exposes multiple document-scoped knowledge tasks without collapsing their scopes', () => {
     const stores = createWorkspaceStore();
     const knowledgeBaseService = {

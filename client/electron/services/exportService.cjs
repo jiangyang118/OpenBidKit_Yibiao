@@ -202,6 +202,118 @@ function collectMarkdownImageSources(content) {
   return images;
 }
 
+const COMPETITOR_STYLE_QUALITY_CHECKS = [
+  {
+    id: 'project-understanding',
+    title: '项目理解与现状分析',
+    keywords: ['项目理解', '现状', '需求分析', '痛点', '建设目标', '管理目标'],
+    requirement: '开篇应先说明采购场景、现状问题、建设目标和管理价值，不要直接进入功能堆叠。',
+  },
+  {
+    id: 'architecture-and-components',
+    title: '总体架构与软硬件组成',
+    keywords: ['总体架构', '系统架构', '功能架构', '部署拓扑', '软硬件', '产品组成', '应用效果图'],
+    requirement: '成熟智慧食堂方案通常先给系统架构、功能架构、部署拓扑和软硬件组成。',
+  },
+  {
+    id: 'scenario-functions',
+    title: '全场景功能展开',
+    keywords: ['基础管理', '多食堂', '档口', '会员', '钱包', '补贴', '支付', '营养', '订餐', '称重', '绑盘', '消费机', '托盘'],
+    requirement: '功能章节应按业务场景展开，覆盖后台、移动端、消费终端、称重绑盘设备和运营管理闭环。',
+  },
+  {
+    id: 'visual-evidence',
+    title: '图文证据',
+    keywords: ['截图', '界面', '产品图', '设备图', '架构图', '报表图', '证书', '检测报告'],
+    requirement: '核心功能应匹配后台截图、移动端截图、终端界面、设备图、报表图、检测报告正文或证书附件。',
+    minImages: 3,
+  },
+  {
+    id: 'reports-certificates',
+    title: '检测报告与证书资质',
+    keywords: ['检测报告', '检验报告', '测试报告', 'CNAS', 'CMA', '软件著作权', '软著', '专利', '证书', '资质', '营业执照', '盖章'],
+    requirement: '证明材料应写明报告正文、测试范围、测试环境、测试结论、关键指标、证书和盖章文件。',
+  },
+  {
+    id: 'deployment-security',
+    title: '部署安全与接口对接',
+    keywords: ['部署', '安全', '权限', '日志', '审计', '备份', '容灾', '接口', '对接', '通信', '迁移'],
+    requirement: '正式技术册应包含部署方式、网络/数据安全、权限控制、日志审计、备份容灾和接口对接。',
+  },
+  {
+    id: 'data-reports',
+    title: '数据报表与经营分析',
+    keywords: ['报表', '驾驶舱', '统计', '台账', '数据分析', '经营分析', '订单统计', '消费统计'],
+    requirement: '报表章节应说明统计口径、管理指标和对应截图，不能只写“支持报表”。',
+  },
+  {
+    id: 'implementation-service',
+    title: '实施培训售后与验收',
+    keywords: ['实施', '培训', '售后', '质保', '验收', '运维', '维护', '交付计划'],
+    requirement: '投标文件应有实施计划、培训、售后、质保、验收和运维保障章节。',
+  },
+];
+
+function collectOutlineTextAndMedia(items = []) {
+  const result = {
+    titleText: '',
+    contentText: '',
+    imageCount: 0,
+    tableCount: 0,
+  };
+
+  function visit(nodes = []) {
+    for (const item of nodes || []) {
+      result.titleText += `\n${item?.title || ''}\n${item?.description || ''}`;
+      const content = String(item?.content || '');
+      result.contentText += `\n${content}`;
+      result.imageCount += collectMarkdownImageSources(content).length;
+      if ((content.match(/^\|.+\|$/gm) || []).length > 1) {
+        result.tableCount += 1;
+      }
+      if (item?.children?.length) {
+        visit(item.children);
+      }
+    }
+  }
+
+  visit(items);
+  return result;
+}
+
+function keywordMatches(text, keywords) {
+  const source = String(text || '').toLowerCase();
+  return (keywords || []).filter((keyword) => source.includes(String(keyword || '').toLowerCase()));
+}
+
+function createCompetitorStyleQualityReport(outline = []) {
+  const collected = collectOutlineTextAndMedia(outline);
+  const fullText = `${collected.titleText}\n${collected.contentText}`;
+  const checks = COMPETITOR_STYLE_QUALITY_CHECKS.map((check) => {
+    const matchedKeywords = keywordMatches(fullText, check.keywords);
+    const imageEnough = Number(check.minImages || 0) > 0 ? collected.imageCount >= check.minImages : true;
+    const passed = matchedKeywords.length > 0 && imageEnough;
+    return {
+      id: check.id,
+      title: check.title,
+      passed,
+      matchedKeywords,
+      requirement: check.requirement,
+    };
+  });
+  const passedCount = checks.filter((check) => check.passed).length;
+  const totalCount = checks.length;
+  return {
+    score: totalCount ? Math.round((passedCount / totalCount) * 100) : 0,
+    passedCount,
+    totalCount,
+    imageCount: collected.imageCount,
+    tableCount: collected.tableCount,
+    checks,
+    missingChecks: checks.filter((check) => !check.passed),
+  };
+}
+
 function walkOutlineLeaves(items = [], callback, ancestors = []) {
   for (const item of items || []) {
     const title = compactText(item.title || item.id || '未命名章节', 80);
@@ -242,6 +354,7 @@ function createExportPreflightReport(payload = {}) {
   const outline = Array.isArray(payload.outline) ? payload.outline : [];
   const baseDir = payload.base_dir || payload.baseDir;
   const stats = countOutlineStats(outline);
+  const styleQuality = createCompetitorStyleQualityReport(outline);
   const report = {
     leafCount: stats.leafCount,
     mermaidCount: stats.mermaidCount,
@@ -252,6 +365,7 @@ function createExportPreflightReport(payload = {}) {
     assetImageCount: 0,
     missingLocalImageCount: 0,
     unknownImageCount: 0,
+    styleQuality,
     warnings: [],
   };
 
@@ -284,6 +398,12 @@ function createExportPreflightReport(payload = {}) {
   }
   if (report.mermaidCount > 0) {
     report.warnings.push(`导出预检：检测到 ${report.mermaidCount} 张 Mermaid 图，导出时会联网转换为 Word 图片。`);
+  }
+  if (styleQuality.totalCount > 0 && styleQuality.score < 75) {
+    report.warnings.push(`竞品式质量门：当前完整度 ${styleQuality.score}%，建议补齐现状分析、架构、场景功能、图文证据、证明材料、部署安全、报表或实施售后缺口。`);
+  }
+  for (const check of styleQuality.missingChecks.slice(0, 4)) {
+    report.warnings.push(`竞品式质量门：缺少“${check.title}”。${check.requirement}`);
   }
 
   return report;

@@ -3,7 +3,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { getWorkspaceDatabasePath } = require('../utils/paths.cjs');
 
-const schemaVersion = 37;
+const schemaVersion = 39;
 
 function createInitialSchema(db) {
   db.exec(`
@@ -1580,6 +1580,29 @@ function createBidMarketAnalysisSchema(db) {
   `);
 }
 
+function createBidDocumentSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS bid_document_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      template_id TEXT NOT NULL DEFAULT 'generic-response',
+      project_data_json TEXT NOT NULL DEFAULT '{}',
+      quote_items_json TEXT NOT NULL DEFAULT '[]',
+      asset_map_json TEXT NOT NULL DEFAULT '{}',
+      asset_package_json TEXT,
+      last_build_log_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+function addBidDocumentAssetPackageColumn(db) {
+  const cols = db.prepare("PRAGMA table_info(bid_document_state)").all().map((row) => row.name);
+  if (!cols.includes('asset_package_json')) {
+    db.exec('ALTER TABLE bid_document_state ADD COLUMN asset_package_json TEXT');
+  }
+}
+
 const schemaHealthTableGroups = [
   {
     version: 1,
@@ -1753,6 +1776,11 @@ const schemaHealthTableGroups = [
     ],
     repair: createBidMarketAnalysisSchema,
   },
+  {
+    version: 38,
+    tables: ['bid_document_state'],
+    repair: createBidDocumentSchema,
+  },
 ];
 
 const schemaHealthColumnGroups = [
@@ -1838,6 +1866,7 @@ const schemaHealthColumnGroups = [
     table: 'rejection_check_documents',
     columns: {
       sort_order: 'INTEGER NOT NULL DEFAULT 0',
+      page_screenshots_json: 'TEXT',
     },
   },
   {
@@ -2010,6 +2039,13 @@ const schemaHealthColumnGroups = [
     table: 'image_knowledge_assets',
     columns: {
       folder: "TEXT NOT NULL DEFAULT ''",
+    },
+  },
+  {
+    version: 39,
+    table: 'bid_document_state',
+    columns: {
+      asset_package_json: 'TEXT',
     },
   },
 ];
@@ -2257,6 +2293,16 @@ const migrations = [
     version: 37,
     description: '新增招投标市场分析实体和关联表',
     up: createBidMarketAnalysisSchema,
+  },
+  {
+    version: 38,
+    description: '新增通用完整标书生成器状态表',
+    up: createBidDocumentSchema,
+  },
+  {
+    version: 39,
+    description: '完整标书状态新增附件包元数据',
+    up: addBidDocumentAssetPackageColumn,
   },
 ];
 

@@ -34,6 +34,12 @@ const OPENAI_IMAGE_PROVIDER_META = {
     logProvider: 'volcengine',
     modelLabel: '模型名称或推理接入点 ID',
   },
+  'codex-gpt-image': {
+    label: 'Codex GPT-image-2',
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    logProvider: 'codex-gpt-image',
+    modelLabel: '生图模型名称',
+  },
   custom: {
     label: '自定义生图服务',
     defaultBaseUrl: '',
@@ -403,6 +409,25 @@ function normalizeTextRequestMode(config) {
 
 function normalizeImageRequestMode(imageConfig) {
   return imageConfig?.request_mode === 'normal' ? 'normal' : 'stream';
+}
+
+function isCodexGptImageProvider(provider) {
+  return provider === 'codex-gpt-image';
+}
+
+function normalizeGptImageSize(size) {
+  return ['1024x1024', '1024x1536', '1536x1024'].includes(size) ? size : '1024x1024';
+}
+
+function createOpenAICompatibleImageRequestBody(imageConfig, prompt, requestMode, provider, size) {
+  const useGptImageDefaults = isCodexGptImageProvider(provider);
+  return {
+    model: imageConfig.model_name,
+    prompt,
+    size: useGptImageDefaults ? normalizeGptImageSize(size) : size,
+    ...(useGptImageDefaults ? {} : { response_format: 'url' }),
+    ...(requestMode === 'stream' ? { stream: true } : {}),
+  };
 }
 
 function createAbortError() {
@@ -1030,6 +1055,27 @@ function createCodexCliArgs(config, outputFile) {
   return args;
 }
 
+function resolveCodexCliCommand(env = process.env, fileExists = fs.existsSync) {
+  const explicitPath = String(env.CODEX_CLI_PATH || '').trim();
+  if (explicitPath) {
+    return explicitPath;
+  }
+
+  const candidatePaths = [
+    '/Applications/Codex.app/Contents/Resources/codex',
+    '/opt/homebrew/bin/codex',
+    '/usr/local/bin/codex',
+  ];
+  const foundPath = candidatePaths.find((candidate) => {
+    try {
+      return fileExists(candidate);
+    } catch {
+      return false;
+    }
+  });
+  return foundPath || 'codex';
+}
+
 function summarizeCodexCliFailure(stderr, stdout, signal) {
   const combined = [stderr, stdout].filter(Boolean).join('\n').trim();
   if (!combined) {
@@ -1046,12 +1092,24 @@ function summarizeCodexCliFailure(stderr, stdout, signal) {
   const importantLines = lines.filter((line) => {
     if (/^\d{4}-\d{2}-\d{2}T.*\bWARN\b/.test(line)) return false;
     if (/^OpenAI Codex\b|^workdir:|^model:|^provider:|^approval:|^sandbox:|^reasoning\b|^session id:|^-{4,}$/.test(line)) return false;
+    if (/^["']?(content|resume|summary|title|description)["']?\s*[:：]/i.test(line)) return false;
+    if (/^(第\s*\d+\s*页|附录|正常启动日志样例|接口调用日志样例|异常日志样例|验证方式|验证步骤|验收通过标准)/.test(line)) return false;
     return /\b(ERROR|Error|error|failed|失败|超时|timeout|not found|未找到)\b/.test(line);
   });
-  const summary = (importantLines.length ? importantLines : lines)
+  const fallbackLines = lines.filter((line) => {
+    if (/^["']?(content|resume|summary|title|description)["']?\s*[:：]/i.test(line)) return false;
+    if (/^(第\s*\d+\s*页|附录|正常启动日志样例|接口调用日志样例|异常日志样例|验证方式|验证步骤|验收通过标准)/.test(line)) return false;
+    return line.length <= 500;
+  });
+  const summary = (importantLines.length ? importantLines : fallbackLines)
     .slice(-8)
     .join('\n')
     .trim();
+  if (!summary) {
+    return signal
+      ? `进程被终止：${signal}`
+      : 'Codex CLI 已退出但未返回明确错误；请减少参考资料后重试，或打开开发者模式查看本机 AI 日志。';
+  }
   return summary.length > 1600 ? `${summary.slice(0, 1600)}...` : summary;
 }
 
@@ -1060,9 +1118,10 @@ function runCodexCli(app, config, prompt, options = {}) {
   const outputFile = path.join(tempDir, 'last-message.txt');
   const cwd = typeof app?.getPath === 'function' ? app.getPath('userData') : os.tmpdir();
   const args = createCodexCliArgs(config, outputFile);
+  const codexCommand = resolveCodexCliCommand();
 
   return new Promise((resolve, reject) => {
-    const child = spawn('codex', args, {
+    const child = spawn(codexCommand, args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       signal: options.signal,
@@ -1714,13 +1773,13 @@ async function testOpenAICompatibleImageModel(app, config, provider) {
   const timeout = createOperationTimeout(AI_REQUEST_TIMEOUT_MS);
 
   try {
-    const requestBody = {
-      model: imageConfig.model_name,
-      prompt: 'a simple blue dot on a white background',
-      size: '2048x2048',
-      response_format: 'url',
-      ...(requestMode === 'stream' ? { stream: true } : {}),
-    };
+    const requestBody = createOpenAICompatibleImageRequestBody(
+      imageConfig,
+      'a simple blue dot on a white background',
+      requestMode,
+      provider,
+      '2048x2048',
+    );
     try {
       responseData = await timeout.run(requestOpenAICompatibleImageData(
         baseUrl,
@@ -1822,13 +1881,13 @@ async function generateOpenAICompatibleImage(app, config, request, provider) {
   const requestId = createRequestId();
   const logTitle = resolveAiLogTitle(request, request.title ? `AI生图-${request.title}` : 'AI生图');
   const requestMode = normalizeImageRequestMode(imageConfig);
-  const requestBody = {
-    model: imageConfig.model_name,
-    prompt: normalizeImagePrompt(request),
-    size: request.size || '2048x2048',
-    response_format: 'url',
-    ...(requestMode === 'stream' ? { stream: true } : {}),
-  };
+  const requestBody = createOpenAICompatibleImageRequestBody(
+    imageConfig,
+    normalizeImagePrompt(request),
+    requestMode,
+    provider,
+    request.size || '2048x2048',
+  );
   const baseUrl = requireBaseUrl(imageConfig.base_url, `${meta.label} Base URL 缺失，请重新选择服务商后保存配置`);
   let responseData = null;
   let analyticsTracked = false;
@@ -1963,7 +2022,12 @@ async function generateImageWithConfig(app, config, request) {
     throw new Error(availability.message);
   }
 
-  if (config.image_model?.provider === 'jinlong' || config.image_model?.provider === 'volcengine' || config.image_model?.provider === 'custom') {
+  if (
+    config.image_model?.provider === 'jinlong'
+    || config.image_model?.provider === 'volcengine'
+    || config.image_model?.provider === 'codex-gpt-image'
+    || config.image_model?.provider === 'custom'
+  ) {
     return generateOpenAICompatibleImage(app, config, request, config.image_model.provider);
   }
 
@@ -2027,7 +2091,12 @@ function createAiService({ app, configStore }) {
         analytics_created_at: config.analytics_created_at || currentConfig.analytics_created_at,
       };
 
-      if (trackedConfig.image_model?.provider === 'jinlong' || trackedConfig.image_model?.provider === 'volcengine' || trackedConfig.image_model?.provider === 'custom') {
+      if (
+        trackedConfig.image_model?.provider === 'jinlong'
+        || trackedConfig.image_model?.provider === 'volcengine'
+        || trackedConfig.image_model?.provider === 'codex-gpt-image'
+        || trackedConfig.image_model?.provider === 'custom'
+      ) {
         return testOpenAICompatibleImageModel(app, trackedConfig, trackedConfig.image_model.provider);
       }
 
@@ -2117,4 +2186,8 @@ function createAiService({ app, configStore }) {
 
 module.exports = {
   createAiService,
+  __test__: {
+    resolveCodexCliCommand,
+    summarizeCodexCliFailure,
+  },
 };

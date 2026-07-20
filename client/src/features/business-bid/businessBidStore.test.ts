@@ -261,8 +261,10 @@ describe('businessBidStore report export', () => {
   it('builds a business bid delivery package with response, deviation and material sections', () => {
     const markdown = buildBusinessBidReportMarkdown(reportState);
 
-    expect(markdown).toContain('# 商务标响应交付包');
+    expect(markdown).toContain('# 响应文件商务与模板核对包');
     expect(markdown).toContain('商务招标文件.docx');
+    expect(markdown).toContain('## 整标模板核对清单');
+    expect(markdown).toContain('法定代表人授权委托书');
     expect(markdown).toContain('## 商务响应表');
     expect(markdown).toContain('## 合同条款偏离表');
     expect(markdown).toContain('## 资信证明材料清单');
@@ -284,8 +286,10 @@ describe('businessBidStore report export', () => {
     const wordZip = new AdmZip(wordBuffer);
     const documentXml = wordZip.readAsText('word/document.xml');
 
-    expect(documentXml).toContain('商务标响应交付包');
-    expect(documentXml).toContain('商务响应表');
+    expect(documentXml).toContain('智慧餐厅称重系统改造响应文件');
+    expect(documentXml).toContain('报价一览表');
+    expect(documentXml).toContain('法定代表人授权委托书');
+    expect(documentXml).toContain('商务响应与合同条款');
     expect(documentXml).toContain('合同条款偏离表');
     expect(documentXml).toContain('独立附件清单');
     expect(documentXml).toContain('商务负责人');
@@ -295,13 +299,16 @@ describe('businessBidStore report export', () => {
     const excelBuffer = buildBusinessBidExcelBuffer(reportState);
     const excelZip = new AdmZip(excelBuffer);
     const workbookXml = excelZip.readAsText('xl/workbook.xml');
-    const responseSheetXml = excelZip.readAsText('xl/worksheets/sheet1.xml');
-    const quoteSheetXml = excelZip.readAsText('xl/worksheets/sheet4.xml');
-    const attachmentSheetXml = excelZip.readAsText('xl/worksheets/sheet5.xml');
+    const templateSheetXml = excelZip.readAsText('xl/worksheets/sheet1.xml');
+    const responseSheetXml = excelZip.readAsText('xl/worksheets/sheet2.xml');
+    const quoteSheetXml = excelZip.readAsText('xl/worksheets/sheet5.xml');
+    const attachmentSheetXml = excelZip.readAsText('xl/worksheets/sheet6.xml');
 
+    expect(workbookXml).toContain('整标模板核对清单');
     expect(workbookXml).toContain('商务响应表');
     expect(workbookXml).toContain('报价附件清单');
     expect(workbookXml).toContain('独立附件清单');
+    expect(templateSheetXml).toContain('封面与项目信息');
     expect(responseSheetXml).toContain('商务负责人');
     expect(responseSheetXml).toContain('合同违约责任按招标文件执行。');
     expect(quoteSheetXml).toContain('分项报价表');

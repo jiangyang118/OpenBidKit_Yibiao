@@ -122,7 +122,7 @@ function GlobalFactsPage({ outlineData, globalFacts, task, onGlobalFactsSaved }:
     const nextGroup: GlobalFactGroupState = {
       id: createFactId(),
       title: '新增事实大项',
-      content: '- 项目经理：张伟，高级工程师，负责总体协调和质量把关。',
+      content: '- 项目经理：姜阳，负责总体协调和履约闭环。\n- 技术负责人：赖清涛，负责总体技术方案、软件部署、平台联调、国产化适配和技术验收。',
       updated_at: new Date().toISOString(),
     };
     await saveFacts([...globalFacts, nextGroup], '已新增事实大项');
